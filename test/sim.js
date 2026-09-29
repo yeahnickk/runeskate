@@ -91,10 +91,10 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
   check('kickflip lands', log.some(e => e.type === 'land') && !log.some(e => e.type === 'bail'), log.map(e => e.type + (e.name || e.why || '')).join(','));
 }
 
-// 8. late flip -> bail (still flipping when the wheels touch)
+// 8. late flip -> bail (still flipping when the wheels touch). Start clear of the grindable run at x=3237.
 {
   const sk = new Skater(w);
-  const [x, z] = L(3236.5, 3216.0); sk.reset(x, z, Math.PI / 2);
+  const [x, z] = L(3235.5, 3216.0); sk.reset(x, z, Math.PI / 2);
   sk.vz = 4;
   const log = run(sk, 1.6, (t) => ({ jump: t < 0.02, trick: t > 0.3 && t < 0.32 ? 'kickflip' : null }));
   check('late flip -> bail', log.some(e => e.type === 'bail' && e.why === 'flip'), log.map(e => e.type + (e.why || '')).join(','));
@@ -211,6 +211,36 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
   sk.vx = 5.5; sk.vz = -0.3;
   const log = run(sk, 1.2, (t) => ({ jump: t < 0.3 }));
   check('loose rail catch', log.some(e => e.type === 'grind'), log.map(e => e.type).join(','));
+}
+
+// 18. the cow pen gate (3253,3267) is hoppable like the fence it sits in: ollie east over it into the pen
+{
+  const sk = new Skater(w);
+  const [x, z] = L(3249.2, 3267.5); sk.reset(x, z, 0); sk.vx = 6;
+  const log = run(sk, 1.8, (t) => ({ jump: t < 0.36 }));      // a full-charge ollie, released ~1.5 tiles out
+  check('ollie over the cow pen gate', sk.x + w.base[0] > 3253.3 && !log.some(e => e.type === 'bail'), where(sk) + ' ' + log.map(e => e.type).join(','));
+  const sk2 = new Skater(w); sk2.reset(x, z, 0); sk2.vx = 6;
+  run(sk2, 1.2);
+  check('...but it still stops you if you ride straight at it', sk2.x + w.base[0] < 3253, where(sk2));
+}
+
+// 19. a lone low obstacle (cactus/rock/crate: a 1-tile block with a measured top) can be ollied over
+{
+  const low = w.segs.filter(s => s.kind === 'block' && s.top && s.dx === 0 && Math.max(...s.top) - w.height(s.ax - 0.5, s.az + 0.5) < 0.8);
+  let ok = false, tried = 0, info = '';
+  for (const s of low) {
+    // the obstacle tile is east of this west-facing edge; need open run-up to the west and open ground beyond it
+    const zc = s.az + 0.5, tx = s.ax;
+    if (w.tileKind(tx + 0.5, zc) !== 1 || w.tileKind(tx + 1.5, zc) !== 0 || w.tileKind(tx + 2.5, zc) !== 0) continue;
+    if (![1, 2, 3].every(d => w.tileKind(tx - d + 0.5, zc) === 0)) continue;
+    if (Math.abs(w.height(tx - 2.5, zc) - w.height(tx + 2.5, zc)) > 0.3) continue;
+    const sk = new Skater(w); sk.reset(tx - 2.6, zc, 0); sk.vx = 6;
+    const log = run(sk, 1.6, (t) => ({ jump: t < 0.18 }));
+    tried++;
+    if (sk.x > tx + 1.2 && !log.some(e => e.type === 'bail')) { ok = true; info = `over (${tx + w.base[0]},${Math.floor(zc) + w.base[1]}) h=${(Math.max(...s.top) - w.height(tx - 0.5, zc)).toFixed(2)}`; break; }
+    if (tried > 20) break;
+  }
+  check('ollie over a small obstacle', ok, info || `tried ${tried}`);
 }
 
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');

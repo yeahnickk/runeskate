@@ -31,7 +31,7 @@ export const P = {
   landAngle: 0.95,       // clean landing window (rad) between board and travel
   landSketchy: 1.52,     // up to here you ride it out (speed wobble), past it you bail
   grindCatch: 0.85,      // horizontal snap distance to a rail (generous: rails should be easy to land on)
-  blockRadius: 0.14,     // trees/rocks/props: a much smaller collider than walls, and you glance off them
+  blockRadius: 0.17,     // trees/rocks/props: a smaller collider than walls, and you glance off them
   grindFriction: 0.55,
   grindMin: 2.2,
   slideDecel: 7.5,
@@ -411,6 +411,7 @@ export class Skater {
     // hit something standing on the rail line (end posts, perpendicular walls)?
     for (const s of this.w.segsNear(this.x, this.z, 0.6)) {
       if (s.kind === 'rail' || s.kind === 'water' || s.kind === 'edge') continue;
+      if (s.top && this.y > Math.max(...s.top) - 0.05) continue;   // low stuff under the rail can't stop you
       if ((s.dx === 0) !== r.horiz) continue;                 // only walls crossing the rail line
       const across = r.horiz ? [Math.min(s.az, s.bz), Math.max(s.az, s.bz), r.az, s.ax, this.x]
                              : [Math.min(s.ax, s.bx), Math.max(s.ax, s.bx), r.ax, s.az, this.z];
@@ -524,8 +525,8 @@ export class Skater {
 
   solid(s, air) {
     if (s.kind === 'water') return !air;          // you can fly over the bank... and into the river
-    if (s.kind === 'rail' || s.kind === 'fence') {
-      // low walls / metal railings: clear them if the board is above the top
+    if (s.top) {
+      // low walls, railings, fences, gates, hedges, small cacti/rocks: clear them if the board is above the top
       const u = segParam(this.x, this.z, s);
       const top = s.top[0] + (s.top[2] - s.top[0]) * u;
       return this.y < Math.max(s.top[0], s.top[1], s.top[2], top) - 0.02;
@@ -538,7 +539,9 @@ export class Skater {
   unstick(dt) {
     const w = this.w;
     if (!this.unstickTo) {
-      if (w.tileKind(this.x, this.z) !== 1 && !this.wedged()) { this.stuckT = 0; return; }
+      // in the air you may be flying over a hedge/cactus tile: only a real wedge counts there
+      const inBlocked = this.mode !== 'air' && w.tileKind(this.x, this.z) === 1;
+      if (!inBlocked && !this.wedged()) { this.stuckT = 0; return; }
       this.stuckT = (this.stuckT || 0) + dt;
       if (this.stuckT < 0.08) return;                    // a one-frame graze resolves itself
       this.unstickTo = this.freeSpot(this.x, this.z);
@@ -644,7 +647,7 @@ export class Skater {
       const k = Math.round(b.roll / Math.PI) * Math.PI; b.roll += (k - b.roll) * Math.min(1, dt * 8); b.spinR *= 0.85;
     }
     for (const s of w.segsNear(b.x, b.z, 1)) {
-      if (s.kind === 'water' || ((s.kind === 'rail' || s.kind === 'fence') && b.y > s.top[1])) continue;
+      if (s.kind === 'water' || (s.top && b.y > s.top[1])) continue;
       const c = closest(b.x, b.z, s); const d = Math.hypot(b.x - c.x, b.z - c.z);
       if (d < 0.2) {
         let nx = (b.x - c.x) / (d || 1), nz = (b.z - c.z) / (d || 1);
@@ -659,7 +662,7 @@ export class Skater {
     const R = 0.3;
     for (const s of this.w.segsNear(this.x, this.z, 1)) {
       if (s.kind === 'water') continue;
-      if (s.kind === 'rail' && this.y > Math.max(...s.top)) continue;
+      if (s.top && this.y > Math.max(...s.top)) continue;
       const c = closest(this.x, this.z, s); const d = Math.hypot(this.x - c.x, this.z - c.z);
       if (d < R) {
         const nx = (this.x - c.x) / (d || 1), nz = (this.z - c.z) / (d || 1);

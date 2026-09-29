@@ -188,7 +188,8 @@ async function main() {
     post.material.uniforms.aspect.value = w / h;
     hud.resize();
   }
-  addEventListener('resize', resize); resize();
+  let needResize = false;                                  // applied at the next frame start, never between frames
+  addEventListener('resize', () => { needResize = true; }); resize();
 
   // ---------------- input
   const keys = new Set(); let jumpEdge = false, pendingTrick = null, trickTimer = 0, anyEdge = false;
@@ -712,16 +713,19 @@ async function main() {
   }
   // adaptive resolution: if frames run long for a second, render fewer pixels (down to 55%); step back up
   // once there's headroom. Keeps slower laptops smooth without making fast machines look worse.
-  let resScale = 1, perfT = 0, perfN = 0, perfSum = 0, goodT = 0;
+  // A canvas resize blanks the drawing buffer, so the change is only APPLIED at the start of a frame, right
+  // before it is drawn (applying it after the render showed one empty frame = a white flicker). Changes
+  // are also rare: down after 2 slow seconds in a row, up only after 10 good ones.
+  let resScale = 1, perfT = 0, perfN = 0, perfSum = 0, goodT = 0, badT = 0, pendingRes = 0;
   function adaptResolution(frameMs, dt) {
     perfT += dt; perfN++; perfSum += frameMs;
     if (perfT < 1) return;
     const avg = perfSum / perfN; perfT = perfN = perfSum = 0;
     let next = resScale;
-    if (avg > 21 && resScale > 0.56) { next = Math.max(0.55, resScale * 0.85); goodT = 0; }
-    else if (avg < 17.5 && resScale < 1) { if (++goodT >= 4) { next = Math.min(1, resScale / 0.85); goodT = 0; } }
-    else goodT = 0;
-    if (next !== resScale) { resScale = next; renderer.setPixelRatio(BASE_DPR * resScale); resize(); }
+    if (avg > 22) { goodT = 0; if (++badT >= 2 && resScale > 0.56) { next = Math.max(0.55, resScale * 0.85); badT = 0; } }
+    else if (avg < 17.5 && resScale < 1) { badT = 0; if (++goodT >= 10) { next = Math.min(1, resScale / 0.85); goodT = 0; } }
+    else { goodT = 0; badT = 0; }
+    if (next !== resScale) pendingRes = next;
   }
   window.RS.res = () => resScale;
   function frame(now) {
@@ -729,6 +733,8 @@ async function main() {
     if (now - last < 15.5 || document.hidden) return;       // ~60 fps cap (high-refresh screens would double the work)
     const gap = now - last;
     const dt = Math.min(0.1, gap / 1000); last = now;
+    if (pendingRes) { resScale = pendingRes; pendingRes = 0; renderer.setPixelRatio(BASE_DPR * resScale); needResize = true; }
+    if (needResize) { needResize = false; resize(); }
     if (!window.RS.paused) { tick(dt); if (gap < 250) adaptResolution(gap, dt); }
   }
   // test hook: step the game synchronously with scripted keys, e.g.

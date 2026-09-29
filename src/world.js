@@ -12,7 +12,9 @@ export class World {
     this.grid = new Map();
     for (const [ax, az, bx, bz, kind, top] of json.segs) this.addSeg({ ax, az, bx, bz, kind, top });
     this.weldGround();
-    this.rails = buildRails(this.segs.filter(s => s.kind === 'rail'));
+    // grindable: rails, fences/gates, and low obstacles with a measured top (hedges); a lone low block
+    // (a cactus, a rock) is only jumpable, see buildRails' length filter
+    this.rails = buildRails(this.segs.filter(s => s.top && (s.kind === 'rail' || s.kind === 'fence' || s.kind === 'block')));
     this.railGrid = new Map();
     for (const r of this.rails) {
       for (const cell of cellsAlong(r.ax, r.az, r.bx, r.bz, 1)) {
@@ -155,6 +157,7 @@ function buildRails(rs) {
       const r = horiz ? { ax: a0, az: c, bx: a1, bz: c } : { ax: c, az: a0, bx: c, bz: a1 };
       r.horiz = horiz; r.len = a1 - a0; r.a0 = a0; r.prof = prof; r.id = rails.length;
       r.dirx = horiz ? 1 : 0; r.dirz = horiz ? 0 : 1;
+      r.minLen = run.every(s => s.kind === 'block') ? 2 : 1;   // hedges: a row, not a single bush
       rails.push(r);
       run = [];
     };
@@ -170,7 +173,7 @@ function buildRails(rs) {
     }
     flush();
   }
-  return rails.filter(r => r.len >= 1);
+  return rails.filter(r => r.len >= r.minLen);
 }
 
 /** rail top height at arc position t (0..len) */

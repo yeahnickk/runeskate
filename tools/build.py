@@ -230,14 +230,31 @@ for x in range(N):
             blocked[x, z] = True
             if f & FLOOR: water[x, z] = True
 def isblk(x, z): return not (0 <= x < N and 0 <= z < N) or blocked[x, z]
+block_tile = {}
+
+# how tall is whatever blocks a tile? Hedges, small cacti, rocks and crates are low enough to ollie (and a
+# row of them to grind); trees, statues and buildings are not. Only geometry rising from the tile's own
+# ground counts (a tree canopy overhanging a neighbour tile is not an obstacle on that tile).
+LOW_OBSTACLE = 1.1                                       # tiles; a full ollie peaks at ~1.5
+_tile_top = {}
+def tile_top(x, z):
+    if (x, z) in _tile_top: return _tile_top[(x, z)]
+    gs = ground[x, z]; gmax = float(max(gs))
+    best = None
+    for i in cells.get((x, z), ()):
+        cx = (tx[i, 0] + tx[i, 1] + tx[i, 2]) / 3; cn = (tn[i, 0] + tn[i, 1] + tn[i, 2]) / 3
+        if not (x <= cx <= x + 1 and z <= cn <= z + 1): continue
+        if ymin[i] > gmax + 0.6: continue
+        if best is None or ymax[i] > best: best = float(ymax[i])
+    _tile_top[(x, z)] = best
+    return best
 for x in range(N):
     for z in range(N):
         if not blocked[x, z]: continue
         kind = 'water' if water[x, z] else 'block'
-        if not isblk(x, z + 1): add_edge((x, z + 1), (x + 1, z + 1), kind)
-        if not isblk(x, z - 1): add_edge((x, z), (x + 1, z), kind)
-        if not isblk(x + 1, z): add_edge((x + 1, z), (x + 1, z + 1), kind)
-        if not isblk(x - 1, z): add_edge((x, z), (x, z + 1), kind)
+        for open_nb, a, b in ((not isblk(x, z + 1), (x, z + 1), (x + 1, z + 1)), (not isblk(x, z - 1), (x, z), (x + 1, z)),
+                              (not isblk(x + 1, z), (x + 1, z), (x + 1, z + 1)), (not isblk(x - 1, z), (x, z), (x, z + 1))):
+            if open_nb: add_edge(a, b, kind); block_tile[(min(a, b), max(a, b))] = (x, z)
 # world boundary: keep the skater inside the exported square
 for i in range(1, N - 1):
     for a, b in (((i, 1), (i + 1, 1)), ((i, N - 1), (i + 1, N - 1)), ((1, i), (1, i + 1)), ((N - 1, i), (N - 1, i + 1))):
@@ -245,7 +262,7 @@ for i in range(1, N - 1):
 
 door_set = set(doors)
 segs = []
-nr = 0
+nr = 0; nlow = 0; ngate = 0
 for (a, b), kind in edges.items():
     (ax, az), (bx, bz) = a, b
     top = None
@@ -275,9 +292,25 @@ for (a, b), kind in edges.items():
         if is_door and any((ax + ddx, az + ddz) in FENCE_TILES for ddx in (-2, -1, 0, 1) for ddz in (-2, -1, 0, 1)):
             kind = 'fence'; top = [round(float(g + 1.0), 3) for t, g in tops]
     # the Al Kharid toll gate: no toll in RuneSkate, skate straight through
+    if kind == 'block' and (a, b) in block_tile:
+        t = tile_top(*block_tile[(a, b)])
+        g0 = float(min(ground[block_tile[(a, b)]]))
+        if t is not None and t - g0 < LOW_OBSTACLE:
+            top = [round(t, 3)] * 3; nlow += 1
     if kind in ('door', 'wall', 'fence') and ax == bx and ax + BX == 3268 and 3227 <= az + BZ <= 3229:
         continue
     segs.append([ax, az, bx, bz, kind, top])
+# gates set in a hoppable fence line (the cow pen gate was missed by the FENCE_TILES test): a door edge
+# with a fence or rail edge continuing its line on either side becomes fence at the neighbours' height
+byline = {(s[0], s[1], s[2], s[3]): s for s in segs}
+for s in segs:
+    if s[4] != 'door': continue
+    ax, az, bx, bz = s[:4]; dx, dz = bx - ax, bz - az
+    nbs = [byline.get((ax - dx, az - dz, ax, az)), byline.get((bx, bz, bx + dx, bz + dz))]
+    tops = [max(n[5]) for n in nbs if n and n[4] in ('fence', 'rail') and n[5]]
+    if tops:
+        s[4] = 'fence'; s[5] = [round(max(tops), 3)] * 3; ngate += 1
+print('low obstacle edges', nlow, 'gates made hoppable', ngate)
 print('segments', len(segs), 'rails', nr, {k: sum(1 for s in segs if s[4] == k) for k in ('wall', 'rail', 'fence', 'door', 'block', 'water', 'edge')})
 
 json.dump({
