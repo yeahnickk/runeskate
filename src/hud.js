@@ -113,7 +113,8 @@ export class HUD {
     const g = this.goal;
     if (g) {
       const y1 = 14 + K * 24 + 4 + k1 * 23 + 10;
-      this.text(`RUNES ${g.runes}/${g.runeTotal}   SPOTS ${g.spots}/${g.spotTotal}`, 16, y1, '#0cf', k1, 'l', 'p12', 0.9);
+      this.text(`RUNES ${g.runes}/${g.runeTotal}`, 16, y1, '#0cf', k1, 'l', 'p12', 0.9);
+      if (this.playing) this.text(`${this.playing} ONLINE`, 16, y1 + k1 * 11, '#fff', k1, 'l', 'p12', 0.7);
       if (g.task) {
         this.text(g.task + (g.prog ? `   ${g.prog}` : ''), W / 2, 14, '#ff981f', K, 'c', 'b12');
         this.text(`${Math.ceil(g.t)}s`, W / 2, 14 + K * 13, g.t < 6 ? '#f00' : '#fff', K, 'c', 'b12');

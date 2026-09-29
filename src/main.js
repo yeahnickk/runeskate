@@ -749,6 +749,7 @@ async function main() {
     const mine = net.me && say.get(net.me.id);
     if (mine) tag(sk.x, sk.y + 2.35, sk.z, '', '#fff', mine.text);
     hud.chat = chatLog; hud.me = me; hud.online = null; hud.mini = miniMap;
+    hud.playing = net.online ? net.players.size + 1 : 0;   // live skaters on the server, you included
     hud.miniDots.length = 0;
     hud.miniDots.push(...goals.dots());
     for (const r of remotes.values()) if (r.s) hud.miniDots.push({ x: r.s.x, z: r.s.z, col: '#fff', r: 2 });
