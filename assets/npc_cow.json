@@ -1,0 +1,1 @@
+{"verts":240,"faces":449,"nframes":20,"anims":{"ready":{"seq":61,"frames":[1,2],"delay":[20,20]},"walk":{"seq":58,"frames":[3,4,5,6,7,8,9,10],"delay":[5,5,5,5,5,5,5,5]},"death":{"seq":62,"frames":[11,12,13,14,15,16,17,18,19],"delay":[4,3,3,2,10,2,2,1,20000]}},"npc":81,"name":"Cow","level":2,"size":2}

@@ -1,0 +1,1 @@
+{"verts":334,"faces":641,"nframes":20,"anims":{"ready":{"seq":311,"frames":[1,2],"delay":[25,25]},"walk":{"seq":308,"frames":[3,4,5,6,7,8,9,10],"delay":[4,3,3,3,4,3,3,3]},"death":{"seq":313,"frames":[11,12,13,14,15,16,17,18,19],"delay":[4,3,3,3,10,2,1,1,20000]}},"npc":100,"name":"Goblin","level":2,"size":1}

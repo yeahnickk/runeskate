@@ -1,0 +1,14 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "strict": false,
+        "skipLibCheck": true,
+        "baseUrl": ".",
+        "paths": {
+            "#/*": ["../../server/webclient/src/*"],
+            "#3rdparty/*": ["../../server/webclient/src/3rdparty/*"]
+        }
+    }
+}

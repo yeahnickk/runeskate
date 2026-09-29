@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RuneSkate</title>
+<style>
+  :root { --sky-top: #2a5cc8; --sky-hor: #bcd1ea; --ink: #ff981f; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: linear-gradient(180deg, var(--sky-top) 0%, #6f9be0 38%, var(--sky-hor) 62%); font-family: monospace; color: #fff; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #hud { pointer-events: none; image-rendering: pixelated; }
+  .panel { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+           background: radial-gradient(ellipse at center, rgba(40,30,15,.85), rgba(0,0,0,.92)); z-index: 5; text-align: center; padding: 16px; }
+  .title { font-size: clamp(40px, 9vw, 96px); font-weight: 900; color: var(--ink); letter-spacing: 4px;
+           text-shadow: 4px 4px 0 #000, -2px -2px 0 #5a3a10; font-family: Impact, 'Arial Black', sans-serif; }
+  .sub { color: #ff0; font-size: 16px; text-shadow: 1px 1px 0 #000; }
+  button { font: bold 20px monospace; padding: 12px 34px; background: #5a4a2a; color: #ff0; border: 3px solid #2e2412; cursor: pointer; box-shadow: 3px 3px 0 #000; }
+  button:hover { background: #6d5a33; }
+  .keys { color: #ddd; font-size: 13px; line-height: 1.7; max-width: 560px; }
+  .keys b { color: #ff0; }
+  .login { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .login input, #chatbox { font: 16px monospace; padding: 8px 10px; background: #1a1408; color: #ff0; border: 2px solid #5a4a2a; width: 180px; }
+  button.small { font-size: 14px; padding: 8px 16px; background: #3a3020; }
+  #chatbox { display: none; position: fixed; left: 16px; bottom: 16px; width: min(480px, calc(100% - 32px)); z-index: 6; box-sizing: border-box; }
+</style>
+<script type="importmap">
+  { "imports": { "three": "./vendor/three.module.js", "three-mesh-bvh": "./vendor/three-mesh-bvh.module.js" } }
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="hud"></canvas>
+<input id="chatbox" maxlength="80" placeholder="say something... (Enter to send, Esc to cancel)">
+<div class="panel" id="loading"><div class="title">RUNESKATE</div><div class="sub" id="status">loading...</div></div>
+<div class="panel" id="start" style="background: rgba(0,0,0,.72); display: none">
+  <div class="title">RUNESKATE</div>
+  <div class="sub">Lumbridge, 2004. Grab your board.</div>
+  <div class="keys">
+    <b>W</b> push &nbsp; <b>S</b> brake &nbsp; <b>A/D</b> steer, spin in the air, balance on rails<br>
+    <b>SPACE</b> hold + release to ollie &nbsp; <b>J K L I</b> kickflip, heelflip, shove-it, varial<br>
+    <b>SHIFT</b> powerslide &nbsp; <b>E</b> walk / ride &nbsp; <b>O</b> outfit &nbsp; <b>ENTER</b> chat &nbsp; <b>C</b> camera &nbsp; <b>R</b> respawn &nbsp; <b>H</b> help<br>
+    <b>Q</b> manual (rolling) / grab (air) &nbsp; <b>MOUSE</b> pull down + flick up: ollie &amp; flip tricks &nbsp; <b>TAB</b> leaderboard &nbsp; gamepad works too<br>
+    Collect the runes, beat the challenge spots (gold beams), stomp goblins. Don't ride into the river.
+  </div>
+  <div class="login">
+    <input id="lname" placeholder="name" maxlength="12" autocomplete="username">
+    <input id="lpass" placeholder="password" type="password" autocomplete="current-password">
+  </div>
+  <div><button id="skate">SKATE</button> <button id="solo" class="small">solo</button></div>
+  <div class="sub" id="lerr" style="color:#f66; min-height: 1.2em"></div>
+  <div class="keys" style="font-size:12px">New name? You're signed up on the spot. Or join from a link: <b>?name=You&amp;password=secret</b></div>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
