@@ -281,11 +281,24 @@ async function main() {
   const cfg = { help: false, cam: 0, camName: 'CHASE', debug: false };
   const CAMS = ['CHASE', 'VX FISHEYE', 'FILMER'];
   // emotes on 1-5 (RS emote anims). Local only until relayed in the state snapshot as `em`.
-  const EMOTES = [null, 'wave', 'cheer', 'dance', 'laugh', 'clap'];
+  const EMOTES = [null, 'wave', 'cheer', 'dance', 'laugh', 'clap', 'slash'];   // 6 = the owner's scimitar swing (click)
   const EMOTE_KEYS = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 };
   let emote = 0, emoteSeq = 0;
+  const SLASH = 6;
+  // the owner's rune scimitar: a click swings it, and the nearest skater in reach gets knocked off their board
+  // (the server only relays 'hit' from the owner's account)
+  function swing() {
+    if (!me.own || sk.mode === 'bail') return;
+    startEmote(SLASH);
+    let best = null, bd = 3.2;
+    for (const r of remotes.values()) {
+      const s = r.s; if (!s || s.mode === 'bail' || Math.abs(s.y - sk.y) > 2.2) continue;
+      const d = Math.hypot(s.x - sk.x, s.z - sk.z); if (d < bd) { bd = d; best = r; }
+    }
+    if (best) { net.send({ t: 'hit', id: best.id, dx: best.s.x - sk.x, dz: best.s.z - sk.z }); hud.pop('SMACKED ' + best.name.toUpperCase(), GOLD); shake = 0.12; audio.event({ type: 'smack' }); }
+  }
   function startEmote(n) {
-    if (sk.mode !== 'ground' && sk.mode !== 'walk') return;
+    if (sk.mode !== 'ground' && sk.mode !== 'walk' && !(n === SLASH && sk.mode === 'air')) return;
     emote = n; emoteSeq = (emoteSeq + 1) % 100;             // seq: pressing the same emote again replays it for everyone
   }
   addEventListener('keydown', e => {
@@ -339,6 +352,7 @@ async function main() {
     const up = (g.low - e.clientY) / s, dx = (e.clientX - g.lowX) / s, wind = (g.low - g.y0) / s;
     const res = classifyFlick(up, dx, (e.clientX - g.x0) / s, wind);
     if (res) flick = res;
+    else if (me.own && Math.hypot(e.clientX - g.x0, e.clientY - g.y0) < 8) swing();   // a plain click, not a flick
   });
   function classifyFlick(up, dx, side, wind) {
     let trick = null;
@@ -534,6 +548,11 @@ async function main() {
      .on('xp', m => { const r = remotes.get(m.id); if (r) r.xp = m.xp; })
      .on('outfit', m => reskin(m.id, m.outfit))
      .on('say', m => { say.set(m.id, { text: m.text, t: 0 }); chatLog.push(m.own ? { text: '[OWNER] ' + m.name + ': ' + m.text, col: GOLD, crown: true, t: 0 } : { text: m.name + ': ' + m.text, col: '#ff0', t: 0 }); })
+     .on('hit', m => {                                   // the owner's scimitar: down you go
+       if (sk.mode === 'bail') return;
+       sk.vx += (m.dx || 0) * 6; sk.vz += (m.dz || 0) * 6; sk.bail('smacked', { by: m.name });
+       chatLog.push({ text: m.name + ' smacked you off your board with a scimitar!', col: GOLD, crown: true, t: 0 });
+     })
      .on('kicked', () => { chatLog.push({ text: 'Logged in somewhere else - disconnected.', col: '#f00', t: 0 }); })
      .on('closed', () => { if (!idleKicked) chatLog.push({ text: 'Connection lost - reconnecting...', col: '#f00', t: 0 }); for (const id of [...remotes.keys()]) dropRemote(id); })
      .on('rejoined', w => { me.xp = Math.max(me.xp, w.xp); chatLog.push({ text: 'Reconnected.', col: '#0f0', t: 0 }); });
@@ -665,7 +684,8 @@ async function main() {
   let airClipDone = false;
   function drawSkater(dt) {
     // an emote ends when it finishes, or as soon as you do anything else
-    if (emote && (!(sk.mode === 'ground' || sk.mode === 'walk') || sk.walking || sk.pushing > 0 || sk.charge >= 0 || sk.speed > 4)) emote = 0;
+    if (emote === SLASH) { if (sk.mode === 'bail' || sk.mode === 'grind') emote = 0; }      // a swing plays out whatever you are doing
+    else if (emote && (!(sk.mode === 'ground' || sk.mode === 'walk') || sk.walking || sk.pushing > 0 || sk.charge >= 0 || sk.speed > 4)) emote = 0;
     sk.em = emote ? emote * 100 + emoteSeq : 0;
     drawRider(dt, sk, player, board);
     if (emote && player.clip === EMOTES[emote] && player.done) emote = 0;
@@ -674,7 +694,7 @@ async function main() {
     let clip = 'sidestep', yawOff = -Math.PI / 2, loop = true;
     const has = c => !!m.meta.anims[c];                      // (the default nickai3 model predates push/emotes)
     const em = sk.em ? EMOTES[Math.floor(sk.em / 100)] : null;
-    if (em && has(em) && (sk.mode === 'ground' || sk.mode === 'walk')) {
+    if (em && has(em) && (sk.mode === 'ground' || sk.mode === 'walk' || (em === 'slash' && sk.mode === 'air'))) {
       clip = em; loop = false; yawOff = Math.PI / 2;
       if (m._em !== sk.em) { m._em = sk.em; m.play(em, false, true); }
     } else if (sk.mode === 'ground' && sk.pushing > 0 && !sk.manual && !(sk.charge >= 0) && has('push')) {
@@ -793,6 +813,7 @@ async function main() {
     flip: ['Oh dear, you are dead!', 'Over-rotated the flip'], sketchy: ['Oh dear, you are dead!', 'Landed sideways'],
     slam: ['Oh dear, you are dead!', 'Hard slam'], balance: ['Oh dear, you are dead!', 'Fell off the rail'],
     goblin: ['Oh dear, you are dead!', 'Tripped over a goblin'],
+    smacked: ['Oh dear, you are dead!', 'Smacked by the owner'],
   };
   function handleEvents() {
     for (const e of sk.events) {
