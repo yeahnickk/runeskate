@@ -226,6 +226,14 @@ async function main() {
   window.__rsIdleTest = () => { lastInput = -1e9; };          // test hook: pretend 5 idle minutes passed
   const cfg = { help: false, cam: 0, camName: 'CHASE', debug: false };
   const CAMS = ['CHASE', 'VX FISHEYE', 'FILMER'];
+  // emotes on 1-5 (RS emote anims). Local only until relayed in the state snapshot as `em`.
+  const EMOTES = [null, 'wave', 'cheer', 'dance', 'laugh', 'clap'];
+  const EMOTE_KEYS = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 };
+  let emote = 0, emoteSeq = 0;
+  function startEmote(n) {
+    if (sk.mode !== 'ground' && sk.mode !== 'walk') return;
+    emote = n; emoteSeq = (emoteSeq + 1) % 100;             // seq: pressing the same emote again replays it for everyone
+  }
   addEventListener('keydown', e => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
     if (designer?.open) return;
@@ -238,6 +246,7 @@ async function main() {
     if (k === ' ') jumpEdge = true;
     const tricks = TRICK_KEYS;
     if (tricks[k]) { pendingTrick = tricks[k]; trickTimer = 0.18; }
+    if (EMOTE_KEYS[k]) startEmote(+k);
     if (k === 'c') { cfg.cam = (cfg.cam + 1) % 3; cfg.camName = CAMS[cfg.cam]; filmer = null; }
     if (k === 'h') cfg.help = !cfg.help;
     if (k === 'o') { keys.clear(); designer.show(me.outfit, false); return; }
@@ -475,7 +484,7 @@ async function main() {
      .on('rejoined', w => { me.xp = Math.max(me.xp, w.xp); chatLog.push({ text: 'Reconnected.', col: '#0f0', t: 0 }); });
   const SNAP = ['x', 'y', 'z', 'heading', 'body', 'boardYaw', 'boardRoll', 'charge', 'airTime', 'pushing', 'tumble', 'tumbleAxis', 'speed'];
   function snapshot() {
-    const o = { mode: sk.mode, gk: sk.grindKind, sl: sk.slide ? 1 : 0, w: sk.inWater ? 1 : 0, wk: sk.walking || 0 };   // wk: 0 stand, 1 walk, 2 run
+    const o = { mode: sk.mode, gk: sk.grindKind, sl: sk.slide ? 1 : 0, w: sk.inWater ? 1 : 0, wk: sk.walking || 0, em: emote ? emote * 100 + emoteSeq : 0 };   // wk: 0 stand, 1 walk, 2 run; em: emote*100+seq
     for (const k of SNAP) o[k] = Math.round((sk[k] || 0) * 1000) / 1000;
     if (sk.mode === 'bail' && sk.board) o.b = [sk.board.x, sk.board.y, sk.board.z, sk.board.yaw, sk.board.roll].map(v => Math.round(v * 1000) / 1000);
     return o;
@@ -487,9 +496,10 @@ async function main() {
       const t = r.tgt; if (!t || !r.m) continue;
       if (!r.s || Math.hypot(t.x - r.s.x, t.z - r.s.z) > 6) r.s = { ...t, board: { x: t.x, y: t.y, z: t.z, yaw: 0, roll: 0 } };
       const s = r.s;
-      for (const f of ['x', 'y', 'z', 'charge', 'airTime', 'pushing', 'tumble', 'speed']) s[f] += (t[f] - s[f]) * k;
+      for (const f of ['x', 'y', 'z', 'charge', 'airTime', 'tumble', 'speed']) s[f] += (t[f] - s[f]) * k;
+      s.pushing = t.pushing || 0;
       for (const f of ['heading', 'body', 'boardYaw', 'boardRoll', 'tumbleAxis']) s[f] = wrapA(s[f] + wrapA(t[f] - s[f]) * k);
-      s.mode = t.mode; s.grindKind = t.gk; s.slide = !!t.sl; s.inWater = !!t.w; s.walking = t.wk || 0;
+      s.mode = t.mode; s.grindKind = t.gk; s.slide = !!t.sl; s.inWater = !!t.w; s.walking = t.wk || 0; s.em = t.em || 0;
       if (t.b) s.board = { x: t.b[0], y: t.b[1], z: t.b[2], yaw: t.b[3], roll: t.b[4] };
       drawRider(dt, s, r.m, r.board);
       r.shadow ||= makeShadow(); placeShadow(r.shadow, s.x, s.y, s.z, true);
@@ -597,16 +607,36 @@ async function main() {
   // ---------------- draw the skater + board from the physics state
   const up = new THREE.Vector3(0, 1, 0);
   let airClipDone = false;
-  function drawSkater(dt) { drawRider(dt, sk, player, board); }
+  function drawSkater(dt) {
+    // an emote ends when it finishes, or as soon as you do anything else
+    if (emote && (!(sk.mode === 'ground' || sk.mode === 'walk') || sk.walking || sk.pushing > 0 || sk.charge >= 0 || sk.speed > 4)) emote = 0;
+    sk.em = emote ? emote * 100 + emoteSeq : 0;
+    drawRider(dt, sk, player, board);
+    if (emote && player.clip === EMOTES[emote] && player.done) emote = 0;
+  }
   function drawRider(dt, sk, m, board) {
     let clip = 'sidestep', yawOff = -Math.PI / 2, loop = true;
-    if (sk.mode === 'walk') { clip = sk.walking === 2 ? 'run' : sk.walking ? 'walk' : 'ready'; yawOff = Math.PI / 2; }
+    const has = c => !!m.meta.anims[c];                      // (the default nickai3 model predates push/emotes)
+    const em = sk.em ? EMOTES[Math.floor(sk.em / 100)] : null;
+    if (em && has(em) && (sk.mode === 'ground' || sk.mode === 'walk')) {
+      clip = em; loop = false; yawOff = Math.PI / 2;
+      if (m._em !== sk.em) { m._em = sk.em; m.play(em, false, true); }
+    } else if (sk.mode === 'ground' && sk.pushing > 0 && !sk.manual && !(sk.charge >= 0) && has('push')) {
+      clip = 'push'; yawOff = Math.PI / 2;                   // face down the board to push, like a real skater
+      if (sk.pushing > (m._pp || 0) + 0.05) m.play('push', true, true);   // each kick restarts the stroke at touch-down
+    } else if (sk.mode === 'walk') { clip = sk.walking === 2 ? 'run' : sk.walking ? 'walk' : 'ready'; yawOff = Math.PI / 2; }
     else if (sk.mode === 'air') { clip = 'spot_jump'; loop = false; yawOff = Math.PI; }   // spot_jump's rest pose faces +z; π puts it side-on like the sidestep stance (screenshot-verified)
     else if (sk.mode === 'grind') { clip = 'balance'; yawOff = sk.grindKind === 'Boardslide' ? -Math.PI / 2 : 0; }
     else if (sk.mode === 'bail') { clip = sk.inWater ? 'falling' : 'falling'; loop = false; }
+    if (!em) m._em = 0;
+    m._pp = sk.pushing || 0;
+    // turning between the side-on stance and the push stance is a quick swivel, not a snap
+    if ((clip === 'push' || clip === 'sidestep') && (m._clip === 'push' || m._clip === 'sidestep') && m._yo !== undefined)
+      yawOff = m._yo + wrapA(yawOff - m._yo) * Math.min(1, dt * 14);
+    m._yo = yawOff; m._clip = clip;
     m.play(clip, loop);
     m.update(dt);
-    const [fx, fz] = m.footOffset(m.cur);
+    const [fx, fz] = m.footOffset(m.meta.anims[m.clip]?.foot ?? m.cur);   // push: keep the planted foot on the deck
     // board transform
     let by = sk.y, byaw = sk.heading + sk.boardYaw, broll = sk.boardRoll, bpitch = 0;
     if (sk.mode === 'air' && sk.airTime < 0.18) bpitch = 0.45 * (1 - sk.airTime / 0.18);
@@ -624,7 +654,7 @@ async function main() {
     // player transform: feet on the deck
     const yaw = sk.body + yawOff;
     const crouch = sk.charge >= 0 && sk.mode === 'ground' ? 0.12 * sk.charge : (sk.mode === 'air' && sk.grab ? 0.22 : 0);
-    const bob = sk.pushing > 0 ? Math.sin((0.35 - sk.pushing) / 0.35 * Math.PI) * 0.05 : 0;
+    const PT = P.pushEvery + 0.08, bob = clip !== 'push' && sk.pushing > 0 ? Math.sin((PT - sk.pushing) / PT * Math.PI) * 0.05 : 0;   // (old model only)
     let py = sk.mode === 'bail' ? sk.y : by + TOP_Z - crouch - bob;
     if (sk.mode === 'air') py = sk.y + TOP_Z + Math.max(0, Math.sin(Math.min(1, sk.airTime / 0.5) * Math.PI)) * 0.05;
     board.root.visible = sk.mode !== 'walk';               // board tucked away while walking

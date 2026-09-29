@@ -265,7 +265,7 @@ export class HUD {
     const lines = [
       ['W / UP', 'push'], ['S / DOWN', 'brake'], ['A D / LEFT RIGHT', 'steer (air: spin, grind: balance)'],
       ['SPACE', 'hold + release: ollie'], ['J / K / L / I', 'kickflip / heelflip / shove-it / varial'], ['U / N / M / Y / B', '360 flip / hardflip / 360 shove / double kick / double heel'], ['MOUSE', 'pull down, flick up: ollie (up-left kickflip, up-right heelflip)'],
-      ['SHIFT', 'powerslide'], ['Q (rolling)', 'manual, balance with W / S'], ['Q (in the air)', 'grab: hold, A/D pick the grab'], ['C', 'camera'], ['R', 'back to Lumbridge spawn'], ['E', 'step off / on the board'], ['O', 'outfit'], ['ENTER', 'chat'],
+      ['SHIFT', 'powerslide'], ['Q (rolling)', 'manual, balance with W / S'], ['Q (in the air)', 'grab: hold, A/D pick the grab'], ['C', 'camera'], ['R', 'back to Lumbridge spawn'], ['E', 'step off / on the board'], ['O', 'outfit'], ['1 - 5', 'emotes: wave, cheer, dance, laugh, clap'], ['ENTER', 'chat'],
       ['TAB (hold)', 'leaderboard'], ['H', 'hide this help'],
     ];
     const k2 = Math.max(1, K - 1), p12 = this.f.p12, lh = k2 * 12;

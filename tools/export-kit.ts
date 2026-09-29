@@ -100,7 +100,8 @@ function packModel(m: any): Uint8Array | null {
 }
 
 const KIT_SLOT = [8, 11, 4, 6, 9, 7, 10];                   // idk part type % 7 -> appearance slot
-for (const [g, gname] of [[0, 'm'], [1, 'f']] as [number, string][]) {
+// ANIM_ONLY=1 re-exports just kit_anim.json (new anims) and leaves the character parts untouched
+for (const [g, gname] of (process.env.ANIM_ONLY ? [] : [[0, 'm'], [1, 'f']]) as [number, string][]) {
   const parts: Part[] = [], chunks: Uint8Array[] = [];
   let off = 0; const seen = new Set<string>();
   const add = (p: Omit<Part, 'nv' | 'nf' | 'off'>, buf: Uint8Array | null) => {
@@ -138,7 +139,8 @@ for (const [g, gname] of [[0, 'm'], [1, 'f']] as [number, string][]) {
 }
 
 // ---------------------------------------------------------------- the skater's anims (frames + bases)
-const SEQS: Record<string, number> = { ready: 808, walk: 819, run: 824, sidestep: 755, spot_jump: 741, balance: 763, falling: 766, cheer: 862 };
+const SEQS: Record<string, number> = { ready: 808, walk: 819, run: 824, sidestep: 755, spot_jump: 741, balance: 763, falling: 766, cheer: 862,
+  wave: 863, dance: 866, laugh: 861, clap: 865 };   // emotes on keys 1-5 (with cheer)
 const frames: any[] = [], bases: any[] = [], baseIdx = new Map<any, number>(), anims: any = {};
 for (const [label, sid] of Object.entries(SEQS)) {
   const seq: any = SeqType.list[sid]; const fi: number[] = [], delay: number[] = [];

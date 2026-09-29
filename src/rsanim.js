@@ -90,10 +90,41 @@ export async function buildOutfitModel(outfit) {
     }
     anims[label] = { frames: fi, delay: a.delay };
   }
+  // PUSH (synthesised, the cache has no skate push): body and front leg hold the standing pose, the back
+  // (right) leg takes the walk cycle's swing, pushed out past the board edge and down to street level so the
+  // foot actually scrapes the ground. Starts with the foot furthest forward, i.e. at touch-down: the kick
+  // lands when the clip (re)starts, which is when skater.js adds the speed.
+  if (an.anims.ready && an.anims.walk) {
+    const stand = an.frames[an.anims.ready.frames[0]], walk = an.anims.walk.frames;
+    const foot = groups[9] || groups[8] || [];
+    let start = 0, best = -Infinity;
+    walk.forEach((idx, i) => {
+      px.set(X); py.set(Y); pz.set(Z); animate(an.frames[idx], an.bases[an.frames[idx].b], groups, px, py, pz, BACK_LEG);
+      const z = foot.reduce((a, v) => a + pz[v], 0) / Math.max(1, foot.length);
+      if (z > best) { best = z; start = i; }
+    });
+    const fi = [];
+    for (let n = 0; n < walk.length; n++) {
+      const idx = walk[(start + n) % walk.length];
+      px.set(X); py.set(Y); pz.set(Z);
+      animate(stand, an.bases[stand.b], groups, px, py, pz, BODY);
+      animate(an.frames[idx], an.bases[an.frames[idx].b], groups, px, py, pz, BACK_LEG);
+      for (const l of BACK_LEG) for (const v of groups[l] || []) { px[v] += 7; py[v] += 11; }   // out past the rail, down to the street
+      put(); fi.push(nf++);
+    }
+    const per = PUSH_UNITS / walk.length;
+    anims.push = { frames: fi, delay: fi.map(() => per), foot: anims.ready.frames[0] };
+  }
   return new RSModel({ verts: nv, nframes: nf, anims }, new Float32Array(all), Uint32Array.from(faces), Uint8Array.from(cols));
 }
 
-function animate(fr, base, groups, px, py, pz) {
+// the right leg's vertex labels (hip 24, thigh/knee 26-27, shin 12, foot 8-9) and everything else
+const BACK_LEG = new Set([8, 9, 12, 24, 26, 27, 59, 61, 62, 64, 77]);
+const BODY = { has: l => !BACK_LEG.has(l) };
+export const PUSH_UNITS = 27.5;                             // one push stroke = 0.55 s (20 ms units), = skater P.pushEvery
+
+/** only: optional set of vertex labels the frame may move (origins are still measured on the whole body) */
+function animate(fr, base, groups, px, py, pz, only) {
   let oX = 0, oY = 0, oZ = 0;
   for (let i = 0; i < fr.ti.length; i++) {
     const ti = fr.ti[i], type = base.type[ti], labels = base.labels[ti], x = fr.tx[i], y = fr.ty[i], z = fr.tz[i];
@@ -102,10 +133,11 @@ function animate(fr, base, groups, px, py, pz) {
       for (const l of labels) { const g = groups[l]; if (g) for (const v of g) { oX += px[v]; oY += py[v]; oZ += pz[v]; n++; } }
       if (n > 0) { oX = ((oX / n) | 0) + x; oY = ((oY / n) | 0) + y; oZ = ((oZ / n) | 0) + z; } else { oX = x; oY = y; oZ = z; }
     } else if (type === 1) {                                 // TRANSLATE
-      for (const l of labels) { const g = groups[l]; if (g) for (const v of g) { px[v] += x; py[v] += y; pz[v] += z; } }
+      for (const l of labels) { if (only && !only.has(l)) continue; const g = groups[l]; if (g) for (const v of g) { px[v] += x; py[v] += y; pz[v] += z; } }
     } else if (type === 2) {                                 // ROTATE
       const pitch = (x & 0xff) * 8, yaw = (y & 0xff) * 8, roll = (z & 0xff) * 8;
       for (const l of labels) {
+        if (only && !only.has(l)) continue;
         const g = groups[l]; if (!g) continue;
         for (const v of g) {
           px[v] -= oX; py[v] -= oY; pz[v] -= oZ;
@@ -117,6 +149,7 @@ function animate(fr, base, groups, px, py, pz) {
       }
     } else if (type === 3) {                                 // SCALE
       for (const l of labels) {
+        if (only && !only.has(l)) continue;
         const g = groups[l]; if (!g) continue;
         for (const v of g) {
           px[v] = (((px[v] - oX) * x / 128) | 0) + oX; py[v] = (((py[v] - oY) * y / 128) | 0) + oY; pz[v] = (((pz[v] - oZ) * z / 128) | 0) + oZ;

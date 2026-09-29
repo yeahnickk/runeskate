@@ -7,9 +7,9 @@ export const P = {
   gravity: 21,
   slopeG: 11,            // how hard slopes pull you
   rollFriction: 0.22,
-  pushAccel: 2.1,        // speed per push kick
+  pushAccel: 3.6,        // speed per push kick (one full leg stroke)
   pushKick: 3.2,         // the first kick from (near) standstill is a big one
-  pushEvery: 0.3,
+  pushEvery: 0.55,       // = rsanim PUSH_UNITS: one kick per stroke of the pushing leg
   pushMax: 8.2,
   maxSpeed: 13,
   brake: 6.5,
@@ -166,7 +166,7 @@ export class Skater {
         const s = inp.fwd ? inp.fwd : (vf < -0.2 ? -1 : 1);
         const kick = Math.abs(vf) < 1.5 ? P.pushKick : P.pushAccel;
         vf += s * kick * (1 - Math.abs(vf) / (P.pushMax + 2.5));
-        this.pushT = P.pushEvery; this.pushing = 0.35; this.emit('push');
+        this.pushT = P.pushEvery; this.pushing = P.pushEvery + 0.08; this.emit('push');
       }
       if (inp.brake && !this.manual) vf -= Math.sign(vf) * Math.min(Math.abs(vf), P.brake * dt);
       vf -= Math.sign(vf) * Math.min(Math.abs(vf), P.rollFriction * dt);
