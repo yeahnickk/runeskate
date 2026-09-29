@@ -222,7 +222,7 @@ async function main() {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
     if (designer?.open) return;
     if (e.key === 'Enter' && net.online) { e.preventDefault(); openChat(); return; }
-    if (e.key === 'Tab') { e.preventDefault(); if (!e.repeat) fetch('/api/top').then(r => r.json()).then(t => { if (keys.has('tab')) hud.board = t; }).catch(() => {}); }
+    if (e.key === 'Tab') { e.preventDefault(); if (!e.repeat) { hud.board = topNow(); refreshTop(); } }
     if (e.repeat) return;
     audio.start();
     const k = e.key.toLowerCase();
@@ -318,6 +318,23 @@ async function main() {
   const net = new Net();
   const me = { name: 'offline', xp: 0 };
   window.RS.net = net; window.RS.me = me;
+  // leaderboard: kept warm in the background so holding TAB shows it instantly (a fetch per press went out
+  // through the tunnel and back, which read as TAB being slow); your own row always shows your live XP
+  let top = [], topAt = 0;
+  function refreshTop() {
+    if (performance.now() - topAt < 3000) return;
+    topAt = performance.now();
+    fetch('/api/top').then(r => r.json()).then(t => { top = t; if (keys.has('tab')) hud.board = topNow(); }).catch(() => {});
+  }
+  function topNow() {
+    const rows = top.map(r => ({ ...r }));
+    if (me.name !== 'offline') {
+      const mine = rows.find(r => r.name === me.name);
+      if (mine) { mine.xp = Math.max(mine.xp, me.xp); mine.on = true; } else rows.push({ name: me.name, xp: me.xp, runes: window.RS.goals?.found?.size || 0, spots: window.RS.goals?.done?.size || 0, on: true });
+    }
+    return rows.sort((a, b) => b.xp - a.xp).slice(0, 15);
+  }
+  setInterval(() => { if (net.online) refreshTop(); }, 20000);
   const qs = new URLSearchParams(location.search);
   const $ = id => document.getElementById(id);
   if (qs.get('name')) $('lname').value = qs.get('name');
@@ -372,25 +389,26 @@ async function main() {
   }
   var designer = new Designer({
     onPreview: o => wearOutfit(o),
-    onSave: o => { me.outfit = o; wearOutfit(o); net.send({ t: 'outfit', outfit: o }); hud.pop('LOOKING SHARP', '#0f0'); },
+    onSave: o => { me.outfit = o; wearOutfit(o); net.setOutfit(o); hud.pop('LOOKING SHARP', '#0f0'); },
   });
   window.RS.designer = designer;
 
   // ---------------- XP (points = total XP) and the things-to-do layer
   function addXP(n) {
-    const before = levelFor(me.xp); me.xp += n; net.send({ t: 'xp', add: n });
+    const before = levelFor(me.xp); me.xp += n; if (me.name !== 'offline') net.addXP(n);
     const after = levelFor(me.xp);
     if (after > before) { hud.pop(`LEVEL ${after}!`, '#0f0'); audio.event({ type: 'levelup' }); }
   }
   const localProg = () => { try { return JSON.parse(localStorage.getItem('rs_prog') || 'null'); } catch { return null; } };
   const goals = new Goals({ scene, world, sk, hud, audio, reward: addXP, save: p => {
-    if (net.online) net.send({ t: 'prog', ...p });
+    if (me.name !== 'offline') net.prog(p);
     try { localStorage.setItem('rs_prog', JSON.stringify({ found: [...goals.found], done: [...goals.done] })); } catch {}
   } });
   goals.load(localProg());
   window.RS.goals = goals;
   window.RS.onLogin = async who => {
     if (who.prog) goals.load(who.prog);
+    refreshTop();
     if (who.outfit) await wearOutfit(who.outfit);
     if (who.isNew && net.online) { keys.clear(); designer.show(who.outfit, true); }
   };
@@ -422,7 +440,8 @@ async function main() {
      .on('outfit', m => reskin(m.id, m.outfit))
      .on('say', m => { say.set(m.id, { text: m.text, t: 0 }); chatLog.push({ text: m.name + ': ' + m.text, col: '#ff0', t: 0 }); })
      .on('kicked', () => { chatLog.push({ text: 'Logged in somewhere else - disconnected.', col: '#f00', t: 0 }); })
-     .on('closed', () => { chatLog.push({ text: 'Connection lost.', col: '#f00', t: 0 }); for (const id of [...remotes.keys()]) dropRemote(id); });
+     .on('closed', () => { chatLog.push({ text: 'Connection lost - reconnecting...', col: '#f00', t: 0 }); for (const id of [...remotes.keys()]) dropRemote(id); })
+     .on('rejoined', w => { me.xp = Math.max(me.xp, w.xp); chatLog.push({ text: 'Reconnected.', col: '#0f0', t: 0 }); });
   const SNAP = ['x', 'y', 'z', 'heading', 'body', 'boardYaw', 'boardRoll', 'charge', 'airTime', 'pushing', 'tumble', 'tumbleAxis', 'speed'];
   function snapshot() {
     const o = { mode: sk.mode, gk: sk.grindKind, sl: sk.slide ? 1 : 0, w: sk.inWater ? 1 : 0 };

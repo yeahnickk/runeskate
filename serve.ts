@@ -14,7 +14,10 @@ const ACC = join(DATA, 'accounts.json');
 type Account = { name: string; hash: string; outfit: any | null; xp: number; created: number; seen: number; prog?: { found: string[]; done: string[] } };
 const accounts: Record<string, Account> = existsSync(ACC) ? JSON.parse(readFileSync(ACC, 'utf8')) : {};
 let dirty = false;
-setInterval(() => { if (!dirty) return; dirty = false; writeFileSync(ACC + '.tmp', JSON.stringify(accounts)); renameSync(ACC + '.tmp', ACC); }, 2000);
+const saveAccounts = () => { if (!dirty) return; dirty = false; writeFileSync(ACC + '.tmp', JSON.stringify(accounts)); renameSync(ACC + '.tmp', ACC); };
+setInterval(saveAccounts, 2000);
+// a restart (every deploy) must not drop the last couple of seconds of XP
+for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { try { saveAccounts(); } finally { process.exit(0); } });
 const key = (n: string) => n.toLowerCase().replace(/[^a-z0-9]/g, '');
 const cleanName = (n: string) => String(n || '').replace(/[^A-Za-z0-9 _-]/g, '').trim().slice(0, 12);
 const MAX_XP = 6_488_304 * 4;                                  // headroom past level 126
