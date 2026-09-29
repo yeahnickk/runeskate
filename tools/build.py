@@ -11,6 +11,10 @@ Outputs -> runeskate/assets/
   nickai3.* / goblin.*          animated models
     python runeskate/tools/build.py
     python runeskate/tools/lanes.py      (then: forest skate lanes + water/rock split, rewrites world.json)
+    python runeskate/tools/split.py      (then: cut into the first-load core + streamed packs, e.g. Varrock)
+
+Export command for the current map (384 square = Lumbridge core + Varrock strip; split.py drops the east):
+    bun --preload ./runeskate/tools/preload.ts runeskate/tools/export-world.ts 3072 3136 384
 """
 import json, os, shutil, math
 import numpy as np
@@ -289,6 +293,15 @@ for (a, b), kind in edges.items():
             kind = 'fence'
             top = [round(float(min(t if t is not None else g + 1.0, g + 1.0)), 3) for t, g in tops]
         if is_door: kind = 'door'
+        # the server flags invisible walls along river beds (bank edges, between two water tiles). Nothing
+        # stands there, so they must not stop a jump across the river: treat them as a water edge (solid on
+        # the ground, open in the air, and you land in the drink if you come up short). Real structures on
+        # the water keep their kind: bridge parapets are rails, fences are fences, anything with a measured
+        # top taller than a step stays a wall.
+        if kind == 'wall':
+            wet = [(ax - 1, min(az, bz)), (ax, min(az, bz))] if ax == bx else [(min(ax, bx), az - 1), (min(ax, bx), az)]
+            if any(0 <= tx < N and 0 <= tz < N and water[tx, tz] for tx, tz in wet) and (not hs or max(hs) < 0.5):
+                kind = 'water'; nriver = globals().get('nriver', 0) + 1; globals()['nriver'] = nriver
         # gates set in a hoppable fence (cow pens etc.) can be ollied like the fence around them
         if is_door and any((ax + ddx, az + ddz) in FENCE_TILES for ddx in (-2, -1, 0, 1) for ddz in (-2, -1, 0, 1)):
             kind = 'fence'; top = [round(float(g + 1.0), 3) for t, g in tops]
@@ -311,7 +324,7 @@ for s in segs:
     tops = [max(n[5]) for n in nbs if n and n[4] in ('fence', 'rail') and n[5]]
     if tops:
         s[4] = 'fence'; s[5] = [round(max(tops), 3)] * 3; ngate += 1
-print('low obstacle edges', nlow, 'gates made hoppable', ngate)
+print('low obstacle edges', nlow, 'gates made hoppable', ngate, 'river-bed walls made jumpable', globals().get('nriver', 0))
 print('segments', len(segs), 'rails', nr, {k: sum(1 for s in segs if s[4] == k) for k in ('wall', 'rail', 'fence', 'door', 'block', 'water', 'edge')})
 
 json.dump({

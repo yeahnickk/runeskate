@@ -12,7 +12,8 @@ import json, os, math
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-w = json.load(open(os.path.join(ROOT, 'assets', 'world.json')))
+FULL = os.path.join(ROOT, 'tools', 'out', 'world.full.json')     # split.py's copy of the unsplit build
+w = json.load(open(FULL if os.path.exists(FULL) else os.path.join(ROOT, 'assets', 'world.json')))
 N, BX, BZ = w['size'], w['baseX'], w['baseZ']
 blk = np.array(w['blocked'], np.uint8).reshape(N, N).T                  # [x][z]
 ground = np.array(w['ground'], np.float32).reshape(N, N, 4)

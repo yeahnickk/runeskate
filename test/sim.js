@@ -273,5 +273,30 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
   check('40 runes, unique ids, all on open ground', runes.length === 40 && new Set(runes.map(r => r.id)).size === 40 && runes.every(r => w.tileKind(...L(r.x + 0.5, r.z + 0.5)) === 0));
 }
 
+// jump the River Lum: its bed has invisible server walls, which used to stop you mid-air ("hit a wall")
+{
+  const sk = new Skater(w);
+  const [x, z] = L(3229.3, 3243.5); sk.reset(x, z, 0); sk.vx = 12.5;
+  let jumped = false;
+  const log = run(sk, 2, (t, s) => { const wx = s.x + w.base[0]; const j = !jumped && wx > 3233.7 && wx < 3234.6; if (wx >= 3234.6) jumped = true; return { jump: j }; });
+  check('jump across the River Lum', !log.some(e => e.type === 'bail') && sk.x + w.base[0] > 3241 && sk.mode === 'ground', where(sk));
+}
+
+// Varrock is a streamed pack: walled off until it loads, then open (road north at x=3211)
+{
+  const vp = new URL('../assets/world_varrock.json', import.meta.url);
+  let vj = null; try { vj = JSON.parse(readFileSync(vp)); } catch {}
+  if (!vj) check('varrock pack present', false);
+  else {
+    const w2 = new World(JSON.parse(readFileSync(new URL('../assets/world.json', import.meta.url))));
+    const go = () => { const sk = new Skater(w2); sk.reset(3211.5 - w2.base[0], 3380.5 - w2.base[1], Math.PI / 2); sk.vz = 7; run(sk, 3, () => ({ push: true })); return sk; };
+    const before = go();
+    check('varrock closed before it streams in', before.z + w2.base[1] < 3392, `z=${(before.z + w2.base[1]).toFixed(1)}`);
+    w2.addRegion(vj);
+    const after = go();
+    check('varrock open once streamed in', after.z + w2.base[1] > 3395, `z=${(after.z + w2.base[1]).toFixed(1)} rails=${w2.rails.length}`);
+  }
+}
+
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
 process.exit(fails ? 1 : 0);

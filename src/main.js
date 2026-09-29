@@ -59,7 +59,8 @@ async function main() {
   // skate lanes through the forests (tools/lanes.py): the trees on them lost their collision, so paint the
   // ground under them worn dirt so they read as "go this way"
   const laneS = new Float32Array(world.N * world.N);
-  for (const [x, z, s] of wjson.lanes || []) laneS[z * world.N + x] = s;
+  const addLanes = list => { for (const [x, z, s] of list || []) laneS[z * world.N + x] = s; };
+  addLanes(wjson.lanes);
   const laneAt = (x, z) => {                                 // bilinear over tile centres, smooth edges
     x -= 0.5; z -= 0.5;
     const x0 = Math.floor(x), z0 = Math.floor(z), u = x - x0, v = z - z0, N = world.N;
@@ -75,10 +76,11 @@ async function main() {
       for (let c = 0; c < 3; c++) col[i * 3 + c] = Math.max(0, Math.min(255, col[i * 3 + c] * (1 - k) + (DIRT[c] + n) * k));
     }
   }
-  for (const ch of wjson.index.chunks) {
+  function addChunks(pack, bin) {
+  for (const ch of pack.index.chunks) {
     for (const k of ['terrain', 'locs', 'locs_alpha']) {
       const part = ch[k]; if (!part || !part.n) continue;
-      if (k === 'terrain' && wjson.lanes) paintLanes(new Int16Array(bin, part.posOff, part.n * 3), new Uint8Array(bin, part.colOff, part.n * 3), ch);
+      if (k === 'terrain' && pack.lanes?.length) paintLanes(new Int16Array(bin, part.posOff, part.n * 3), new Uint8Array(bin, part.colOff, part.n * 3), ch);
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(new Int16Array(bin, part.posOff, part.n * 3), 3));
       g.setAttribute('color', new THREE.BufferAttribute(new Uint8Array(bin, part.colOff, part.n * 3), 3, true));
@@ -92,6 +94,8 @@ async function main() {
       if (!alpha) occluders.push(m);             // BVH built lazily, only for chunks the camera gets near
     }
   }
+  }
+  addChunks(wjson, bin);
   const nearOccluders = [], bvhQueue = [];
   function cullChunks(x, z) {
     nearOccluders.length = 0;
@@ -111,7 +115,7 @@ async function main() {
 
   // ---------------- minimap: the whole map rendered ONCE from straight above (north up), 2 px per tile
   status('drawing the map...');
-  const miniMap = (() => {
+  const renderMini = () => {
     const N = world.N, PX = 2, S = N * PX;
     const rtm = new THREE.WebGLRenderTarget(S, S);
     const cam = new THREE.OrthographicCamera(0, N, 0, -N, 1, 600);
@@ -128,7 +132,32 @@ async function main() {
     for (let y = 0; y < S; y++) im.data.set(px.subarray((S - 1 - y) * S * 4, (S - y) * S * 4), y * S * 4);   // GL rows are bottom-up
     c.getContext('2d').putImageData(im, 0, 0);
     return { canvas: c, PX, N };
-  })();
+  };
+  let miniMap = renderMini();
+
+  // ---------------- streamed regions: Varrock (and anything else split.py packs) is NOT in the first load.
+  // It is fetched in the background once a skater gets within STREAM_AT tiles of it, then dropped into the
+  // running world: meshes, collision, rails, minimap. Until then its edge is a wall, like the old map edge.
+  const STREAM_AT = 48, regionState = new Map();          // name -> 'loading' | 'ready' | 'failed'
+  let loadNoteT = 0;
+  function streamRegions(x, z, dt) {
+    for (const r of world.regions) {
+      if (world.loaded.has(r.name)) continue;
+      const d = Math.hypot(Math.max(r.x0 - x, 0, x - (r.x0 + r.w)), Math.max(r.z0 - z, 0, z - (r.z0 + r.h)));
+      const title = r.name[0].toUpperCase() + r.name.slice(1);
+      if (d < 8 && (loadNoteT -= dt) <= 0) { loadNoteT = 4; hud.pop(`loading ${title}...`, '#ff981f'); }
+      if (d > STREAM_AT || regionState.get(r.name) === 'loading') continue;
+      regionState.set(r.name, 'loading');
+      Promise.all([fetch(`assets/world_${r.name}.json`).then(q => q.json()), fetch(`assets/world_${r.name}.bin`).then(q => q.arrayBuffer())])
+        .then(([pack, rbin]) => {
+          world.addRegion(pack); addLanes(pack.lanes); addChunks(pack, rbin);
+          miniMap = renderMini();
+          regionState.set(r.name, 'ready');
+          hud.pop(`${title.toUpperCase()} IS OPEN`, '#0f0');
+        })
+        .catch(() => { regionState.set(r.name, 'failed'); setTimeout(() => regionState.delete(r.name), 10000); });   // try again shortly
+    }
+  }
   status('loading skaters...');
   await pModels;
   let player = await loadRSModel('nickai3');
@@ -331,6 +360,7 @@ async function main() {
   // ---------------- skater
   const sk = new Skater(world);
   window.RS = { sk, world, keys, cfg, camera, THREE, scene, P, goblins };
+  window.RS.regions = () => ({ loaded: [...world.loaded], state: Object.fromEntries(regionState) });
   window.RS.remotes = () => remotes; window.RS.hud = () => hud;
   // ---------------- login + multiplayer
   const net = new Net();
@@ -529,6 +559,7 @@ async function main() {
   }
   function updateCamera(dt, first) {
     cullChunks(sk.x, sk.z);
+    streamRegions(sk.x, sk.z, dt);
     if (Math.hypot(sk.x - lastCam[0], sk.z - lastCam[1]) > 3) { camDir.set(Math.cos(sk.heading), Math.sin(sk.heading)); first = true; }   // respawn/teleport: snap in behind the board
     lastCam[0] = sk.x; lastCam[1] = sk.z;
     const tgt = T(sk.x, sk.y + 1.15, sk.z);

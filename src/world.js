@@ -2,26 +2,54 @@
 // Coordinates: x = east, z = north, in tiles, local to the exported square. Heights in tiles (+up).
 
 export class World {
+  /** json = the core pack (tools/split.py): the full grid size, plus the rectangle it carries. Other packs
+   *  (json.regions, e.g. Varrock) start as solid ground-level walls and are added with addRegion() once the
+   *  client has streamed them in. An unsplit world.json (tests, old builds) is one region covering it all. */
   constructor(json) {
     this.N = json.size;
     this.base = [json.baseX, json.baseZ];
-    this.ground = Float32Array.from(json.ground);
-    this.blocked = Uint8Array.from(json.blocked);          // [z*N+x] 0 open, 1 blocked, 2 water, 3 rock (tools/lanes.py)
+    const N = this.N;
+    this.ground = new Float32Array(N * N * 4);
+    this.blocked = new Uint8Array(N * N).fill(1);          // [z*N+x] 0 open, 1 blocked, 2 water, 3 rock (tools/lanes.py)
     this.spawn = json.spawn;
     this.segs = [];
     this.grid = new Map();
-    for (const [ax, az, bx, bz, kind, top] of json.segs) this.addSeg({ ax, az, bx, bz, kind, top });
-    this.weldGround();
+    this.rails = [];
+    this.railGrid = new Map();
+    this.regions = json.regions || [];
+    this.loaded = new Set();
+    // an unloaded region is walled off along its edge with the loaded map (the same line the old map edge had)
+    for (const r of this.regions)
+      for (let x = Math.max(1, r.x0); x < r.x0 + r.w - 1; x++) this.addSeg({ ax: x, az: r.z0 - 1, bx: x + 1, bz: r.z0 - 1, kind: 'edge', top: null, until: r.name });
+    this.addRegion(json.x0 === undefined ? { ...json, name: 'core', x0: 0, z0: 0, w: N, h: N } : json);
+  }
+
+  /** drop a streamed-in region into the grid: tiles, heights, segments, rails; opens its edge wall */
+  addRegion(p) {
+    if (this.loaded.has(p.name)) return;
+    const N = this.N, { x0, z0, w, h } = p;
+    for (let i = 0; i < w; i++) this.ground.set(p.ground.slice(i * h * 4, (i + 1) * h * 4), ((x0 + i) * N + z0) * 4);
+    for (let j = 0; j < h; j++) this.blocked.set(p.blocked.slice(j * w, (j + 1) * w), (z0 + j) * N + x0);
+    const added = [];
+    for (const [ax, az, bx, bz, kind, top] of p.segs) { const s = { ax, az, bx, bz, kind, top }; this.addSeg(s); added.push(s); }
+    this.removeSegs(s => s.until === p.name);
     // grindable: rails, fences/gates, and low obstacles with a measured top (hedges); a lone low block
     // (a cactus, a rock) is only jumpable, see buildRails' length filter
-    this.rails = buildRails(this.segs.filter(s => s.top && (s.kind === 'rail' || s.kind === 'fence' || s.kind === 'block')));
-    this.railGrid = new Map();
-    for (const r of this.rails) {
+    for (const r of buildRails(added.filter(s => s.top && (s.kind === 'rail' || s.kind === 'fence' || s.kind === 'block')))) {
+      this.rails.push(r);
       for (const cell of cellsAlong(r.ax, r.az, r.bx, r.bz, 1)) {
         if (!this.railGrid.has(cell)) this.railGrid.set(cell, []);
         this.railGrid.get(cell).push(r);
       }
     }
+    this.loaded.add(p.name);
+    this.weldGround();
+  }
+
+  removeSegs(pred) {
+    const gone = new Set(this.segs.filter(pred)); if (!gone.size) return;
+    this.segs = this.segs.filter(s => !gone.has(s));
+    for (const [k, l] of this.grid) { const f = l.filter(s => !gone.has(s)); if (f.length) this.grid.set(k, f); else this.grid.delete(k); }
   }
 
   /** Each tile carries its own four corner heights, and where a loc (bridge deck, stairs) raised some tiles
