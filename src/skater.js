@@ -214,7 +214,8 @@ export class Skater {
     this.body = this.slide ? this.heading + this.slideSign * Math.PI / 2 * Math.min(1, this.slide) : this.heading;
     if (this.slide) this.slide = Math.min(1, this.slide + dt * 6);
 
-    if (w.tileKind(this.x, this.z) === 2) { this.bail('water'); return; }
+    const under = w.tileKind(this.x, this.z);
+    if (under === 2 || under === 3) { this.bail(under === 2 ? 'water' : 'rocks'); return; }
     this.safeT += dt;
     if (this.safeT > P.safeEvery && this.speed < 9) { this.safeT = 0; this.lastSafe = { x: this.x, z: this.z, heading: this.heading }; }
     void px; void pz; void h0;
@@ -283,7 +284,7 @@ export class Skater {
     if (this.y <= g) {
       this.y = g;
       const kind = this.w.tileKind(this.x, this.z);
-      if (kind === 2) { this.bail('water'); return; }
+      if (kind === 2 || kind === 3) { this.bail(kind === 2 ? 'water' : 'rocks'); return; }    // 3 = a rocky outcrop
       this.land(-this.vy);
     }
   }

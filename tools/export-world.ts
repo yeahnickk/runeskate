@@ -3,7 +3,7 @@
 // metal railings (loc "railing" 997 and its diagonals) so the game can render them see-through
 // and let you ollie them.
 //
-//   bun --preload ./headless/preload.ts runeskate/tools/export-world.ts [baseX baseZ size]
+//   bun --preload ./runeskate/tools/preload.ts runeskate/tools/export-world.ts [baseX baseZ size]
 //
 // Reads the cached game files in showreel3/export/cache (nothing live is touched after the first
 // download), writes runeskate/tools/out/world_*.bin + meta.json for tools/build.py.
@@ -78,7 +78,8 @@ for (let id = 0; id < LocType.numDefinitions; id++) {
 if (!RAILING.size) for (const id of [997, 998, 999]) RAILING.add(id);
 const locIdOf = (typecode: number) => (typecode >> 14) & 0x7fff;
 const HOPPABLE = new Set([...RAILING, 980, 981]);            // + wooden fencing / garden fencing (cow pens): ollie-able, stays opaque
-const SEE_THROUGH = 120;                                    // face alpha tag -> build.py puts it in locs_alpha
+const SEE_THROUGH = 120;
+const OPEN_GATES = new Set([2882, 2883]);                   // the Al Kharid toll gate: no toll in RuneSkate, the gateway stands open                                    // face alpha tag -> build.py puts it in locs_alpha
 
 class Soup {
   pos: number[] = []; col: number[] = []; alpha: number[] = [];
@@ -103,7 +104,9 @@ class Soup {
       else if (type === 1) { ca = cb = cc = hslRgb(A); }
       else {
         const t = m.faceColour?.[f] ?? 0, rgb = texRgb(t);
-        if (texCutout(t)) continue;           // cut-out foliage/grille cards: a flat average would be an opaque black slab
+        // cut-out foliage/grille cards: a flat average would be an opaque black slab, so drop them... except on
+        // see-through railings (forceAlpha), where the translucent average IS the railing (the Al Kharid border)
+        if (texCutout(t) && !forceAlpha) continue;
         const sh = (v: number) => { const k = Math.max(0, Math.min(1, (127 - v) / 100)); return (((rgb >> 16 & 255) * k) << 16) | (((rgb >> 8 & 255) * k) << 8) | ((rgb & 255) * k); };
         ca = sh(A); cb = sh(type === 3 ? A : Bc); cc = sh(type === 3 ? A : C);
       }
@@ -163,12 +166,14 @@ for (let cz = 0; cz < SIZE; cz += CORE) for (let cx = 0; cx < SIZE; cx += CORE) 
     if (gx(x) <= SIZE && gz(z) <= SIZE) heights[l][gx(x)][gz(z)] = groundh[l][x][z];
   const seenSprite = new Set<any>();
   const wallModels = (w: any, level: number, x: number, z: number) => {
+    if (OPEN_GATES.has(locIdOf(w.typecode))) return;
     const see = RAILING.has(locIdOf(w.typecode)) ? SEE_THROUGH : 0;
     if (HOPPABLE.has(locIdOf(w.typecode)) && level === 0) fences.push([gx(x), gz(z), locIdOf(w.typecode)]);
     locs.model(modelOf(w.model1), w.x + dx, w.y, w.z + dz, see); locs.model(modelOf(w.model2), w.x + dx, w.y, w.z + dz, see);
   };
   const spriteModel = (sp: any, level: number) => {
     if (!inCore(sp.minTileX, sp.minTileZ)) return;                   // anchored in another block
+    if (OPEN_GATES.has(locIdOf(sp.typecode))) return;
     const see = RAILING.has(locIdOf(sp.typecode)) ? SEE_THROUGH : 0;
     if (HOPPABLE.has(locIdOf(sp.typecode)) && level === 0) for (let x = sp.minTileX; x <= sp.maxTileX; x++) for (let z = sp.minTileZ; z <= sp.maxTileZ; z++) fences.push([gx(x), gz(z), locIdOf(sp.typecode)]);
     locs.model(modelOf(sp.model), sp.x + dx, sp.y, sp.z + dz, see, sp.yaw || 0);

@@ -40,7 +40,7 @@ const hslRgb = (hsl: number) => Pix3D.colourTable[hsl & 0xffff];
 
 // name -> [npc id, death seq]
 const NPCS: Record<string, [number, number]> = {
-  goblin: [100, 313], cow: [81, 62], chicken: [41, 57], rat: [47, 243], imp: [708, 172], man: [1, 836],
+  goblin: [100, 313], cow: [81, 62], chicken: [41, 57], rat: [47, 243], imp: [708, 172], man: [1, 836], darkwizard: [174, 836],
 };
 for (const [name, [npcId, death]] of Object.entries(NPCS)) {
   const t: any = NpcType.list(npcId);

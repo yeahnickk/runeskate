@@ -28,7 +28,7 @@ async function main() {
   // outfit kit all stream together instead of queueing behind each other
   const pJson = fetch('assets/world.json').then(r => r.json());
   const pBin = fetch('assets/world.bin').then(r => r.arrayBuffer());
-  const NPC_KINDS = ['goblin', 'cow', 'chicken', 'rat', 'imp', 'man'];
+  const NPC_KINDS = ['goblin', 'cow', 'chicken', 'rat', 'imp', 'man', 'darkwizard'];
   const pModels = Promise.all([loadRSModel('nickai3'), ...NPC_KINDS.map(k => loadRSModel('npc_' + k))]);
   const pFonts = Promise.all([RSFont.load('b12'), RSFont.load('p12')]);
   const pHit = loadHitsplat();
@@ -55,9 +55,29 @@ async function main() {
     opaque: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     alpha: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.4, depthWrite: false }),
   };
+  // skate lanes through the forests (tools/lanes.py): the trees on them lost their collision, so paint the
+  // ground under them worn dirt so they read as "go this way"
+  const laneS = new Float32Array(world.N * world.N);
+  for (const [x, z, s] of wjson.lanes || []) laneS[z * world.N + x] = s;
+  const laneAt = (x, z) => {                                 // bilinear over tile centres, smooth edges
+    x -= 0.5; z -= 0.5;
+    const x0 = Math.floor(x), z0 = Math.floor(z), u = x - x0, v = z - z0, N = world.N;
+    const g = (a, b) => (a < 0 || b < 0 || a >= N || b >= N) ? 0 : laneS[b * N + a];
+    return (g(x0, z0) * (1 - u) + g(x0 + 1, z0) * u) * (1 - v) + (g(x0, z0 + 1) * (1 - u) + g(x0 + 1, z0 + 1) * u) * v;
+  };
+  const DIRT = [118, 94, 62];
+  function paintLanes(pos, col, ch) {
+    for (let i = 0; i < pos.length / 3; i++) {
+      const x = ch.cx * CH + pos[i * 3] / 128, z = ch.cz * CH + pos[i * 3 + 2] / 128;
+      const s = laneAt(x, z); if (s <= 0.02) continue;
+      const k = Math.min(1, s) * 0.75, n = ((Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1) * 14;
+      for (let c = 0; c < 3; c++) col[i * 3 + c] = Math.max(0, Math.min(255, col[i * 3 + c] * (1 - k) + (DIRT[c] + n) * k));
+    }
+  }
   for (const ch of wjson.index.chunks) {
     for (const k of ['terrain', 'locs', 'locs_alpha']) {
       const part = ch[k]; if (!part || !part.n) continue;
+      if (k === 'terrain' && wjson.lanes) paintLanes(new Int16Array(bin, part.posOff, part.n * 3), new Uint8Array(bin, part.colOff, part.n * 3), ch);
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(new Int16Array(bin, part.posOff, part.n * 3), 3));
       g.setAttribute('color', new THREE.BufferAttribute(new Uint8Array(bin, part.colOff, part.n * 3), 3, true));
@@ -124,6 +144,7 @@ async function main() {
   const NPC_KIND = {
     goblin: { xp: 240, hp: 5, r: 0.55, h: 1.3 }, cow: { xp: 180, hp: 8, r: 0.9, h: 1.4 }, chicken: { xp: 60, hp: 3, r: 0.4, h: 0.6 },
     rat: { xp: 60, hp: 2, r: 0.4, h: 0.4 }, imp: { xp: 300, hp: 8, r: 0.5, h: 1.0 }, man: { xp: 250, hp: 7, r: 0.5, h: 1.8 },
+    darkwizard: { xp: 400, hp: 12, r: 0.5, h: 1.8 },
   };
   const NPC_SPAWNS = {
     goblin: [[3141, 3258], [3142, 3230], [3145, 3229], [3183, 3244], [3187, 3246], [3244, 3245], [3247, 3247], [3250, 3238], [3252, 3228], [3255, 3222], [3258, 3245], [3260, 3233]],
@@ -132,6 +153,8 @@ async function main() {
     rat: [[3100, 3273], [3229, 3223], [3232, 3229], [3236, 3222], [3319, 3250]],
     imp: [[3214, 3281], [3240, 3307], [3205, 3355], [3299, 3273]],
     man: [[3223, 3240], [3231, 3207], [3100, 3279], [3294, 3196]],
+    // the stone circle south of Varrock, and the pair by Draynor
+    darkwizard: [[3223, 3367], [3223, 3372], [3224, 3370], [3225, 3365], [3225, 3374], [3228, 3373], [3230, 3363], [3230, 3365], [3230, 3374], [3232, 3367], [3232, 3372], [3084, 3236], [3085, 3238]],
   };
   const npcs = [];
   for (const [kind, spots] of Object.entries(NPC_SPAWNS)) for (const [gx, gz] of spots) {
@@ -581,7 +604,8 @@ async function main() {
     const stomp = how === 'stomp';
     const pts = Math.round(n.xp * (stomp ? 1.5 : 1));
     hud.splats.push({ gob: n, t: 0, n: n.hp });
-    sk.addCombo((stomp ? n.kind.toUpperCase() + ' STOMP' : n.kind.toUpperCase() + ' SMACK'), pts);
+    const label = n.kind === 'darkwizard' ? 'DARK WIZARD' : n.kind.toUpperCase();
+    sk.addCombo(label + (stomp ? ' STOMP' : ' SMACK'), pts);
     shake = stomp ? 0.15 : 0.25; audio.event({ type: stomp ? 'stomp' : 'smack' });
     if (stomp) { sk.vy = Math.max(sk.vy, 6.5); sk.airTime = 0.2; }          // bounce off them
     goals.event({ type: 'kill', npc: n.kind, how });
@@ -629,6 +653,7 @@ async function main() {
   // ---------------- events -> hud / audio / camera
   const BAIL_TEXT = {
     wall: ['Oh dear, you are dead!', 'Hit a wall'], water: ['Glug glug...', 'You swam with the fishes'],
+    rocks: ['Crunch!', 'You ate the rocks'],
     flip: ['Oh dear, you are dead!', 'Over-rotated the flip'], sketchy: ['Oh dear, you are dead!', 'Landed sideways'],
     slam: ['Oh dear, you are dead!', 'Hard slam'], balance: ['Oh dear, you are dead!', 'Fell off the rail'],
     goblin: ['Oh dear, you are dead!', 'Tripped over a goblin'],

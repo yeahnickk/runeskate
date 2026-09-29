@@ -10,6 +10,7 @@ Outputs -> runeskate/assets/
   collision.json                wall segments (with measured heights -> rails), blocked tiles, ground heights
   nickai3.* / goblin.*          animated models
     python runeskate/tools/build.py
+    python runeskate/tools/lanes.py      (then: forest skate lanes + water/rock split, rewrites world.json)
 """
 import json, os, shutil, math
 import numpy as np

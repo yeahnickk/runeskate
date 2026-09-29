@@ -6,7 +6,7 @@ export class World {
     this.N = json.size;
     this.base = [json.baseX, json.baseZ];
     this.ground = Float32Array.from(json.ground);
-    this.blocked = Uint8Array.from(json.blocked);          // [z*N+x] 0 open, 1 blocked, 2 water
+    this.blocked = Uint8Array.from(json.blocked);          // [z*N+x] 0 open, 1 blocked, 2 water, 3 rock (tools/lanes.py)
     this.spawn = json.spawn;
     this.segs = [];
     this.grid = new Map();

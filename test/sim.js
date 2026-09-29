@@ -243,5 +243,23 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
   check('ollie over a small obstacle', ok, info || `tried ${tried}`);
 }
 
+// land on the Varrock east mine outcrop: rocks, not "swam with the fishes"
+{
+  let rx = -1, rz = -1;
+  for (let z = 3360; z <= 3368 && rx < 0; z++) for (let x = 3281; x <= 3291; x++) { const [a, b] = L(x + 0.5, z + 0.5); if (w.tileKind(a, b) === 3) { rx = a; rz = b; break; } }
+  const sk = new Skater(w);
+  let log = [];
+  if (rx >= 0) { sk.reset(rx, rz, 0); sk.mode = 'air'; sk.y = w.height(rx, rz) + 1.5; sk.vy = 0; sk.vx = sk.vz = 0; log = run(sk, 1.2); }
+  check('landing on rocks says rocks', rx >= 0 && log.some(e => e.type === 'bail' && e.why === 'rocks') && !log.some(e => e.why === 'water'), log.map(e => e.type + (e.why || '')).join(','));
+}
+
+// Draynor Manor lane: the painted line has no tree on it any more
+{
+  const lanes = JSON.parse(readFileSync(new URL('../assets/world.json', import.meta.url))).lanes || [];
+  const centre = lanes.filter(([, , s]) => s >= 1);
+  const onManor = centre.filter(([x, z]) => x + w.base[0] >= 3100 && x + w.base[0] <= 3116 && z + w.base[1] >= 3290 && z + w.base[1] <= 3352);
+  check('manor lane is clear', onManor.length > 40 && onManor.every(([x, z]) => w.tileKind(x + 0.5, z + 0.5) === 0), `${onManor.length} lane tiles`);
+}
+
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
 process.exit(fails ? 1 : 0);
