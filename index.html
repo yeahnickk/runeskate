@@ -23,6 +23,11 @@
   .login input, #chatbox { font: 16px monospace; padding: 8px 10px; background: #1a1408; color: #ff0; border: 2px solid #5a4a2a; width: 180px; }
   button.small { font-size: 14px; padding: 8px 16px; background: #3a3020; }
   #chatbox { display: none; position: fixed; left: 16px; bottom: 16px; width: min(480px, calc(100% - 32px)); z-index: 6; box-sizing: border-box; }
+  #discord { position: fixed; right: 12px; bottom: 12px; z-index: 7; display: flex; align-items: center; gap: 6px;
+    padding: 4px 9px 4px 7px; font: 12px monospace; color: #fff; text-decoration: none; opacity: 0.8;
+    background: rgba(88,101,242,0.85); border: 1px solid rgba(255,255,255,0.25); border-radius: 12px; }
+  #discord:hover { opacity: 1; background: #5865f2; }
+  #discord svg { width: 16px; height: 12px; fill: #fff; }
 </style>
 <!-- start the big downloads with the HTML, not after the whole module graph has loaded -->
 <link rel="preload" href="assets/world.bin" as="fetch" crossorigin="anonymous">
@@ -68,6 +73,11 @@
   <div class="sub" id="lerr" style="color:#f66; min-height: 1.2em"></div>
   <div class="keys" style="font-size:12px">New name? You're signed up on the spot. Or join from a link: <b>?name=You&amp;password=secret</b></div>
 </div>
+<a id="discord" href="https://discord.gg/FGhCDv9BEr" target="_blank" rel="noopener" title="Join our Discord"
+   onmousedown="event.stopPropagation()" onpointerdown="event.stopPropagation()" onclick="setTimeout(() => this.blur(), 0)">
+  <svg viewBox="0 0 127 96" aria-hidden="true"><path d="M107.7 8A105 105 0 0 0 81.5 0a72 72 0 0 0-3.4 6.8 97.7 97.7 0 0 0-29.1 0A72 72 0 0 0 45.6 0a105.9 105.9 0 0 0-26.2 8C2.8 32.6-1.7 56.6.5 80.2A105.7 105.7 0 0 0 32.7 96a77.7 77.7 0 0 0 6.9-11.2 68.4 68.4 0 0 1-10.8-5.2c.9-.7 1.8-1.4 2.7-2.1a75.6 75.6 0 0 0 64.3 0c.9.7 1.8 1.5 2.7 2.1a68.7 68.7 0 0 1-10.8 5.2 77 77 0 0 0 6.9 11.2 105.3 105.3 0 0 0 32.2-15.8c2.6-27.4-4.5-51.1-18.9-72.2ZM42.5 65.7c-6.3 0-11.5-5.7-11.5-12.8S36 40.1 42.5 40.1 54.1 45.9 54 52.9 49 65.7 42.5 65.7Zm42.2 0c-6.3 0-11.5-5.7-11.5-12.8s5-12.8 11.5-12.8 11.6 5.8 11.5 12.8-5 12.8-11.5 12.8Z"/></svg>
+  Join our Discord
+</a>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
