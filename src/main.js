@@ -574,7 +574,7 @@ async function main() {
      .on('rejoined', w => { me.xp = Math.max(me.xp, w.xp); chatLog.push({ text: 'Reconnected.', col: '#0f0', t: 0 }); });
   const SNAP = ['x', 'y', 'z', 'heading', 'body', 'boardYaw', 'boardRoll', 'charge', 'airTime', 'pushing', 'tumble', 'tumbleAxis', 'speed'];
   function snapshot() {
-    const o = { mode: sk.mode, gk: sk.grindKind, sl: sk.slide ? 1 : 0, w: sk.inWater ? 1 : 0, wk: sk.walking || 0, em: emote ? emote * 100 + emoteSeq : 0 };   // wk: 0 stand, 1 walk, 2 run; em: emote*100+seq
+    const o = { mode: sk.mode, gk: sk.grindKind, sl: sk.slide ? 1 : 0, w: sk.inWater ? 1 : 0, wk: sk.walking || 0, fa: sk.footAir ? 1 : 0, em: emote ? emote * 100 + emoteSeq : 0 };   // wk: 0 stand, 1 walk, 2 run; em: emote*100+seq
     for (const k of SNAP) o[k] = Math.round((sk[k] || 0) * 1000) / 1000;
     if (sk.mode === 'bail' && sk.board) o.b = [sk.board.x, sk.board.y, sk.board.z, sk.board.yaw, sk.board.roll].map(v => Math.round(v * 1000) / 1000);
     return o;
@@ -589,7 +589,7 @@ async function main() {
       for (const f of ['x', 'y', 'z', 'charge', 'airTime', 'tumble', 'speed']) s[f] += (t[f] - s[f]) * k;
       s.pushing = t.pushing || 0;
       for (const f of ['heading', 'body', 'boardYaw', 'boardRoll', 'tumbleAxis']) s[f] = wrapA(s[f] + wrapA(t[f] - s[f]) * k);
-      s.mode = t.mode; s.grindKind = t.gk; s.slide = !!t.sl; s.inWater = !!t.w; s.walking = t.wk || 0; s.em = t.em || 0;
+      s.mode = t.mode; s.grindKind = t.gk; s.slide = !!t.sl; s.inWater = !!t.w; s.walking = t.wk || 0; s.footAir = !!t.fa; s.em = t.em || 0;
       if (t.b) s.board = { x: t.b[0], y: t.b[1], z: t.b[2], yaw: t.b[3], roll: t.b[4] };
       drawRider(dt, s, r.m, r.board);
       r.shadow ||= makeShadow(); placeShadow(r.shadow, s.x, s.y, s.z, true);
@@ -727,11 +727,13 @@ async function main() {
     } else if (sk.mode === 'ground' && sk.pushing > 0 && !sk.manual && !(sk.charge >= 0) && has('push')) {
       clip = 'push'; yawOff = Math.PI / 2;                   // face down the board to push, like a real skater
       if (sk.pushing > (m._pp || 0) + 0.05) m.play('push', true, true);   // each kick restarts the stroke at touch-down
-    } else if (sk.mode === 'walk') { clip = sk.walking === 2 ? 'run' : sk.walking ? 'walk' : 'ready'; yawOff = Math.PI / 2; }
+    } else if (sk.mode === 'walk' && sk.footAir) { clip = 'spot_jump'; loop = false; yawOff = Math.PI / 2; if (!m._fa) m.play('spot_jump', false, true); }   // hop on foot
+    else if (sk.mode === 'walk') { clip = sk.walking === 2 ? 'run' : sk.walking ? 'walk' : 'ready'; yawOff = Math.PI / 2; }
     else if (sk.mode === 'air') { clip = 'spot_jump'; loop = false; yawOff = Math.PI; }   // spot_jump's rest pose faces +z; π puts it side-on like the sidestep stance (screenshot-verified)
     else if (sk.mode === 'grind') { clip = 'balance'; yawOff = sk.grindKind === 'Boardslide' ? -Math.PI / 2 : 0; }
     else if (sk.mode === 'bail') { clip = sk.inWater ? 'falling' : 'falling'; loop = false; }
     if (!em) m._em = 0;
+    m._fa = sk.mode === 'walk' && !!sk.footAir;
     m._pp = sk.pushing || 0;
     // turning between the side-on stance and the push stance is a quick swivel, not a snap
     if ((clip === 'push' || clip === 'sidestep') && (m._clip === 'push' || m._clip === 'sidestep') && m._yo !== undefined)

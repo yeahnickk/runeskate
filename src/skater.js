@@ -24,6 +24,7 @@ export const P = {
   flipTime: 0.42,
   walkSpeed: 1.9,        // tiles/s on foot (RS walk is ~1.67)
   runSpeed: 3.6,
+  footJump: 6.2,         // SPACE on foot: ~0.9 tile hop
   slamWall: 9.5,         // head-on impact speed (tiles/s) into a wall that bails you
   slamAir: 8.0,
   slamHeadOn: 0.8,       // ...and only when you hit it this square-on (impact / speed)
@@ -111,7 +112,7 @@ export class Skater {
   // ------------------------------------------------------------ on foot
   /** E: step off the board (only when rolling slowly) or hop back on */
   toggleWalk() {
-    if (this.mode === 'walk') { this.mode = 'ground'; this.vx = this.vz = 0; this.charge = -1; this.emit('mount'); return true; }
+    if (this.mode === 'walk') { this.mode = 'ground'; this.footAir = false; this.y = this.w.height(this.x, this.z); this.vx = this.vz = 0; this.charge = -1; this.emit('mount'); return true; }
     if (this.mode === 'ground' && this.speed < 3.5) { this.mode = 'walk'; this.vx = this.vz = 0; this.slide = 0; this.charge = -1; this.combo.length && this.bankCombo?.(); this.emit('dismount'); return true; }
     return false;
   }
@@ -127,7 +128,13 @@ export class Skater {
     this.collide(dt, false);
     this.heading = h; this.body = h;
     if (this.mode !== 'walk') return;
-    this.y = w.height(this.x, this.z);
+    // SPACE on foot: a little hop (clears low fences and hedges the same way an ollie does)
+    if (inp.jumpPressed && !this.footAir) { this.footAir = true; this.footVy = P.footJump; this.emit('hop'); }
+    const g = w.height(this.x, this.z);
+    if (this.footAir) {
+      this.footVy -= P.gravity * dt; this.y += this.footVy * dt;
+      if (this.y <= g) { this.y = g; this.footAir = false; this.footVy = 0; }
+    } else this.y = g;
     this.walking = Math.abs(spd) > 0.1 ? (inp.slide ? 2 : 1) : 0;
   }
 

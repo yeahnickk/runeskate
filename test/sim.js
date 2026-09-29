@@ -316,5 +316,13 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
   check('west frontier gone once Falador + Port Sarim load', left === 0, `left ${left}`);
 }
 
+// on foot: SPACE hops, and you land back on your feet
+{
+  const sk = new Skater(w); const [x, z] = L(3222.5, 3230.5); sk.reset(x, z, 0); sk.toggleWalk();
+  let peak = 0; const g0 = w.height(sk.x, sk.z);
+  run(sk, 1.2, (t, s) => { peak = Math.max(peak, s.y - g0); return { push: true, jumpPressed: t < 0.01 }; });
+  check('hop on foot', peak > 0.7 && sk.mode === 'walk' && !sk.footAir, `peak ${peak.toFixed(2)} ${where(sk)}`);
+}
+
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
 process.exit(fails ? 1 : 0);
