@@ -19,9 +19,7 @@ const key = (n: string) => n.toLowerCase().replace(/[^a-z0-9]/g, '');
 const cleanName = (n: string) => String(n || '').replace(/[^A-Za-z0-9 _-]/g, '').trim().slice(0, 12);
 const MAX_XP = 6_488_304 * 4;                                  // headroom past level 126
 
-// outfits: {g, items: {slot: objId}, kits: {slot: idkId}} and nothing else. Party hats (obj 1038-1049)
-// are refused outright; the client never offers them either.
-const PHAT = new Set([1038, 1039, 1040, 1041, 1042, 1043, 1044, 1045, 1046, 1047, 1048, 1049]);
+// outfits: {g, items: {slot: objId}, kits: {slot: idkId}} and nothing else.
 function cleanOutfit(o: any) {
   if (!o || typeof o !== 'object') return null;
   const map = (src: any, ban?: Set<number>) => {
@@ -32,7 +30,7 @@ function cleanOutfit(o: any) {
     }
     return out;
   };
-  return { g: o.g ? 1 : 0, items: map(o.items, PHAT), kits: map(o.kits) };
+  return { g: o.g ? 1 : 0, items: map(o.items), kits: map(o.kits) };   // party hats allowed since 2026-09-29
 }
 
 // ------------------------------------------------------------------ static files

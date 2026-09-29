@@ -1,15 +1,68 @@
-// Startup outfit screen: five armour rows (< name >), Random, and a big SKATE button — Tutorial Island
-// style, fast and easy. Each row cycles a short curated list (the metal tiers + a few specials), resolved
-// by name from the exported kit. Party hats are never exported, so they can never be offered.
+// Startup outfit screen: one row per slot (< name >), Random, and a big SKATE button — Tutorial Island
+// style, fast and easy. Rows are FASHIONSCAPE only (user, 2026-09-29): rares, holiday items, trimmed and
+// god armour, dragon, dragonhide, costumes. No plain metal armour. Items are picked by their obj.sym name
+// (the exported part's `key`), so every colour of a partyhat / mask / cape is its own entry.
 import { loadKit } from './rsanim.js';
 
-const TIERS = ['Bronze', 'Iron', 'Steel', 'Black', 'Mithril', 'Adamant', 'Rune'];
+const C = (k, n) => [k, n];                                   // [obj.sym key, label]
+const colours = (fmt, name, list) => list.map(c => C(fmt.replace('*', c), `${name} (${c})`));
+const TRIM = (piece, name) => [
+  C(`rune_${piece}_trim`, `Rune ${name} (t)`), C(`rune_${piece}_gold`, `Rune ${name} (g)`),
+  C(`adamant_${piece}_trim`, `Adamant ${name} (t)`), C(`adamant_${piece}_gold`, `Adamant ${name} (g)`),
+  C(`black_${piece}_trim`, `Black ${name} (t)`), C(`black_${piece}_gold`, `Black ${name} (g)`),
+];
+const GOD = (piece, name) => [C(`rune_${piece}_zamorak`, `Zamorak ${name}`), C(`rune_${piece}_saradomin`, `Saradomin ${name}`), C(`rune_${piece}_guthix`, `Guthix ${name}`)];
+const DHIDE = [['black', 'black_'], ['red', 'red_'], ['blue', 'blue_'], ['green', '']];
+
+// RARES ONLY (user, 2026-09-29): no plain metal, no everyday clothes. Holiday rares, trimmed/gilded and god
+// armour, dragon, dragonhide, Treasure Trail hats, the Mime set, pirate gear, rare capes/boots/necks.
 const ROWS = [
-  [0, 'Helm', [...TIERS.map(t => `${t} full helm`), 'Dragon med helm', 'Rune full helm (g)', 'Zamorak full helm', 'Guthix full helm', 'Saradomin full']],
-  [4, 'Body', [...TIERS.map(t => `${t} platebody`), 'Dragon chainbody', 'Rune platebody (g)', 'Zamorak platebody', 'Guthix platebody', 'Saradomin plate']],
-  [7, 'Legs', [...TIERS.map(t => `${t} platelegs`), 'Rune platelegs (g)', 'Zamorak platelegs', 'Guthix platelegs', 'Saradomin legs']],
-  [5, 'Shield', [...TIERS.map(t => `${t} kiteshield`), 'Dragon sq shield', 'Rune kiteshield (g)', 'Zamorak kiteshield', 'Guthix kiteshield', 'Saradomin kite']],
-  [1, 'Cape', ['Cape', 'Cape of legends', 'Cape of zamorak', 'Cape of guthix', 'Cape of saradomin']],
+  [0, 'Head', [
+    ...['red', 'yellow', 'blue', 'green', 'purple', 'white'].map(c => C(`${c}_partyhat`, `Partyhat (${c})`)),
+    C('santa_hat', 'Santa hat'), ...colours('halloweenmask_*', 'Halloween mask', ['red', 'green', 'blue']), C('bunnyears', 'Bunny ears'),
+    ...TRIM('full_helm', 'full helm'), ...GOD('full_helm', 'full helm'), C('dragon_med_helm', 'Dragon med helm'),
+    C('highwaymanmask', 'Highwayman mask'), C('robinhoodhat', 'Robin hood hat'), ...colours('cavalier_*', 'Cavalier', ['black', 'dark', 'brown']),
+    ...colours('berret_*', 'Beret', ['black', 'white', 'blue']), C('piratehat', 'Pirate hat'), C('eye_patch', 'Eye patch'), C('macro_mime_mask', 'Mime mask'),
+  ]],
+  [4, 'Body', [
+    ...TRIM('platebody', 'platebody'), ...GOD('platebody', 'platebody'), C('dragon_chainbody', 'Dragon chainbody'),
+    ...DHIDE.map(([c, p]) => C(`${p}dragonhide_body`, `${c[0].toUpperCase() + c.slice(1)} dhide body`)),
+    C('zamrobetop', 'Robe of Zamorak'), C('macro_mime_top', 'Mime top'),
+  ]],
+  [7, 'Legs', [
+    ...TRIM('platelegs', 'platelegs'), ...GOD('platelegs', 'platelegs'),
+    ...DHIDE.map(([c, p]) => C(`${p}dragonhide_chaps`, `${c[0].toUpperCase() + c.slice(1)} dhide chaps`)),
+    C('zamrobebottom', 'Robe of Zamorak'), C('macro_mime_legs', 'Mime legs'),
+  ]],
+  [5, 'Off-hand', [
+    ...TRIM('kiteshield', 'kiteshield'), ...GOD('kiteshield', 'kiteshield'),
+    C('dragon_sq_shield', 'Dragon sq shield'), C('antidragonbreathshield', 'Anti-dragon shield'),
+  ]],
+  [1, 'Cape', [
+    C('cape_of_legends', 'Cape of legends'), C('zamorak_cape', 'Zamorak cape'), C('saradomin_cape', 'Saradomin cape'), C('guthix_cape', 'Guthix cape'),
+  ]],
+  [2, 'Neck', [
+    C('strung_dragonstone_amulet', 'Dragonstone amulet'), C('dragonstone_necklace', 'Dragon necklace'),
+    C('zqdeadbeads', 'Beads of the dead'), C('ikov_pendantoflucien', 'Pendant of Lucien'),
+  ]],
+  [9, 'Hands', [
+    ...DHIDE.map(([c, p]) => C(`${p}dragon_vambraces`, `${c[0].toUpperCase() + c.slice(1)} dhide vambs`)),
+    C('piratehook', 'Pirate hook'), C('macro_mime_gloves', 'Mime gloves'),
+  ]],
+  [10, 'Feet', [
+    C('ikov_bootsoflightness', 'Boots of lightness'), C('boots_ranger', 'Ranger boots'), C('boots_wizard', 'Wizard boots'),
+    C('macro_mime_boots', 'Mime boots'), C('death_spikedboots', 'Spiked boots'),
+  ]],
+];
+
+// Random: often a matching set, otherwise a free mix. Keys missing for the current gender are skipped.
+const SETS = [
+  ...['rune', 'adamant', 'black'].flatMap(m => ['trim', 'gold'].map(t => [`${m}_full_helm_${t}`, `${m}_platebody_${t}`, `${m}_platelegs_${t}`, `${m}_kiteshield_${t}`])),
+  ...['zamorak', 'saradomin', 'guthix'].map(g => [`rune_full_helm_${g}`, `rune_platebody_${g}`, `rune_platelegs_${g}`, `rune_kiteshield_${g}`, `${g}_cape`]),
+  ...['black', 'red', 'blue'].map(c => [`${c}_dragonhide_body`, `${c}_dragonhide_chaps`, `${c}_dragon_vambraces`, 'boots_ranger']),
+  ['macro_mime_mask', 'macro_mime_top', 'macro_mime_legs', 'macro_mime_gloves', 'macro_mime_boots'],
+  ['piratehat', 'eye_patch', 'piratehook'],
+  ['dragon_med_helm', 'dragon_chainbody', 'dragon_sq_shield', 'dragonstone_necklace'],
 ];
 
 const css = `
@@ -49,15 +102,10 @@ export class Designer {
     this.o = structuredClone(outfit || { g: 0, items: {}, kits: {} });
     this.o.items ||= {}; this.o.kits ||= {};
     [this.kit] = await loadKit(this.o.g ? 1 : 0);
-    this.lists = ROWS.map(([slot, label, names]) => {
+    this.byKey = new Map(this.kit.parts.filter(p => p.kind === 'item' && p.key).map(p => [p.key, p]));
+    this.lists = ROWS.map(([slot, label, entries]) => {
       const opts = [{ v: null, name: 'Nothing' }];
-      const seen = {};
-      for (const n of names) for (const p of this.kit.parts) {
-        if (p.kind !== 'item' || p.slot !== slot || p.name !== n) continue;
-        seen[n] = (seen[n] || 0) + 1;                       // plain "Cape" comes in several colours
-        opts.push({ v: p.id, name: n === 'Cape' ? `Cape ${seen[n]}` : n });
-        if (n !== 'Cape') break;
-      }
+      for (const [k, name] of entries) { const p = this.byKey.get(k); if (p && p.slot === slot) opts.push({ v: p.id, name }); }
       return { slot, label, opts };
     });
     this.open = true; this.el.style.display = 'flex'; this.hud(false);
@@ -96,10 +144,12 @@ export class Designer {
   }
 
   random() {
-    const tier = Math.floor(Math.random() * 12);            // mostly one matching set, sometimes a mix
+    this.o.items = {};
+    const set = Math.random() < 0.6 ? SETS[Math.floor(Math.random() * SETS.length)] : [];
     for (const { slot, opts } of this.lists) {
-      const c = Math.random() < 0.7 && opts[1 + tier] ? opts[1 + tier] : opts[Math.floor(Math.random() * opts.length)];
-      if (c.v === null) delete this.o.items[slot]; else this.o.items[slot] = c.v;
+      const fromSet = set.map(k => this.byKey.get(k)).find(p => p && p.slot === slot);
+      const pick = fromSet ? { v: fromSet.id } : (Math.random() < 0.8 ? opts[1 + Math.floor(Math.random() * (opts.length - 1))] : opts[0]);
+      if (pick && pick.v !== null) this.o.items[slot] = pick.v;
     }
     this.render(); this.preview();
   }

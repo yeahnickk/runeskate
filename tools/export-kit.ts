@@ -2,7 +2,7 @@
 // skirt / robe / cape / amulet / shield / gloves / boots, as individually LIT RS models with their
 // animation labels, plus the anim frames the skater uses. The browser (src/rsanim.js) combines any
 // outfit and animates it with a port of the client's own Model.animate, so every combination looks
-// exactly like it does in-game. Party hats are never exported.
+// exactly like it does in-game.
 //
 //   bun --preload ./runeskate/tools/preload.ts runeskate/tools/export-kit.ts
 import Packet from '#/io/Packet.js';
@@ -69,8 +69,8 @@ for (const line of readFileSync(join(ROOT, 'server', 'engine', 'data', 'symbols'
 
 // ---------------------------------------------------------------- part export
 const WEAR_SLOTS = new Set(['hat', 'back', 'front', 'torso', 'lefthand', 'legs', 'hands', 'feet']);
-const BANNED = /party ?hat|^null$|^dwarf remains/i;   // never pick-able: phats (user rule)
-type Part = { id: number; kind: 'kit' | 'item'; name: string; slot: number; hide: number[]; nv: number; nf: number; off: number };
+const BANNED = /^null$|^dwarf remains/i;             // (party hats allowed again 2026-09-29, user rule)
+type Part = { id: number; kind: 'kit' | 'item'; name: string; key?: string; slot: number; hide: number[]; nv: number; nf: number; off: number };
 function packModel(m: any): Uint8Array | null {
   if (!m || !m.numPoints || !m.vertexLabel) return null;
   const labels = Uint8Array.from(m.vertexLabel);           // lighting drops the labels
@@ -127,7 +127,7 @@ for (const [g, gname] of [[0, 'm'], [1, 'f']] as [number, string][]) {
     let m: any = null; try { m = t.getWearModelNoCheck(g); } catch {}
     const hide = [c.wearpos2, c.wearpos3].filter(Boolean).map(w => SLOT[w!]).filter(s => s !== undefined);
     const n0 = parts.length;
-    add({ id, kind: 'item', name, slot: SLOT[c.wearpos], hide }, packModel(m));
+    add({ id, kind: 'item', name, key: sname, slot: SLOT[c.wearpos], hide }, packModel(m));   // key: obj.sym name (carries the colour)
     if (parts.length > n0) items++;
   }
   const blob = new Uint8Array(off); let o = 0; for (const c of chunks) { blob.set(c, o); o += c.length; }
