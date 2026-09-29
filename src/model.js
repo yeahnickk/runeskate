@@ -88,7 +88,7 @@ export class RSModel {
 const LIGHT = new THREE.Vector3(-0.35, 0.82, 0.45).normalize();
 export const L_BOARD = 0.92, W_BOARD = 0.24, DECK_Z = 0.075, DECK_T = 0.014, TOP_Z = DECK_Z + DECK_T;
 
-export function buildBoard() {
+export function buildBoard(gold = false) {                // gold: the owner's board
   // local frame: +x = nose, +y = up, z across; origin at wheel contact
   const pos = [], col = [];
   const lit = (base, n) => { const k = 0.45 + 0.65 * Math.max(0, n.dot(LIGHT)) + 0.1 * Math.max(0, -n.dot(LIGHT)); return base.map(c => Math.min(255, c * k) / 255); };
@@ -111,17 +111,17 @@ export function buildBoard() {
   }
   for (let i = 0; i < xs.length - 1; i++) {
     for (let j = 0; j < 2; j++) {
-      const g = ((i + j) % 3) ? [34, 34, 36] : [48, 48, 50];
+      const g = gold ? (((i + j) % 3) ? [70, 52, 14] : [92, 70, 20]) : ((i + j) % 3) ? [34, 34, 36] : [48, 48, 50];
       quad(T[i][j], T[i + 1][j], T[i + 1][j + 1], T[i][j + 1], g);
       const cx = (xs[i] + xs[i + 1]) / 2, u = (cx + half) / L_BOARD;
       const flame = 0.55 + 0.25 * Math.sin((j - 0.5) * 0.12 * 70 + u * 9);
-      const gfx = u > flame ? [205, 30, 25] : [255, 205, 20];
+      const gfx = gold ? (u > flame ? [255, 238, 150] : [232, 178, 40]) : u > flame ? [205, 30, 25] : [255, 205, 20];
       quad(B[i][j], B[i][j + 1], B[i + 1][j + 1], B[i + 1][j], gfx);
     }
-    for (const s of [0, 2]) quad(T[i][s], T[i + 1][s], B[i + 1][s], B[i][s], [150, 95, 50]);
+    for (const s of [0, 2]) quad(T[i][s], T[i + 1][s], B[i + 1][s], B[i][s], (gold ? [214, 160, 36] : [150, 95, 50]));
   }
   for (const [t, b] of [[T[0], B[0]], [T[T.length - 1], B[B.length - 1]]])
-    for (let j = 0; j < 2; j++) quad(t[j], t[j + 1], b[j + 1], b[j], [150, 95, 50]);
+    for (let j = 0; j < 2; j++) quad(t[j], t[j + 1], b[j + 1], b[j], (gold ? [214, 160, 36] : [150, 95, 50]));
   const box = (x0, x1, y0, y1, z0, z1, c) => {
     const p = [V(x0, y0, z0), V(x1, y0, z0), V(x1, y0, z1), V(x0, y0, z1), V(x0, y1, z0), V(x1, y1, z0), V(x1, y1, z1), V(x0, y1, z1)];
     for (const q of [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]]) quad(p[q[0]], p[q[1]], p[q[2]], p[q[3]], c);
@@ -129,12 +129,12 @@ export function buildBoard() {
   const wheel = (cx, cz, r = 0.028, w = 0.03, seg = 8) => {
     const a = [], b = [];
     for (let k = 0; k < seg; k++) { const t = 2 * Math.PI * k / seg; a.push(V(cx + r * Math.cos(t), r + r * Math.sin(t), cz - w / 2)); b.push(V(cx + r * Math.cos(t), r + r * Math.sin(t), cz + w / 2)); }
-    for (let k = 1; k < seg - 1; k++) { tri(a[0], a[k], a[k + 1], [238, 232, 210]); tri(b[0], b[k + 1], b[k], [238, 232, 210]); }
-    for (let k = 0; k < seg; k++) quad(a[k], b[k], b[(k + 1) % seg], a[(k + 1) % seg], [238, 232, 210]);
+    for (let k = 1; k < seg - 1; k++) { tri(a[0], a[k], a[k + 1], (gold ? [255, 236, 170] : [238, 232, 210])); tri(b[0], b[k + 1], b[k], (gold ? [255, 236, 170] : [238, 232, 210])); }
+    for (let k = 0; k < seg; k++) quad(a[k], b[k], b[(k + 1) % seg], a[(k + 1) % seg], (gold ? [255, 236, 170] : [238, 232, 210]));
   };
   for (const tx of [-half * 0.62, half * 0.62]) {
-    box(tx - 0.025, tx + 0.025, 0.045, DECK_Z, -0.03, 0.03, [170, 172, 178]);
-    box(tx - 0.012, tx + 0.012, 0.022, 0.036, -0.095, 0.095, [170, 172, 178]);
+    box(tx - 0.025, tx + 0.025, 0.045, DECK_Z, -0.03, 0.03, (gold ? [240, 200, 80] : [170, 172, 178]));
+    box(tx - 0.012, tx + 0.012, 0.022, 0.036, -0.095, 0.095, (gold ? [240, 200, 80] : [170, 172, 178]));
     wheel(tx, -0.095); wheel(tx, 0.095);
   }
   const g = new THREE.BufferGeometry();

@@ -13,7 +13,7 @@ const port = Number(process.argv[2] || process.env.PORT || 8123);
 // ------------------------------------------------------------------ accounts
 const DATA = join(ROOT, 'data'); mkdirSync(DATA, { recursive: true });
 const ACC = join(DATA, 'accounts.json');
-type Account = { name: string; hash: string; outfit: any | null; xp: number; created: number; seen: number; prog?: { found: string[]; done: string[] } };
+type Account = { name: string; login?: string; hash: string; outfit: any | null; xp: number; created: number; seen: number; prog?: { found: string[]; done: string[] } };
 const accounts: Record<string, Account> = existsSync(ACC) ? JSON.parse(readFileSync(ACC, 'utf8')) : {};
 let dirty = false;
 const saveAccounts = () => { if (!dirty) return; dirty = false; writeFileSync(ACC + '.tmp', JSON.stringify(accounts)); renameSync(ACC + '.tmp', ACC); };
@@ -33,8 +33,26 @@ for (const a of Object.values(accounts)) if (a.prog) {
 }
 const runesOf = (a: Account) => a.prog?.found.length || 0;
 
+// ------------------------------------------------------------------ the owner (user, 2026-09-29)
+// Kickflip3089 is the owner's account. It shows as "Nick" everywhere (tags, chat, highscores) with a crown
+// and [OWNER] tag, gilded armour and a gold board. Only the display name changes: the account key, XP and
+// runes stay exactly where they are, and you still log in as Kickflip3089 (`login` below).
+// The owner flag comes from the account key on the server, so nobody can claim it from a client.
+const OWNER_KEY = 'kickflip3089', OWNER_NAME = 'Nick';
+const GILDED = { g: 0, gild: 1, kits: {}, items: { 0: 2619, 1: 1052, 2: 1702, 4: 2615, 5: 2621, 7: 2617, 9: 2489, 10: 88 } };
+// names nobody else may register (display names "Nick" and staff lookalikes)
+const RESERVED = new Set(['nick', 'n1ck', 'nlck', 'nicck', 'nickk', 'owner', 'admin', 'administrator', 'mod', 'jmod', 'moderator', 'staff']);
+const isOwner = (k: string) => k === OWNER_KEY;
+{
+  const a = accounts[OWNER_KEY];
+  if (a) {
+    if (a.name !== OWNER_NAME) { a.login ||= a.name; a.name = OWNER_NAME; dirty = true; }
+    if (!a.outfit?.gild) { a.outfit = structuredClone(GILDED); dirty = true; }
+  }
+}
+
 // outfits: {g, items: {slot: objId}, kits: {slot: idkId}} and nothing else.
-function cleanOutfit(o: any) {
+function cleanOutfit(o: any, owner = false) {
   if (!o || typeof o !== 'object') return null;
   const map = (src: any, ban?: Set<number>) => {
     const out: Record<number, number> = {};
@@ -44,7 +62,7 @@ function cleanOutfit(o: any) {
     }
     return out;
   };
-  return { g: o.g ? 1 : 0, items: map(o.items), kits: map(o.kits) };   // party hats allowed since 2026-09-29
+  return { g: o.g ? 1 : 0, items: map(o.items), kits: map(o.kits), ...(owner ? { gild: 1 } : {}) };   // party hats allowed since 2026-09-29
 }
 
 // ------------------------------------------------------------------ public stats (/stats)
@@ -54,7 +72,7 @@ const STATS = join(DATA, 'stats.json'), CHAT = join(DATA, 'chat.json');
 const SAMPLE_MS = 5 * 60_000, KEEP_SAMPLES_MS = 30 * 86_400_000, KEEP_CHAT_MS = 7 * 86_400_000, MAX_CHAT = 20_000;
 const loadJson = (f: string, d: any) => { try { return JSON.parse(readFileSync(f, 'utf8')); } catch { return d; } };
 const samples: [number, number, number][] = loadJson(STATS, []);
-let chatLog: { t: number; n: string; m: string }[] = loadJson(CHAT, []);
+let chatLog: { t: number; n: string; m: string; o?: number }[] = loadJson(CHAT, []);
 let peak = 0, statsDirty = false;
 for (const c of chatLog) { const m = cleanChat(c.m); if (m !== c.m) { c.m = m; statsDirty = true; } }   // scrub history written before the filter
 const writeJson = (f: string, v: any) => { writeFileSync(f + '.tmp', JSON.stringify(v)); renameSync(f + '.tmp', f); };
@@ -104,10 +122,10 @@ async function sendFile(req: Request, full: string) {
 }
 
 // ------------------------------------------------------------------ sessions
-type Sess = { id: number; name: string; k: string; st: any; ws: any; xp: number; outfit: any };
+type Sess = { id: number; name: string; k: string; own?: number; st: any; ws: any; xp: number; outfit: any };
 const sessions = new Map<number, Sess>();
 let nextId = 1;
-const pub = (s: Sess) => ({ id: s.id, name: s.name, xp: s.xp, outfit: s.outfit, st: s.st });
+const pub = (s: Sess) => ({ id: s.id, name: s.name, own: s.own, xp: s.xp, outfit: s.outfit, st: s.st });
 const broadcast = (msg: any, except?: number) => { const m = JSON.stringify(msg); for (const s of sessions.values()) if (s.id !== except) s.ws.send(m); };
 
 Bun.serve({
@@ -121,7 +139,7 @@ Bun.serve({
       // rank by XP up to max level, then runes found, then raw XP
       return Response.json(Object.entries(accounts)
         .sort((a, b) => Math.min(b[1].xp, MAXED) - Math.min(a[1].xp, MAXED) || runesOf(b[1]) - runesOf(a[1]) || b[1].xp - a[1].xp).slice(0, 15)
-        .map(([k, a]) => ({ name: a.name, xp: a.xp, runes: runesOf(a), runeTotal: RUNE_IDS.size, on: online.has(k) })));
+        .map(([k, a]) => ({ name: a.name, own: isOwner(k) ? 1 : undefined, xp: a.xp, runes: runesOf(a), runeTotal: RUNE_IDS.size, on: online.has(k) })));
     }
     if (p === '/api/players') return Response.json([...sessions.values()].map(s => ({ name: s.name, xp: s.xp })));
     if (p === '/stats' || p === '/stats/') return new Response(STATS_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' } });
@@ -156,15 +174,16 @@ Bun.serve({
           const name = cleanName(m.name), k = key(name), pw = String(m.password || '');
           if (!k || pw.length < 3) return ws.send(JSON.stringify({ t: 'denied', why: 'pick a name (letters/numbers) and a password of 3+ characters' }));
           let a = accounts[k], isNew = false;
+          if (!a && RESERVED.has(k)) return ws.send(JSON.stringify({ t: 'denied', why: 'that name is reserved - pick another' }));
           if (!a) {
             a = accounts[k] = { name, hash: await Bun.password.hash(pw), outfit: null, xp: 0, created: Date.now(), seen: Date.now() };
             isNew = true; dirty = true;
           } else if (!(await Bun.password.verify(pw, a.hash))) return ws.send(JSON.stringify({ t: 'denied', why: 'wrong password for ' + a.name }));
           for (const o of sessions.values()) if (o.k === k) { o.ws.send(JSON.stringify({ t: 'kicked', why: 'logged in elsewhere' })); o.ws.close(); sessions.delete(o.id); broadcast({ t: 'leave', id: o.id }); }
-          const sess: Sess = { id: nextId++, name: a.name, k, st: null, ws, xp: a.xp, outfit: a.outfit };
+          const sess: Sess = { id: nextId++, name: a.name, own: isOwner(k) ? 1 : undefined, k, st: null, ws, xp: a.xp, outfit: a.outfit };
           ws.data.sess = sess; sessions.set(sess.id, sess); peak = Math.max(peak, sessions.size);
           a.seen = Date.now(); dirty = true;
-          ws.send(JSON.stringify({ t: 'welcome', id: sess.id, name: a.name, xp: a.xp, outfit: a.outfit, isNew, prog: a.prog || { found: [], done: [] }, players: [...sessions.values()].filter(o => o !== sess).map(pub) }));
+          ws.send(JSON.stringify({ t: 'welcome', id: sess.id, name: a.name, login: a.login || a.name, own: sess.own, xp: a.xp, outfit: a.outfit, isNew, prog: a.prog || { found: [], done: [] }, players: [...sessions.values()].filter(o => o !== sess).map(pub) }));
           broadcast({ t: 'join', ...pub(sess) }, sess.id);
         } finally { ws.data.busy = false; }
         return;
@@ -176,7 +195,7 @@ Bun.serve({
         s.xp = Math.min(MAX_XP, s.xp + add); accounts[s.k].xp = s.xp; dirty = true;
         broadcast({ t: 'xp', id: s.id, xp: s.xp }, s.id);
       } else if (m.t === 'outfit') {
-        m.outfit = cleanOutfit(m.outfit); if (!m.outfit) return;
+        m.outfit = cleanOutfit(m.outfit, isOwner(s.k)); if (!m.outfit) return;
         s.outfit = m.outfit; accounts[s.k].outfit = m.outfit; dirty = true;
         broadcast({ t: 'outfit', id: s.id, outfit: m.outfit }, s.id);
       } else if (m.t === 'prog') {                               // a rune found / a challenge beaten
@@ -186,7 +205,7 @@ Bun.serve({
         if (list && id && !list.includes(id) && list.length < 500) { list.push(id); dirty = true; }
       } else if (m.t === 'say') {
         const text = cleanChat(String(m.text || '').slice(0, 80).trim()).slice(0, 80);
-        if (text) { broadcast({ t: 'say', id: s.id, name: s.name, text }); chatLog.push({ t: Date.now(), n: s.name, m: text }); statsDirty = true; }
+        if (text) { broadcast({ t: 'say', id: s.id, name: s.name, own: s.own, text }); chatLog.push({ t: Date.now(), n: s.name, m: text, ...(s.own ? { o: 1 } : {}) }); statsDirty = true; }
       }
     },
     close(ws: any) {

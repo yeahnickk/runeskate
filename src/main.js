@@ -133,7 +133,7 @@ async function main() {
   await pModels;
   let player = await loadRSModel('nickai3');
   scene.add(player.group);
-  const board = buildBoard();
+  let board = buildBoard();
   scene.add(board.root);
   const [b12, p12] = await pFonts;
   const fonts = { b12, p12 };
@@ -368,13 +368,13 @@ async function main() {
       $('lerr').textContent = 'connecting...';
       try {
         const w = await net.connect(name, pass);
-        me.name = w.name; me.xp = w.xp; me.outfit = w.outfit; me.prog = w.prog; me.isNew = w.isNew || !w.outfit;
-        const q = new URLSearchParams(location.search); q.set('name', w.name); q.delete('password');
+        me.name = w.name; me.login = w.login || w.name; me.own = w.own; me.xp = w.xp; me.outfit = w.outfit; me.prog = w.prog; me.isNew = w.isNew || !w.outfit;
+        const q = new URLSearchParams(location.search); q.set('name', w.login || w.name); q.delete('password');   // log in by the ACCOUNT name, not the display name
         history.replaceState(null, '', '?' + q.toString() + location.hash);
       } catch (err) { $('lerr').textContent = err.message; return; }
     }
     $('start').style.display = 'none';
-    if (!offline) { store.set('rs_name', me.name); if (pass) store.set('rs_pass', pass); }
+    if (!offline) { store.set('rs_name', me.login || me.name); if (pass) store.set('rs_pass', pass); }
     await window.RS.onLogin?.(me);
   }
   $('skate').onclick = () => login(false);
@@ -430,7 +430,7 @@ async function main() {
   window.RS.goals = goals;
   window.RS.onLogin = async who => {
     // this browser's saved progress only counts for the account that made it (or a solo run)
-    const lp = offlineProg && (!offlineProg.who || offlineProg.who === who.name || offlineProg.who === 'offline') ? offlineProg : null;
+    const lp = offlineProg && (!offlineProg.who || offlineProg.who === who.name || offlineProg.who === who.login || offlineProg.who === 'offline') ? offlineProg : null;
     if (lp) goals.load(lp);
     if (who.prog) goals.load(who.prog);
     if (who.name !== 'offline') {                            // anything found offline the account doesn't have yet
@@ -438,17 +438,19 @@ async function main() {
       for (const id of goals.found) if (!have.has(id)) net.prog({ kind: 'rune', id });
     }
     refreshTop();
+    if (who.own) { scene.remove(board.root); board = buildBoard(true); scene.add(board.root); }   // the owner's gold board
     if (who.outfit) await wearOutfit(who.outfit);
     if (who.isNew && net.online) { keys.clear(); designer.show(who.outfit, true); }
   };
 
   // remote skaters: interpolate toward the last relayed state
+  const GOLD = '#ffc933';                                  // the owner's name / chat colour
   const remotes = new Map();
   const say = new Map();                                   // id -> {text, t}
   const chatLog = [];
   async function addRemote(p) {
     if (remotes.has(p.id)) return;
-    const r = { id: p.id, name: p.name, xp: p.xp, outfit: p.outfit, s: null, tgt: p.st, m: null, board: buildBoard() };
+    const r = { id: p.id, name: p.name, own: p.own, xp: p.xp, outfit: p.outfit, s: null, tgt: p.st, m: null, board: buildBoard(!!p.own) };
     remotes.set(p.id, r);
     r.m = await (window.RS.modelFor ? window.RS.modelFor(p.outfit) : loadRSModel('nickai3'));
     if (!remotes.has(p.id)) return;
@@ -462,12 +464,12 @@ async function main() {
     if (r.m) scene.remove(r.m.group);
     r.m = m; scene.add(m.group);
   }
-  net.on('join', p => { addRemote(p); chatLog.push({ text: p.name + ' rolled in.', col: '#0ff', t: 0 }); })
+  net.on('join', p => { addRemote(p); chatLog.push(p.own ? { text: '[OWNER] ' + p.name + ' rolled in.', col: GOLD, crown: true, t: 0 } : { text: p.name + ' rolled in.', col: '#0ff', t: 0 }); })
      .on('leave', m => { const r = remotes.get(m.id); if (r) chatLog.push({ text: r.name + ' left.', col: '#0ff', t: 0 }); dropRemote(m.id); })
      .on('st', m => { const r = remotes.get(m.id); if (r) r.tgt = m.s; })
      .on('xp', m => { const r = remotes.get(m.id); if (r) r.xp = m.xp; })
      .on('outfit', m => reskin(m.id, m.outfit))
-     .on('say', m => { say.set(m.id, { text: m.text, t: 0 }); chatLog.push({ text: m.name + ': ' + m.text, col: '#ff0', t: 0 }); })
+     .on('say', m => { say.set(m.id, { text: m.text, t: 0 }); chatLog.push(m.own ? { text: '[OWNER] ' + m.name + ': ' + m.text, col: GOLD, crown: true, t: 0 } : { text: m.name + ': ' + m.text, col: '#ff0', t: 0 }); })
      .on('kicked', () => { chatLog.push({ text: 'Logged in somewhere else - disconnected.', col: '#f00', t: 0 }); })
      .on('closed', () => { if (!idleKicked) chatLog.push({ text: 'Connection lost - reconnecting...', col: '#f00', t: 0 }); for (const id of [...remotes.keys()]) dropRemote(id); })
      .on('rejoined', w => { me.xp = Math.max(me.xp, w.xp); chatLog.push({ text: 'Reconnected.', col: '#0f0', t: 0 }); });
@@ -769,10 +771,11 @@ async function main() {
       renderer.setClearColor(0, 0);
     } else renderer.render(scene, camera);
     hud.tags.length = 0;
-    const tag = (x, y, z, text, col, sub) => { v.set(x, y, -z).project(camera); if (v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2) hud.tags.push({ text, col, sub, screen: [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight] }); };
+    const tag = (x, y, z, text, col, sub, crown) => { v.set(x, y, -z).project(camera); if (v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2) hud.tags.push({ text, col, sub, crown, screen: [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight] }); };
     for (const r of remotes.values()) if (r.s && Math.hypot(r.s.x - sk.x, r.s.z - sk.z) < 14) {   // tags only for skaters near you
       const said = say.get(r.id);
-      tag(r.s.x, r.s.y + 2.35, r.s.z, `${r.name} (level-${levelFor(r.xp)})`, '#fff', said ? said.text : null);
+      if (r.own) tag(r.s.x, r.s.y + 2.35, r.s.z, `[OWNER] ${r.name} (level-${levelFor(r.xp)})`, GOLD, said ? said.text : null, true);
+      else tag(r.s.x, r.s.y + 2.35, r.s.z, `${r.name} (level-${levelFor(r.xp)})`, '#fff', said ? said.text : null);
     }
     for (const [id, m] of say) { m.t += dt; if (m.t > 5) say.delete(id); }
     const mine = net.me && say.get(net.me.id);

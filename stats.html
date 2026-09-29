@@ -99,7 +99,7 @@ function draw() {
 function chat() {
   const c = data.chat;
   if (!c.length) { $('chat').innerHTML = '<span class="muted">nobody has said anything in the last 7 days</span>'; return; }
-  $('chat').innerHTML = c.slice().reverse().map(m => `<div><time>${esc(fmt(Math.floor(m.t / 60000), true))}</time><span class="n">${esc(m.n)}:</span>${esc(m.m)}</div>`).join('');
+  $('chat').innerHTML = c.slice().reverse().map(m => `<div><time>${esc(fmt(Math.floor(m.t / 60000), true))}</time><span class="n"${m.o ? ' style="color:#ffc933"' : ''}>${m.o ? '&#x1F451; [OWNER] ' : ''}${esc(m.n)}:</span>${esc(m.m)}</div>`).join('');
 }
 
 for (const b of document.querySelectorAll('.range button')) b.onclick = () => {

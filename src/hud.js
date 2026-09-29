@@ -86,6 +86,16 @@ export class HUD {
     this.x.globalAlpha = alpha; this.x.drawImage(im, Math.round(x - ox), Math.round(y)); this.x.globalAlpha = 1;
     return im.width;
   }
+  /** the owner's crown badge (5-point crown, gold with a black outline), left edge at x, top at y; returns its width */
+  crown(x, y, k) {
+    const c = this.x, w = 11 * k, h = 8 * k; x = Math.round(x); y = Math.round(y);
+    c.beginPath();
+    c.moveTo(x, y + h); c.lineTo(x, y + h * 0.25); c.lineTo(x + w * 0.25, y + h * 0.6); c.lineTo(x + w * 0.5, y);
+    c.lineTo(x + w * 0.75, y + h * 0.6); c.lineTo(x + w, y + h * 0.25); c.lineTo(x + w, y + h); c.closePath();
+    c.fillStyle = '#ffc933'; c.fill(); c.lineWidth = Math.max(1, k * 0.8); c.strokeStyle = '#000'; c.stroke();
+    c.fillStyle = '#e0303a'; c.fillRect(x + w * 0.5 - k, y + h * 0.62, 2 * k, 2 * k);   // a ruby in the band
+    return w;
+  }
   pop(text, color = '#fff') { this.pops.push({ text, color, t: 0 }); }
   big(text, color = '#f00', sub = '', dur = 2.2) { this.msg = { text, color, sub, t: 0, dur }; }
 
@@ -103,7 +113,8 @@ export class HUD {
     // level + xp (points are total XP)
     if (this.me) {
       const xp = this.me.xp, L = levelFor(xp), y0 = 14 + K * 24 + 4;
-      this.text(`${this.me.name}  LEVEL ${L}${L >= MAX_LEVEL ? ' (MAX)' : ''}`, 16, y0, '#0f0', k1, 'l', 'p12');
+      const cx = this.me.own ? 16 + this.crown(16, y0, k1) + 3 * k1 : 16;
+      this.text(`${this.me.own ? '[OWNER] ' : ''}${this.me.name}  LEVEL ${L}${L >= MAX_LEVEL ? ' (MAX)' : ''}`, cx, y0, this.me.own ? '#ffc933' : '#0f0', k1, 'l', 'p12');
       this.text(`XP ${Math.floor(xp).toLocaleString()}`, 16, y0 + k1 * 11, '#fff', k1, 'l', 'p12', 0.85);
       const bw = 120 * k1 / 1.5, by = y0 + k1 * 23;
       x.fillStyle = 'rgba(0,0,0,0.55)'; x.fillRect(16, by, bw, 5);
@@ -127,12 +138,16 @@ export class HUD {
     }
     // name tags + overhead chat
     for (const t of this.tags) {
-      if (t.text) this.text(t.text, t.screen[0], t.screen[1], t.col, k1, 'c', 'p12');
+      if (t.text) { const w = this.text(t.text, t.screen[0], t.screen[1], t.col, k1, 'c', 'p12'); if (t.crown) this.crown(t.screen[0] - w / 2 - 14 * k1, t.screen[1], k1); }
       if (t.sub) this.text(t.sub, t.screen[0], t.screen[1] - k1 * 12, '#ff0', k1, 'c', 'b12');
     }
     // chat log (fades)
     this.chat = this.chat.filter(c => (c.t += dt) < 12);
-    this.chat.slice(-6).forEach((c, i, arr) => this.text(c.text, 16, H - 34 - K * 10 - (arr.length - 1 - i) * k1 * 11, c.col, k1, 'l', 'p12', Math.min(1, (12 - c.t) / 2)));
+    this.chat.slice(-6).forEach((c, i, arr) => {
+      const y = H - 34 - K * 10 - (arr.length - 1 - i) * k1 * 11, a = Math.min(1, (12 - c.t) / 2);
+      let cx = 16; if (c.crown) { this.x.globalAlpha = a; cx += this.crown(16, y, k1) + 3 * k1; this.x.globalAlpha = 1; }
+      this.text(c.text, cx, y, c.col, k1, 'l', 'p12', a);
+    });
     // live combo
     if (sk.combo.length || (sk.mode === 'grind')) {
       const names = sk.combo.slice(-4).join(' + ') + (sk.mode === 'grind' ? (sk.combo.length ? ' + ' : '') + sk.grindKind : '');
@@ -236,8 +251,9 @@ export class HUD {
     const hy = py + 12 + K * 14;
     this.text('LEVEL', px + pw * 0.44, hy, '#a0927a', k, 'l', 'p12'); this.text('XP', px + pw * 0.80, hy, '#a0927a', k, 'r', 'p12'); this.text('RUNES', px + pw - 12, hy, '#a0927a', k, 'r', 'p12');
     rows.forEach((r, i) => {
-      const y = py + 12 + K * 14 + lh + 4 + i * lh, me = this.me && r.name === this.me.name, col = me ? '#0f0' : i < 3 ? '#ff0' : '#fff';
-      this.text(`${i + 1}. ${r.name}${r.on ? ' *' : ''}`, px + 12, y, col, k, 'l', 'p12');
+      const y = py + 12 + K * 14 + lh + 4 + i * lh, me = this.me && r.name === this.me.name, col = r.own ? '#ffc933' : me ? '#0f0' : i < 3 ? '#ff0' : '#fff';
+      const nw = this.text(`${i + 1}. ${r.name}${r.on ? ' *' : ''}`, px + 12, y, col, k, 'l', 'p12');
+      if (r.own) this.crown(px + 12 + nw + 3 * k, y, k);
       this.text(`lvl ${levelFor(r.xp)}`, px + pw * 0.44, y, col, k, 'l', 'p12');
       this.text(Math.floor(r.xp).toLocaleString(), px + pw * 0.80, y, col, k, 'r', 'p12');
       this.text(`${r.runes || 0}/${r.runeTotal || 40}`, px + pw - 12, y, '#0cf', k, 'r', 'p12');

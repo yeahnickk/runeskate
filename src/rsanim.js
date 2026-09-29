@@ -64,7 +64,12 @@ export async function buildOutfitModel(outfit) {
       remap[v] = i;
     }
     for (let f = 0; f < p.tri.length; f++) faces.push(remap[p.tri[f]]);
-    for (let c = 0; c < p.col.length; c++) cols.push(p.col[c]);
+    if (outfit.gild && p.kind === 'item') {                  // the owner's gilded armour: every worn item recast in gold, keeping its shading
+      for (let c = 0; c < p.col.length; c += 3) {
+        const l = Math.min(1, Math.pow((0.3 * p.col[c] + 0.59 * p.col[c + 1] + 0.11 * p.col[c + 2]) / 255, 0.6) * 1.15);
+        cols.push(Math.min(255, 72 + 190 * l), Math.min(255, 50 + 178 * l), Math.min(255, 6 + 95 * l * l));
+      }
+    } else for (let c = 0; c < p.col.length; c++) cols.push(p.col[c]);
   }
   const nv = X.length;
   // prepareAnim: vertices per label
