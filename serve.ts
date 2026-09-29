@@ -187,7 +187,7 @@ Bun.serve({
           const sess: Sess = { id: nextId++, name: a.name, own: isOwner(k) ? 1 : undefined, k, st: null, ws, xp: a.xp, outfit: a.outfit };
           ws.data.sess = sess; sessions.set(sess.id, sess); peak = Math.max(peak, sessions.size);
           a.seen = Date.now(); dirty = true;
-          ws.send(JSON.stringify({ t: 'welcome', id: sess.id, name: a.name, login: a.login || a.name, own: sess.own, xp: a.xp, outfit: a.outfit, isNew, prog: a.prog || { found: [], done: [] }, players: [...sessions.values()].filter(o => o !== sess).map(pub) }));
+          ws.send(JSON.stringify({ t: 'welcome', id: sess.id, name: a.name, login: a.login || a.name, own: sess.own, xp: a.xp, outfit: a.outfit, isNew, prog: a.prog || { found: [], done: [] }, recent: chatLog.slice(-20).map(c => ({ n: c.n, m: c.m, o: c.o })), players: [...sessions.values()].filter(o => o !== sess).map(pub) }));
           broadcast({ t: 'join', ...pub(sess) }, sess.id);
         } finally { ws.data.busy = false; }
         return;

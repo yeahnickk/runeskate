@@ -215,7 +215,7 @@ export class Skater {
     if (this.slide) this.slide = Math.min(1, this.slide + dt * 6);
 
     const under = w.tileKind(this.x, this.z);
-    if (under === 2 || under === 3) { this.bail(under === 2 ? 'water' : 'rocks'); return; }
+    if ((under === 2 || under === 3) && !this.noclip) { this.bail(under === 2 ? 'water' : 'rocks'); return; }
     this.safeT += dt;
     if (this.safeT > P.safeEvery && this.speed < 9) { this.safeT = 0; this.lastSafe = { x: this.x, z: this.z, heading: this.heading }; }
     void px; void pz; void h0;
@@ -284,7 +284,7 @@ export class Skater {
     if (this.y <= g) {
       this.y = g;
       const kind = this.w.tileKind(this.x, this.z);
-      if (kind === 2 || kind === 3) { this.bail(kind === 2 ? 'water' : 'rocks'); return; }    // 3 = a rocky outcrop
+      if ((kind === 2 || kind === 3) && !this.noclip) { this.bail(kind === 2 ? 'water' : 'rocks'); return; }    // 3 = a rocky outcrop
       this.land(-this.vy);
     }
   }
@@ -525,6 +525,7 @@ export class Skater {
   }
 
   solid(s, air) {
+    if (this.noclip) return !!s.frontier;         // owner ::noclip: through everything except the edge of the loaded map
     if (s.kind === 'water') return !air;          // you can fly over the bank... and into the river
     if (s.top) {
       // low walls, railings, fences, gates, hedges, small cacti/rocks: clear them if the board is above the top
@@ -539,6 +540,7 @@ export class Skater {
    *  glide it smoothly to the nearest open spot (a few tiles/s), keeping its speed, then carry on. */
   unstick(dt) {
     const w = this.w;
+    if (this.noclip) { this.unstickTo = null; return; }
     if (!this.unstickTo) {
       // in the air you may be flying over a hedge/cactus tile: only a real wedge counts there
       const inBlocked = this.mode !== 'air' && w.tileKind(this.x, this.z) === 1;

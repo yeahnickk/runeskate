@@ -13,6 +13,7 @@ import { buildOutfitModel, loadKit } from './rsanim.js';
 import { Designer } from './designer.js';
 import { Goals } from './goals.js';
 import { EXTRA_SPAWNS } from './npc-spawns.js';
+import { Portals } from './portals.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
@@ -149,20 +150,32 @@ async function main() {
       const d = Math.hypot(Math.max(r.x0 - x, 0, x - (r.x0 + r.w)), Math.max(r.z0 - z, 0, z - (r.z0 + r.h)));
       const title = r.title || r.name;
       if (d < 8 && (loadNoteT -= dt) <= 0) { loadNoteT = 4; hud.pop(`loading ${title}...`, '#ff981f'); }
-      if (d > STREAM_AT || regionState.get(r.name) === 'loading') continue;
-      regionState.set(r.name, 'loading');
-      Promise.all([fetch(`assets/world_${r.name}.json`).then(q => q.json()), fetch(`assets/world_${r.name}.bin`).then(q => q.arrayBuffer())])
-        .then(([pack, rbin]) => {
-          world.addRegion(pack); addLanes(pack.lanes); addChunks(pack, rbin);
-          renderMini(pack);
-          regionState.set(r.name, 'ready');
-          spawnNpcs(pack);
-          goals.regionLoaded();
-          hud.pop(`${title.toUpperCase()} IS OPEN`, '#0f0');
-        })
-        .catch(() => { regionState.set(r.name, 'failed'); setTimeout(() => regionState.delete(r.name), 10000); });   // try again shortly
+      if (d > STREAM_AT) continue;
+      loadRegion(r).catch(() => {});
     }
   }
+  /** fetch + drop in one pack (once); the portals await this before teleporting somewhere not yet loaded */
+  const regionLoads = new Map();
+  function loadRegion(r) {
+    if (world.loaded.has(r.name)) return Promise.resolve();
+    if (regionLoads.has(r.name)) return regionLoads.get(r.name);
+    const title = r.title || r.name;
+    regionState.set(r.name, 'loading');
+    const p = Promise.all([fetch(`assets/world_${r.name}.json`).then(q => q.json()), fetch(`assets/world_${r.name}.bin`).then(q => q.arrayBuffer())])
+      .then(([pack, rbin]) => {
+        world.addRegion(pack); addLanes(pack.lanes); addChunks(pack, rbin);
+        renderMini(pack);
+        regionState.set(r.name, 'ready');
+        spawnNpcs(pack);
+        goals.regionLoaded();
+        hud.pop(`${title.toUpperCase()} IS OPEN`, '#0f0');
+      })
+      .catch(e => { regionState.set(r.name, 'failed'); setTimeout(() => { regionState.delete(r.name); regionLoads.delete(r.name); }, 10000); throw e; });   // try again shortly
+    regionLoads.set(r.name, p);
+    return p;
+  }
+  /** make sure the region holding local tile (x,z) is loaded */
+  const ensureAt = (x, z) => { const r = world.regions.find(q => x >= q.x0 && x < q.x0 + q.w && z >= q.z0 && z < q.z0 + q.h); return r ? loadRegion(r) : Promise.resolve(); };
   status('loading skaters...');
   await pModels;
   let player = await loadRSModel('nickai3');
@@ -288,7 +301,7 @@ async function main() {
   // the owner's rune scimitar: a click swings it, and the nearest skater in reach gets knocked off their board
   // (the server only relays 'hit' from the owner's account)
   function swing() {
-    if (!me.own || sk.mode === 'bail') return;
+    if (!me.own || sk.mode !== 'walk') return;            // on foot only (E to step off the board)
     startEmote(SLASH);
     let best = null, bd = 3.2;
     for (const r of remotes.values()) {
@@ -447,6 +460,7 @@ async function main() {
       try {
         const w = await net.connect(name, pass);
         me.name = w.name; me.login = w.login || w.name; me.own = w.own; me.xp = w.xp; me.outfit = w.outfit; me.prog = w.prog; me.isNew = w.isNew || !w.outfit;
+        for (const c of w.recent || []) chatLog.push(c.o ? { text: '[OWNER] ' + c.n + ': ' + c.m, col: GOLD, crown: true, t: 0, msg: 1, old: 1 } : { text: c.n + ': ' + c.m, col: '#ff0', t: 0, msg: 1, old: 1 });   // earlier chat: in the history (ENTER), not on screen
         const q = new URLSearchParams(location.search); q.set('name', w.login || w.name); q.delete('password');   // log in by the ACCOUNT name, not the display name
         history.replaceState(null, '', '?' + q.toString() + location.hash);
       } catch (err) { $('lerr').textContent = err.message; return; }
@@ -506,6 +520,8 @@ async function main() {
   } });
   const offlineProg = localProg();
   window.RS.goals = goals;
+  const portals = new Portals({ scene, world, sk, hud, audio, ensureAt });
+  window.RS.portals = portals;
   window.RS.onLogin = async who => {
     // this browser's saved progress only counts for the account that made it (or a solo run)
     const lp = offlineProg && (!offlineProg.who || offlineProg.who === who.name || offlineProg.who === who.login || offlineProg.who === 'offline') ? offlineProg : null;
@@ -547,11 +563,11 @@ async function main() {
      .on('st', m => { const r = remotes.get(m.id); if (r) r.tgt = m.s; })
      .on('xp', m => { const r = remotes.get(m.id); if (r) r.xp = m.xp; })
      .on('outfit', m => reskin(m.id, m.outfit))
-     .on('say', m => { say.set(m.id, { text: m.text, t: 0 }); chatLog.push(m.own ? { text: '[OWNER] ' + m.name + ': ' + m.text, col: GOLD, crown: true, t: 0 } : { text: m.name + ': ' + m.text, col: '#ff0', t: 0 }); })
+     .on('say', m => { say.set(m.id, { text: m.text, t: 0 }); chatLog.push(m.own ? { text: '[OWNER] ' + m.name + ': ' + m.text, col: GOLD, crown: true, t: 0, msg: 1 } : { text: m.name + ': ' + m.text, col: '#ff0', t: 0, msg: 1 }); if (chatLog.length > 300) chatLog.splice(0, chatLog.length - 300); })
      .on('hit', m => {                                   // the owner's scimitar: down you go
        if (sk.mode === 'bail') return;
        sk.vx += (m.dx || 0) * 6; sk.vz += (m.dz || 0) * 6; sk.bail('smacked', { by: m.name });
-       chatLog.push({ text: m.name + ' smacked you off your board with a scimitar!', col: GOLD, crown: true, t: 0 });
+       chatLog.push({ text: m.name + ' smacked you off your board with a scimitar!', col: GOLD, crown: true, t: 0, msg: 1 });
      })
      .on('kicked', () => { chatLog.push({ text: 'Logged in somewhere else - disconnected.', col: '#f00', t: 0 }); })
      .on('closed', () => { if (!idleKicked) chatLog.push({ text: 'Connection lost - reconnecting...', col: '#f00', t: 0 }); for (const id of [...remotes.keys()]) dropRemote(id); })
@@ -580,14 +596,25 @@ async function main() {
     }
   }
   // chat: Enter opens a one-line box
+  // ::commands typed in chat stay on this client and are never sent as chat
+  function command(c) {
+    if (!me.own) { chatLog.push({ text: 'Unknown command.', col: '#f00', t: 0, msg: 1 }); return; }
+    if (c === 'noclip') { sk.noclip = !sk.noclip; chatLog.push({ text: 'Noclip ' + (sk.noclip ? 'ON - skate through anything.' : 'OFF.'), col: GOLD, crown: true, t: 0, msg: 1 }); }
+    else chatLog.push({ text: 'Commands: ::noclip', col: GOLD, t: 0, msg: 1 });
+  }
   function openChat() {
     const box = $('chatbox'); if (box.style.display === 'block') return;
     box.style.display = 'block'; box.value = ''; box.focus(); keys.clear();
+    hud.chatOpen = true; hud.chatScroll = 0;
   }
+  // scroll the chat history while the chat box is open
+  addEventListener('wheel', e => { if (!hud.chatOpen) return; hud.chatScroll = Math.max(0, (hud.chatScroll || 0) + (e.deltaY < 0 ? 1 : -1)); }, { passive: true });
   $('chatbox').addEventListener('keydown', e => {
     e.stopPropagation();
-    if (e.key === 'Enter') { const t = e.target.value.trim(); if (t) net.send({ t: 'say', text: t }); }
-    if (e.key === 'Enter' || e.key === 'Escape') { e.target.style.display = 'none'; e.target.blur(); }
+    if (e.key === 'Enter') { const t = e.target.value.trim(); if (t.startsWith('::')) command(t.slice(2).toLowerCase()); else if (t) net.send({ t: 'say', text: t }); }
+    if (e.key === 'Enter' || e.key === 'Escape') { e.target.style.display = 'none'; e.target.blur(); hud.chatOpen = false; }
+    if (e.key === 'PageUp') hud.chatScroll = (hud.chatScroll || 0) + 5;
+    if (e.key === 'PageDown') hud.chatScroll = Math.max(0, (hud.chatScroll || 0) - 5);
   });
 
 
@@ -863,6 +890,7 @@ async function main() {
     placeShadow(myShadow, sk.x, sk.y, sk.z, sk.mode !== 'bail' || !sk.inWater);
     updateSparks(dt);
     goals.update(dt, camera);
+    portals.update(dt);
     drawSkater(dt);
     updateRemotes(dt);
     net.state(snapshot(), performance.now());
@@ -890,7 +918,7 @@ async function main() {
     hud.chat = chatLog; hud.me = me; hud.online = null; hud.mini = miniMap;
     hud.playing = net.online ? net.players.size + 1 : 0;   // live skaters on the server, you included
     hud.miniDots.length = 0;
-    hud.miniDots.push(...goals.dots());
+    hud.miniDots.push(...goals.dots(), ...portals.dots());
     for (const r of remotes.values()) if (r.s) hud.miniDots.push({ x: r.s.x, z: r.s.z, col: '#fff', r: 2 });
     hud.goal = goals.status();
     hud.draw(dt, sk, cfg);

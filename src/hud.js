@@ -141,10 +141,25 @@ export class HUD {
       if (t.text) { const w = this.text(t.text, t.screen[0], t.screen[1], t.col, k1, 'c', 'p12'); if (t.crown) this.crown(t.screen[0] - w / 2 - 14 * k1, t.screen[1], k1); }
       if (t.sub) this.text(t.sub, t.screen[0], t.screen[1] - k1 * 12, '#ff0', k1, 'c', 'b12');
     }
-    // chat log (fades)
-    this.chat = this.chat.filter(c => (c.t += dt) < 12);
-    this.chat.slice(-6).forEach((c, i, arr) => {
-      const y = H - 34 - K * 10 - (arr.length - 1 - i) * k1 * 11, a = Math.min(1, (12 - c.t) / 2);
+    // chat log: player messages linger ~2 min, join/leave notices fade after 10s. With the chat box open
+    // (ENTER) the whole history shows, scrollable with the mouse wheel.
+    for (const c of this.chat) c.t += dt;
+    const life = c => c.old ? 0 : c.msg ? 120 : 10;
+    const lineH = k1 * 11, baseY = H - 34 - K * 10 - (this.chatOpen ? 30 : 0);
+    let rows;
+    if (this.chatOpen) {
+      const hist = this.chat.filter(c => c.msg || c.t < 10), n = 10;
+      this.chatScroll = Math.max(0, Math.min(this.chatScroll || 0, hist.length - n));
+      const end = hist.length - this.chatScroll;
+      rows = hist.slice(Math.max(0, end - n), end).map(c => [c, 1]);
+      if (rows.length) {
+        x.fillStyle = 'rgba(0,0,0,0.45)';
+        x.fillRect(10, baseY - (rows.length - 0.3) * lineH - 4, Math.min(W - 20, 520 * k1 / 2), rows.length * lineH + 6);
+        if (hist.length > n) this.text(this.chatScroll ? `scroll: ${this.chatScroll} older below` : 'mouse wheel: scroll up', 16, baseY - rows.length * lineH - 2, '#aaa', k1 * 0.8, 'l', 'p12');
+      }
+    } else rows = this.chat.filter(c => c.t < life(c)).slice(-6).map(c => [c, Math.min(1, (life(c) - c.t) / 2)]);
+    rows.forEach(([c, a], i) => {
+      const y = baseY - (rows.length - 1 - i) * lineH;
       let cx = 16; if (c.crown) { this.x.globalAlpha = a; cx += this.crown(16, y, k1) + 3 * k1; this.x.globalAlpha = 1; }
       this.text(c.text, cx, y, c.col, k1, 'l', 'p12', a);
     });
@@ -265,7 +280,7 @@ export class HUD {
     const lines = [
       ['W / UP', 'push'], ['S / DOWN', 'brake'], ['A D / LEFT RIGHT', 'steer (air: spin, grind: balance)'],
       ['SPACE', 'hold + release: ollie'], ['J / K / L / I', 'kickflip / heelflip / shove-it / varial'], ['U / N / M / Y / B', '360 flip / hardflip / 360 shove / double kick / double heel'], ['MOUSE', 'pull down, flick up: ollie (up-left kickflip, up-right heelflip)'],
-      ['SHIFT', 'powerslide'], ['Q (rolling)', 'manual, balance with W / S'], ['Q (in the air)', 'grab: hold, A/D pick the grab'], ['C', 'camera'], ['R', 'back to Lumbridge spawn'], ['E', 'step off / on the board'], ['O', 'outfit'], ['1 - 5', 'emotes: wave, cheer, dance, laugh, clap'], ['ENTER', 'chat'],
+      ['SHIFT', 'powerslide'], ['Q (rolling)', 'manual, balance with W / S'], ['Q (in the air)', 'grab: hold, A/D pick the grab'], ['C', 'camera'], ['R', 'back to Lumbridge spawn'], ['E', 'step off / on the board'], ['O', 'outfit'], ['1 - 5', 'emotes: wave, cheer, dance, laugh, clap'], ['PORTALS', 'east of the Lumbridge courtyard: roll in to teleport'], ['ENTER', 'chat'],
       ['TAB (hold)', 'leaderboard'], ['H', 'hide this help'],
     ];
     const k2 = Math.max(1, K - 1), p12 = this.f.p12, lh = k2 * 12;
