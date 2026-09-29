@@ -1,5 +1,5 @@
-// Teleport portals: a labelled cluster in the open plaza east of the Lumbridge spawn courtyard (pads laid out
-// roughly the way each place lies on the map, >= 5 tiles apart), one per destination, and a portal back to
+// Teleport portals: set flat against the side walls of the Lumbridge castle courtyard (the keep's wall on the
+// west, the gatehouse on the east), facing in - out of the line from spawn to the gate so nobody rolls in by accident, one per destination, and a portal back to
 // Lumbridge beside every arrival point. Roll into one to go. A destination that is not streamed in yet is
 // fetched first ("TELEPORTING..."), so the portals double as the quick way to open the rest of the map.
 // All tiles are world coords, checked open and reachable with tools/place.py's flood fill.
@@ -7,13 +7,13 @@ import * as THREE from 'three';
 
 const HOME = { name: 'Lumbridge', at: [3222, 3218], col: '#3cf' };
 const DESTS = [
-  { name: 'Varrock', pad: [3232, 3225], at: [3209, 3425], back: [3207, 3427], col: '#f93' },
-  { name: 'Falador', pad: [3234, 3220], at: [2965, 3378], back: [2962, 3377], col: '#fff' },
-  { name: 'Draynor', pad: [3236, 3215], at: [3092, 3249], back: [3089, 3248], col: '#9f6' },
-  { name: 'Port Sarim', pad: [3232, 3211], at: [3016, 3242], back: [3013, 3241], col: '#6cf' },
-  { name: 'Edgeville', pad: [3240, 3223], at: [3094, 3496], back: [3092, 3498], col: '#fd4' },
-  { name: 'Al Kharid', pad: [3242, 3217], at: [3292, 3176], back: [3291, 3179], col: '#fc6' },
-  { name: 'King Black Dragon', pad: [3240, 3211], sub: 'deep Wilderness!', at: [2965, 3856], back: [2964, 3853], col: '#f33' },
+  { name: 'Varrock', pad: [3226, 3223], at: [3209, 3425], back: [3207, 3427], col: '#f93' },
+  { name: 'Falador', pad: [3218, 3223], at: [2965, 3378], back: [2962, 3377], col: '#fff' },
+  { name: 'Draynor', pad: [3218, 3214], at: [3092, 3249], back: [3089, 3248], col: '#9f6' },
+  { name: 'Port Sarim', pad: [3218, 3211], at: [3016, 3242], back: [3013, 3241], col: '#6cf' },
+  { name: 'Edgeville', pad: [3218, 3226], at: [3094, 3496], back: [3092, 3498], col: '#fd4' },
+  { name: 'Al Kharid', pad: [3226, 3214], at: [3292, 3176], back: [3291, 3179], col: '#fc6' },
+  { name: 'King Black Dragon', pad: [3226, 3226], sub: 'deep Wilderness!', at: [2965, 3856], back: [2964, 3853], col: '#f33' },
 ];
 
 function labelTexture(text, sub, col) {
@@ -35,7 +35,8 @@ export class Portals {
     Object.assign(this, { scene, world, sk, hud, audio, ensureAt });
     this.list = []; this.busy = false; this.cool = 0;
     const W = world, B = W.base;
-    const add = (at, to, label, sub, col) => {
+    const COURT = [3222 - B[0] + 0.5, 3218 - B[1] + 0.5];   // courtyard centre (spawn): home pads face it
+    const add = (at, to, label, sub, col, face) => {
       const x = at[0] - B[0] + 0.5, z = at[1] - B[1] + 0.5;
       const g = new THREE.Group();
       const c = new THREE.Color(col);
@@ -46,16 +47,17 @@ export class Portals {
       const pad = new THREE.Mesh(new THREE.RingGeometry(0.6, 1.0, 32), new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false }));
       pad.rotation.x = -Math.PI / 2; pad.position.y = 0.04;
       const sign = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture(label, sub, col), depthTest: false, transparent: true }));
-      sign.scale.set(3.2, 0.8, 1); sign.position.y = 2.55; sign.renderOrder = 5;
+      sign.scale.set(2.6, 0.65, 1); sign.position.y = 2.45; sign.renderOrder = 5;
       g.add(ring, disc, pad, sign);
       g.position.set(x, 0, -z);
+      if (face) ring.rotation.y = disc.rotation.y = face[0] > x ? Math.PI / 2 : -Math.PI / 2;   // square to its wall, facing into the courtyard
       g.visible = false; scene.add(g);
-      this.list.push({ x, z, to, label, g, ring, disc, col });
+      this.list.push({ x, z, to, label, g, ring, disc, col, fixed: !!face });
     };
-    for (const d of DESTS) add(d.pad, d, d.name, d.sub, d.col);
+    for (const d of DESTS) add(d.pad, d, d.name, d.sub, d.col, COURT);
     for (const d of DESTS) add(d.back, HOME, 'Lumbridge', null, HOME.col);
     // one big header over the Lumbridge cluster so it reads as "teleports" from the courtyard
-    const hx = 3237 - B[0] + 0.5, hz = 3218 - B[1] + 0.5;
+    const hx = 3222 - B[0] + 0.5, hz = 3219 - B[1] + 0.5;
     this.header = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture('Teleports', 'roll into a portal', '#c4f'), depthTest: false, transparent: true }));
     this.header.scale.set(6, 1.5, 1); this.header.renderOrder = 5;
     this.header.position.set(hx, W.height(hx, hz) + 5.2, -hz); this.header.userData.at = [hx, hz];
@@ -72,7 +74,7 @@ export class Portals {
       p.g.visible = live && d < 45;
       if (!p.g.visible) continue;
       p.g.position.y = W.height(p.x, p.z);
-      p.g.rotation.y = now * 0.6;                                  // slow spin
+      if (!p.fixed) p.g.rotation.y = now * 0.6;                    // return portals out in the open slowly spin
       p.disc.material.opacity = 0.35 + Math.sin(now * 3 + p.x) * 0.12;
       p.ring.scale.setScalar(1 + Math.sin(now * 2 + p.z) * 0.04);
       if (!this.busy && this.cool <= 0 && d < 0.95 && sk.mode !== 'bail' && sk.y < p.g.position.y + 2) this.go(p);
