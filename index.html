@@ -23,9 +23,26 @@
   button.small { font-size: 14px; padding: 8px 16px; background: #3a3020; }
   #chatbox { display: none; position: fixed; left: 16px; bottom: 16px; width: min(480px, calc(100% - 32px)); z-index: 6; box-sizing: border-box; }
 </style>
+<!-- start the big downloads with the HTML, not after the whole module graph has loaded -->
+<link rel="preload" href="assets/world.bin" as="fetch" crossorigin="anonymous">
+<link rel="preload" href="assets/world.json" as="fetch" crossorigin="anonymous">
 <script type="importmap">
   { "imports": { "three": "./vendor/three.module.js", "three-mesh-bvh": "./vendor/three-mesh-bvh.module.js" } }
 </script>
+<link rel="modulepreload" href="./vendor/three.module.js">
+<link rel="modulepreload" href="./vendor/three-mesh-bvh.module.js">
+<link rel="modulepreload" href="./src/audio.js">
+<link rel="modulepreload" href="./src/designer.js">
+<link rel="modulepreload" href="./src/goals.js">
+<link rel="modulepreload" href="./src/hud.js">
+<link rel="modulepreload" href="./src/levels.js">
+<link rel="modulepreload" href="./src/main.js">
+<link rel="modulepreload" href="./src/model.js">
+<link rel="modulepreload" href="./src/net.js">
+<link rel="modulepreload" href="./src/rsanim.js">
+<link rel="modulepreload" href="./src/skater.js">
+<link rel="modulepreload" href="./src/spots.js">
+<link rel="modulepreload" href="./src/world.js">
 </head>
 <body>
 <canvas id="gl"></canvas>
