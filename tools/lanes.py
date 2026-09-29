@@ -160,6 +160,12 @@ for (x, z) in cleared:
         segs.append([a[0], a[1], b[0], b[1], 'water' if blk[X, Z] >= 2 else 'block', top_of.get((X, Z)) if blk[X, Z] == 1 else None])
 print('cleared', len(cleared), 'tree tiles; outline edges added', added, '; painted', len(paint), 'tiles')
 
+# doorways left open (world coords of the edge's low corner + orientation): Lumbridge church's west doors, so
+# its hidden rune (tools/runes.py) is a roll-in, not a guess
+OPEN_DOORWAYS = {(3238, 3209, 'v'), (3238, 3210, 'v'), (3238, 3211, 'v')}
+before = len(segs)
+segs = [s for s in segs if (min(s[0], s[2]) + BX, min(s[1], s[3]) + BZ, 'v' if s[0] == s[2] else 'h') not in OPEN_DOORWAYS]
+print('doorways opened', before - len(segs))
 w['segs'] = segs
 w['blocked'] = blk.T.reshape(-1).tolist()                    # [z][x]: 1 block, 2 water, 3 rock
 w['lanes'] = [[x, z, round(s, 2)] for (x, z), s in sorted(paint.items())]

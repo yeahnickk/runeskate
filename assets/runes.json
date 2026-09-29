@@ -1,0 +1,285 @@
+{
+"runes": [
+{
+"id": "fire-3246-3207",
+"kind": "fire",
+"high": false,
+"x": 3246,
+"z": 3207,
+"hidden": true
+},
+{
+"id": "water-3095-3315",
+"kind": "water",
+"high": false,
+"x": 3095,
+"z": 3315
+},
+{
+"id": "earth-3235-3308",
+"kind": "earth",
+"high": false,
+"x": 3235,
+"z": 3308
+},
+{
+"id": "fire-3124-3289",
+"kind": "fire",
+"high": false,
+"x": 3124,
+"z": 3289
+},
+{
+"id": "air-3164-3298",
+"kind": "air",
+"high": true,
+"x": 3164,
+"z": 3298
+},
+{
+"id": "water-3146-3277",
+"kind": "water",
+"high": false,
+"x": 3146,
+"z": 3277
+},
+{
+"id": "earth-3213-3262",
+"kind": "earth",
+"high": false,
+"x": 3213,
+"z": 3262
+},
+{
+"id": "fire-3182-3207",
+"kind": "fire",
+"high": false,
+"x": 3182,
+"z": 3207
+},
+{
+"id": "air-3287-3180",
+"kind": "air",
+"high": true,
+"x": 3287,
+"z": 3180
+},
+{
+"id": "water-3179-3310",
+"kind": "water",
+"high": false,
+"x": 3179,
+"z": 3310
+},
+{
+"id": "earth-3285-3196",
+"kind": "earth",
+"high": false,
+"x": 3285,
+"z": 3196
+},
+{
+"id": "fire-3209-3312",
+"kind": "fire",
+"high": false,
+"x": 3209,
+"z": 3312
+},
+{
+"id": "air-3267-3279",
+"kind": "air",
+"high": true,
+"x": 3267,
+"z": 3279
+},
+{
+"id": "water-3291-3312",
+"kind": "water",
+"high": false,
+"x": 3291,
+"z": 3312
+},
+{
+"id": "earth-3169-3376",
+"kind": "earth",
+"high": false,
+"x": 3169,
+"z": 3376
+},
+{
+"id": "fire-3177-3248",
+"kind": "fire",
+"high": false,
+"x": 3177,
+"z": 3248
+},
+{
+"id": "air-3242-3336",
+"kind": "air",
+"high": true,
+"x": 3242,
+"z": 3336
+},
+{
+"id": "water-3276-3371",
+"kind": "water",
+"high": false,
+"x": 3276,
+"z": 3371
+},
+{
+"id": "earth-3281-3247",
+"kind": "earth",
+"high": false,
+"x": 3281,
+"z": 3247
+},
+{
+"id": "fire-3218-3154",
+"kind": "fire",
+"high": false,
+"x": 3218,
+"z": 3154
+},
+{
+"id": "air-3209-3283",
+"kind": "air",
+"high": true,
+"x": 3209,
+"z": 3283
+},
+{
+"id": "water-3146-3346",
+"kind": "water",
+"high": false,
+"x": 3146,
+"z": 3346
+},
+{
+"id": "earth-3082-3328",
+"kind": "earth",
+"high": false,
+"x": 3082,
+"z": 3328
+},
+{
+"id": "fire-3111-3330",
+"kind": "fire",
+"high": false,
+"x": 3111,
+"z": 3330
+},
+{
+"id": "air-3228-3330",
+"kind": "air",
+"high": true,
+"x": 3228,
+"z": 3330
+},
+{
+"id": "water-3283-3334",
+"kind": "water",
+"high": false,
+"x": 3283,
+"z": 3334
+},
+{
+"id": "earth-3080-3256",
+"kind": "earth",
+"high": false,
+"x": 3080,
+"z": 3256
+},
+{
+"id": "fire-3128-3270",
+"kind": "fire",
+"high": false,
+"x": 3128,
+"z": 3270
+},
+{
+"id": "air-3303-3157",
+"kind": "air",
+"high": true,
+"x": 3303,
+"z": 3157
+},
+{
+"id": "water-3161-3198",
+"kind": "water",
+"high": false,
+"x": 3161,
+"z": 3198
+},
+{
+"id": "earth-3111-3274",
+"kind": "earth",
+"high": false,
+"x": 3111,
+"z": 3274
+},
+{
+"id": "fire-3251-3282",
+"kind": "fire",
+"high": false,
+"x": 3251,
+"z": 3282
+},
+{
+"id": "air-3106-3352",
+"kind": "air",
+"high": true,
+"x": 3106,
+"z": 3352
+},
+{
+"id": "water-3271-3265",
+"kind": "water",
+"high": false,
+"x": 3271,
+"z": 3265
+},
+{
+"id": "earth-3319-3239",
+"kind": "earth",
+"high": false,
+"x": 3319,
+"z": 3239
+},
+{
+"id": "fire-3112-3307",
+"kind": "fire",
+"high": false,
+"x": 3112,
+"z": 3307
+},
+{
+"id": "air-3198-3357",
+"kind": "air",
+"high": true,
+"x": 3198,
+"z": 3357
+},
+{
+"id": "water-3120-3208",
+"kind": "water",
+"high": false,
+"x": 3120,
+"z": 3208
+},
+{
+"id": "earth-3321-3295",
+"kind": "earth",
+"high": false,
+"x": 3321,
+"z": 3295
+},
+{
+"id": "fire-3312-3280",
+"kind": "fire",
+"high": false,
+"x": 3312,
+"z": 3280
+}
+]
+}

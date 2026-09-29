@@ -228,16 +228,19 @@ export class HUD {
 
   drawBoard(K) {
     const x = this.x, W = this.c.width, H = this.c.height, k = Math.max(1, K - 1), lh = k * 12;
-    const rows = this.board, pw = Math.max(460, 330 * k), ph = 40 + rows.length * lh + 14;
+    const rows = this.board, pw = Math.max(460, 330 * k), ph = 12 + K * 14 + lh + 4 + rows.length * lh + 14;
     const px = W / 2 - pw / 2, py = H * 0.18;
     x.fillStyle = 'rgba(30,24,16,0.88)'; x.fillRect(px, py, pw, ph);
     x.strokeStyle = '#5a4a2a'; x.lineWidth = 3; x.strokeRect(px, py, pw, ph);
     this.text('TOP SKATERS', W / 2, py + 8, '#ff981f', K, 'c');
+    const hy = py + 12 + K * 14;
+    this.text('LEVEL', px + pw * 0.44, hy, '#a0927a', k, 'l', 'p12'); this.text('XP', px + pw * 0.80, hy, '#a0927a', k, 'r', 'p12'); this.text('RUNES', px + pw - 12, hy, '#a0927a', k, 'r', 'p12');
     rows.forEach((r, i) => {
-      const y = py + 36 + i * lh, me = this.me && r.name === this.me.name, col = me ? '#0f0' : i < 3 ? '#ff0' : '#fff';
+      const y = py + 12 + K * 14 + lh + 4 + i * lh, me = this.me && r.name === this.me.name, col = me ? '#0f0' : i < 3 ? '#ff0' : '#fff';
       this.text(`${i + 1}. ${r.name}${r.on ? ' *' : ''}`, px + 12, y, col, k, 'l', 'p12');
-      this.text(`lvl ${levelFor(r.xp)}   ${r.runes}R ${r.spots}S`, px + pw * 0.46, y, col, k, 'l', 'p12');
-      this.text(Math.floor(r.xp).toLocaleString(), px + pw - 12, y, col, k, 'r', 'p12');
+      this.text(`lvl ${levelFor(r.xp)}`, px + pw * 0.44, y, col, k, 'l', 'p12');
+      this.text(Math.floor(r.xp).toLocaleString(), px + pw * 0.80, y, col, k, 'r', 'p12');
+      this.text(`${r.runes || 0}/${r.runeTotal || 40}`, px + pw - 12, y, '#0cf', k, 'r', 'p12');
     });
   }
 

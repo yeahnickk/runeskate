@@ -5,6 +5,7 @@
 // hashed password, outfit, points (= total XP). Everything else is relayed peer state.
 import { join, normalize } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync } from 'fs';
+import { XP_AT, MAX_LEVEL } from './src/levels.js';
 const ROOT = import.meta.dir;
 const port = Number(process.argv[2] || process.env.PORT || 8123);
 
@@ -17,10 +18,19 @@ let dirty = false;
 const saveAccounts = () => { if (!dirty) return; dirty = false; writeFileSync(ACC + '.tmp', JSON.stringify(accounts)); renameSync(ACC + '.tmp', ACC); };
 setInterval(saveAccounts, 2000);
 // a restart (every deploy) must not drop the last couple of seconds of XP
-for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { try { saveAccounts(); } finally { process.exit(0); } });
+for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { try { saveAccounts(); saveStats(); } finally { process.exit(0); } });
 const key = (n: string) => n.toLowerCase().replace(/[^a-z0-9]/g, '');
 const cleanName = (n: string) => String(n || '').replace(/[^A-Za-z0-9 _-]/g, '').trim().slice(0, 12);
 const MAX_XP = 6_488_304 * 4;                                  // headroom past level 126
+const MAXED = XP_AT[MAX_LEVEL];                                // 6,488,304: past this, runes decide the rank
+// the only runes that exist (tools/runes.py). Anything else in an account - ids from before the list was
+// fixed, when a map change moved them - is dropped, so nobody keeps credit for collecting one twice.
+const RUNE_IDS = new Set(JSON.parse(readFileSync(join(ROOT, 'assets', 'runes.json'), 'utf8')).runes.map((r: any) => r.id));
+for (const a of Object.values(accounts)) if (a.prog) {
+  const f = [...new Set(a.prog.found.filter(id => RUNE_IDS.has(id)))];
+  if (f.length !== a.prog.found.length) { a.prog.found = f; dirty = true; }
+}
+const runesOf = (a: Account) => a.prog?.found.length || 0;
 
 // outfits: {g, items: {slot: objId}, kits: {slot: idkId}} and nothing else.
 function cleanOutfit(o: any) {
@@ -35,6 +45,32 @@ function cleanOutfit(o: any) {
   };
   return { g: o.g ? 1 : 0, items: map(o.items), kits: map(o.kits) };   // party hats allowed since 2026-09-29
 }
+
+// ------------------------------------------------------------------ public stats (/stats)
+// Player count: one sample every 5 minutes = [unix minutes, players now, peak in the window], kept 30 days
+// (~8.6k tiny rows). Chat: every message for the last 7 days, older lines dropped automatically.
+const STATS = join(DATA, 'stats.json'), CHAT = join(DATA, 'chat.json');
+const SAMPLE_MS = 5 * 60_000, KEEP_SAMPLES_MS = 30 * 86_400_000, KEEP_CHAT_MS = 7 * 86_400_000, MAX_CHAT = 20_000;
+const loadJson = (f: string, d: any) => { try { return JSON.parse(readFileSync(f, 'utf8')); } catch { return d; } };
+const samples: [number, number, number][] = loadJson(STATS, []);
+let chatLog: { t: number; n: string; m: string }[] = loadJson(CHAT, []);
+let peak = 0, statsDirty = false;
+const writeJson = (f: string, v: any) => { writeFileSync(f + '.tmp', JSON.stringify(v)); renameSync(f + '.tmp', f); };
+const saveStats = () => { if (!statsDirty) return; statsDirty = false; writeJson(STATS, samples); writeJson(CHAT, chatLog); };
+function pruneChat() {
+  const cut = Date.now() - KEEP_CHAT_MS; let i = 0;
+  while (i < chatLog.length && chatLog[i].t < cut) i++;
+  if (i) { chatLog = chatLog.slice(i); statsDirty = true; }
+  if (chatLog.length > MAX_CHAT) { chatLog = chatLog.slice(-MAX_CHAT); statsDirty = true; }
+}
+setInterval(() => {
+  samples.push([Math.floor(Date.now() / 60_000), sessions.size, Math.max(peak, sessions.size)]); peak = sessions.size;
+  const cut = Math.floor((Date.now() - KEEP_SAMPLES_MS) / 60_000);
+  while (samples.length && samples[0][0] < cut) samples.shift();
+  pruneChat(); statsDirty = true; saveStats();
+}, SAMPLE_MS);
+setInterval(saveStats, 30_000);
+const STATS_HTML = readFileSync(join(ROOT, 'stats.html'), 'utf8');
 
 // ------------------------------------------------------------------ static files
 // Fast public loading: pre-compressed .br/.gz siblings (tools/compress.ts), on-the-fly gzip for the small
@@ -80,10 +116,21 @@ Bun.serve({
     if (p === '/ws') return server.upgrade(req, { data: { sess: null } }) ? undefined : new Response('upgrade failed', { status: 400 });
     if (p === '/api/top') {                                         // leaderboard: all accounts by XP
       const online = new Set([...sessions.values()].map(s => s.k));
-      return Response.json(Object.entries(accounts).sort((a, b) => b[1].xp - a[1].xp).slice(0, 15)
-        .map(([k, a]) => ({ name: a.name, xp: a.xp, runes: a.prog?.found.length || 0, spots: a.prog?.done.length || 0, on: online.has(k) })));
+      // rank by XP up to max level, then runes found, then raw XP
+      return Response.json(Object.entries(accounts)
+        .sort((a, b) => Math.min(b[1].xp, MAXED) - Math.min(a[1].xp, MAXED) || runesOf(b[1]) - runesOf(a[1]) || b[1].xp - a[1].xp).slice(0, 15)
+        .map(([k, a]) => ({ name: a.name, xp: a.xp, runes: runesOf(a), runeTotal: RUNE_IDS.size, on: online.has(k) })));
     }
     if (p === '/api/players') return Response.json([...sessions.values()].map(s => ({ name: s.name, xp: s.xp })));
+    if (p === '/stats' || p === '/stats/') return new Response(STATS_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' } });
+    if (p === '/api/stats') {                                       // everything /stats draws, gzipped by the tunnel
+      pruneChat();
+      const days = Math.min(30, Math.max(1, +(url.searchParams.get('days') || 7)));
+      const since = Math.floor(Date.now() / 60_000) - days * 1440;
+      return Response.json({ now: sessions.size, accounts: Object.keys(accounts).length, every: SAMPLE_MS / 60_000,
+        samples: samples.filter(s => s[0] >= since), chat: chatLog },
+        { headers: { 'Cache-Control': 'no-cache' } });
+    }
     // dev hook: the page POSTs rendered frames here (RS.shot) so they can be inspected offline
     if (req.method === 'POST' && p.startsWith('/__shot/') && /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(url.host)) {
       const name = p.slice(8).replace(/[^\w.-]/g, '');
@@ -113,7 +160,7 @@ Bun.serve({
           } else if (!(await Bun.password.verify(pw, a.hash))) return ws.send(JSON.stringify({ t: 'denied', why: 'wrong password for ' + a.name }));
           for (const o of sessions.values()) if (o.k === k) { o.ws.send(JSON.stringify({ t: 'kicked', why: 'logged in elsewhere' })); o.ws.close(); sessions.delete(o.id); broadcast({ t: 'leave', id: o.id }); }
           const sess: Sess = { id: nextId++, name: a.name, k, st: null, ws, xp: a.xp, outfit: a.outfit };
-          ws.data.sess = sess; sessions.set(sess.id, sess);
+          ws.data.sess = sess; sessions.set(sess.id, sess); peak = Math.max(peak, sessions.size);
           a.seen = Date.now(); dirty = true;
           ws.send(JSON.stringify({ t: 'welcome', id: sess.id, name: a.name, xp: a.xp, outfit: a.outfit, isNew, prog: a.prog || { found: [], done: [] }, players: [...sessions.values()].filter(o => o !== sess).map(pub) }));
           broadcast({ t: 'join', ...pub(sess) }, sess.id);
@@ -133,10 +180,11 @@ Bun.serve({
       } else if (m.t === 'prog') {                               // a rune found / a challenge beaten
         const a = accounts[s.k]; a.prog ||= { found: [], done: [] };
         const id = String(m.id || '').slice(0, 40), list = m.kind === 'spot' ? a.prog.done : m.kind === 'rune' ? a.prog.found : null;
+        if (list === a.prog.found && !RUNE_IDS.has(id)) return;   // not a real rune
         if (list && id && !list.includes(id) && list.length < 500) { list.push(id); dirty = true; }
       } else if (m.t === 'say') {
         const text = String(m.text || '').slice(0, 80).trim();
-        if (text) broadcast({ t: 'say', id: s.id, name: s.name, text });
+        if (text) { broadcast({ t: 'say', id: s.id, name: s.name, text }); chatLog.push({ t: Date.now(), n: s.name, m: text }); statsDirty = true; }
       }
     },
     close(ws: any) {

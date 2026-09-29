@@ -60,6 +60,8 @@ export class Net {
     this.emit('reconnecting', { wait });
     setTimeout(() => this.open().catch(() => {}), wait);
   }
+  /** deliberate hang-up (idle kick): no auto-reconnect until connect() is called again */
+  disconnect() { this.stopped = true; try { this.ws?.close(); } catch {} }
   get online() { return this.ws && this.ws.readyState === 1 && this.me; }
   send(m) { if (this.online) this.ws.send(JSON.stringify(m)); }
   /** things that must reach the account: sent now, or queued until the next (re)connect */

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RuneSkate Stats</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23ff981f'/%3E%3C/svg%3E">
+<style>
+  :root { --bg: #14100a; --panel: #1e1810; --line: #5a4a2a; --text: #e8dcc0; --dim: #a0927a; --accent: #ff981f; --green: #3c3; --yellow: #ff0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+  main { max-width: 900px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 22px; color: var(--accent); margin: 0 0 4px; letter-spacing: 2px; }
+  h2 { font-size: 15px; color: var(--accent); margin: 28px 0 10px; }
+  a { color: var(--yellow); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 16px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); padding: 10px 12px; }
+  .tile b { display: block; font-size: 24px; color: var(--yellow); font-variant-numeric: tabular-nums; }
+  .tile span { color: var(--dim); font-size: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); padding: 12px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .range button { font: inherit; font-size: 12px; background: transparent; color: var(--dim); border: 1px solid var(--line); padding: 3px 10px; cursor: pointer; }
+  .range button.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+  svg { width: 100%; height: 220px; display: block; margin-top: 8px; }
+  .axis { fill: var(--dim); font-size: 10px; }
+  #chat { max-height: 520px; overflow-y: auto; font-size: 13px; }
+  #chat div { padding: 2px 0; border-bottom: 1px solid #2a2216; overflow-wrap: anywhere; }
+  #chat time { color: var(--dim); margin-right: 8px; }
+  #chat .n { color: var(--yellow); margin-right: 6px; }
+  .muted { color: var(--dim); font-size: 12px; }
+  #tip { position: fixed; pointer-events: none; background: #000; border: 1px solid var(--line); padding: 3px 7px; font-size: 12px; display: none; }
+</style>
+</head>
+<body>
+<main>
+  <div class="row">
+    <div><h1>RUNESKATE</h1><div class="muted">live server stats &middot; <a href="/">play</a></div></div>
+  </div>
+  <div class="tiles">
+    <div class="tile"><b id="now">-</b><span>online now</span></div>
+    <div class="tile"><b id="peak">-</b><span>peak (range)</span></div>
+    <div class="tile"><b id="avg">-</b><span>average (range)</span></div>
+    <div class="tile"><b id="acc">-</b><span>skaters signed up</span></div>
+  </div>
+
+  <h2>PLAYERS ONLINE</h2>
+  <div class="card">
+    <div class="row">
+      <span class="muted" id="cap">sampled every 5 minutes</span>
+      <span class="range"><button data-d="1">24h</button><button data-d="7" class="on">7d</button><button data-d="30">30d</button></span>
+    </div>
+    <svg id="chart" viewBox="0 0 900 220" preserveAspectRatio="none" role="img" aria-label="players online over time"></svg>
+  </div>
+
+  <h2>CHAT (LAST 7 DAYS)</h2>
+  <div class="card"><div id="chat"><span class="muted">loading...</span></div></div>
+  <p class="muted">Chat older than 7 days is deleted automatically.</p>
+</main>
+<div id="tip"></div>
+<script>
+let days = 7, data = null;
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = (m, withDay) => { const d = new Date(m * 60000); return (withDay ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' : '') + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }); };
+
+async function load() {
+  try { data = await fetch('/api/stats?days=' + days).then(r => r.json()); } catch { return; }
+  $('now').textContent = data.now; $('acc').textContent = data.accounts.toLocaleString();
+  const s = data.samples;
+  $('peak').textContent = s.length ? Math.max(...s.map(r => r[2]), data.now) : data.now;
+  $('avg').textContent = s.length ? (s.reduce((a, r) => a + r[1], 0) / s.length).toFixed(1) : '-';
+  draw(); chat();
+}
+
+function draw() {
+  const W = 900, H = 220, L = 28, B = 20, T = 8, svg = $('chart'), s = data.samples;
+  if (!s.length) { svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" class="axis" text-anchor="middle">no samples yet - check back in a few minutes</text>`; return; }
+  // bucket to <= 300 points so 30 days stays light to draw
+  const step = Math.max(1, Math.ceil(s.length / 300)), pts = [];
+  for (let i = 0; i < s.length; i += step) { const c = s.slice(i, i + step); pts.push([c[0][0], Math.max(...c.map(r => r[2])), c.reduce((a, r) => a + r[1], 0) / c.length]); }
+  const t0 = Math.floor(Date.now() / 60000) - days * 1440, t1 = Math.floor(Date.now() / 60000);
+  const max = Math.max(4, ...pts.map(p => p[1])), X = m => L + (m - t0) / (t1 - t0) * (W - L - 4), Y = v => T + (1 - v / max) * (H - T - B);
+  let g = '';
+  for (let i = 0; i <= 4; i++) { const v = Math.round(max * i / 4), y = Y(v); g += `<line x1="${L}" x2="${W}" y1="${y}" y2="${y}" stroke="#2a2216"/><text x="${L - 4}" y="${y + 3}" class="axis" text-anchor="end">${v}</text>`; }
+  const ticks = days === 1 ? 6 : days;
+  for (let i = 0; i <= ticks; i++) { const m = t0 + (t1 - t0) * i / ticks; g += `<text x="${X(m)}" y="${H - 5}" class="axis" text-anchor="middle">${days === 1 ? fmt(m) : new Date(m * 60000).toLocaleDateString(undefined, { weekday: 'short' })}</text>`; }
+  const line = pts.map(p => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ');
+  const area = `${X(pts[0][0]).toFixed(1)},${Y(0)} ${pts.map(p => `${X(p[0]).toFixed(1)},${Y(p[2]).toFixed(1)}`).join(' ')} ${X(pts[pts.length - 1][0]).toFixed(1)},${Y(0)}`;
+  svg.innerHTML = g + `<polygon points="${area}" fill="rgba(255,152,31,0.22)"/><polyline points="${line}" fill="none" stroke="#ff981f" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+  svg.onmousemove = e => {
+    const r = svg.getBoundingClientRect(), m = t0 + ((e.clientX - r.left) / r.width * W - L) / (W - L - 4) * (t1 - t0);
+    let best = pts[0]; for (const p of pts) if (Math.abs(p[0] - m) < Math.abs(best[0] - m)) best = p;
+    const tip = $('tip'); tip.style.display = 'block'; tip.style.left = e.clientX + 12 + 'px'; tip.style.top = e.clientY + 12 + 'px';
+    tip.textContent = `${fmt(best[0], true)}  peak ${best[1]}  avg ${best[2].toFixed(1)}`;
+  };
+  svg.onmouseleave = () => { $('tip').style.display = 'none'; };
+}
+
+function chat() {
+  const c = data.chat;
+  if (!c.length) { $('chat').innerHTML = '<span class="muted">nobody has said anything in the last 7 days</span>'; return; }
+  $('chat').innerHTML = c.slice().reverse().map(m => `<div><time>${esc(fmt(Math.floor(m.t / 60000), true))}</time><span class="n">${esc(m.n)}:</span>${esc(m.m)}</div>`).join('');
+}
+
+for (const b of document.querySelectorAll('.range button')) b.onclick = () => {
+  days = +b.dataset.d; document.querySelectorAll('.range button').forEach(x => x.classList.toggle('on', x === b)); load();
+};
+load(); setInterval(load, 60000);
+</script>
+</body>
+</html>

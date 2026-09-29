@@ -8,7 +8,7 @@ import { loadRSModel, buildBoard, TOP_Z, DECK_Z } from './model.js';
 import { RSFont, loadHitsplat, HUD } from './hud.js';
 import { SkateAudio } from './audio.js';
 import { Net } from './net.js';
-import { levelFor } from './levels.js';
+import { levelFor, XP_AT, MAX_LEVEL } from './levels.js';
 import { buildOutfitModel, loadKit } from './rsanim.js';
 import { Designer } from './designer.js';
 import { Goals } from './goals.js';
@@ -27,6 +27,7 @@ async function main() {
   // start EVERY download now, in parallel: the world, the player/NPC models, fonts, hitsplats and the
   // outfit kit all stream together instead of queueing behind each other
   const pJson = fetch('assets/world.json').then(r => r.json());
+  const pRunes = fetch('assets/runes.json').then(r => r.json()).then(j => j.runes).catch(() => []);
   const pBin = fetch('assets/world.bin').then(r => r.arrayBuffer());
   const NPC_KINDS = ['goblin', 'cow', 'chicken', 'rat', 'imp', 'man', 'darkwizard'];
   const pModels = Promise.all([loadRSModel('nickai3'), ...NPC_KINDS.map(k => loadRSModel('npc_' + k))]);
@@ -216,6 +217,13 @@ async function main() {
 
   // ---------------- input
   const keys = new Set(); let jumpEdge = false, pendingTrick = null, trickTimer = 0, anyEdge = false;
+  // idle kick: nothing pressed for 5 minutes -> drop the connection (frees the slot, keeps the player count honest)
+  const IDLE_MS = 5 * 60_000;
+  let lastInput = performance.now();
+  const active = () => { lastInput = performance.now(); if (idleKicked) rejoinAfterIdle(); };
+  for (const ev of ['keydown', 'pointerdown', 'wheel', 'touchstart']) addEventListener(ev, active, { capture: true, passive: true });
+  let idleKicked = false;
+  window.__rsIdleTest = () => { lastInput = -1e9; };          // test hook: pretend 5 idle minutes passed
   const cfg = { help: false, cam: 0, camName: 'CHASE', debug: false };
   const CAMS = ['CHASE', 'VX FISHEYE', 'FILMER'];
   addEventListener('keydown', e => {
@@ -295,6 +303,7 @@ async function main() {
     if (edge(3) && !sk.toggleWalk()) hud.pop('slow down to step off', '#f80');
     if (edge(8)) { cfg.cam = (cfg.cam + 1) % 3; cfg.camName = CAMS[cfg.cam]; filmer = null; }
     if (b(0) || b(1) || Math.hypot(rx, ry) > 0.5) { audio.start(); anyEdge = true; }
+    if (gp.buttons.some(x => x.pressed) || gp.axes.some(v => Math.abs(v) > 0.3)) active();
     // right stick: wind down, flick up (units ~ the mouse's % of screen: full throw = 50)
     const r = pad.rs;
     if (!r && ry > 0.55) pad.rs = { low: ry, x0: rx, lowX: rx, t: 0 };
@@ -330,11 +339,23 @@ async function main() {
     const rows = top.map(r => ({ ...r }));
     if (me.name !== 'offline') {
       const mine = rows.find(r => r.name === me.name);
-      if (mine) { mine.xp = Math.max(mine.xp, me.xp); mine.on = true; } else rows.push({ name: me.name, xp: me.xp, runes: window.RS.goals?.found?.size || 0, spots: window.RS.goals?.done?.size || 0, on: true });
+      const runes = window.RS.goals?.found?.size || 0;
+      if (mine) { mine.xp = Math.max(mine.xp, me.xp); mine.runes = Math.max(mine.runes || 0, runes); mine.on = true; }
+      else rows.push({ name: me.name, xp: me.xp, runes, runeTotal: 40, on: true });
     }
-    return rows.sort((a, b) => b.xp - a.xp).slice(0, 15);
+    const cap = XP_AT[MAX_LEVEL];                           // same order as the server: XP to max level, then runes
+    return rows.sort((a, b) => Math.min(b.xp, cap) - Math.min(a.xp, cap) || (b.runes || 0) - (a.runes || 0) || b.xp - a.xp).slice(0, 15);
   }
   setInterval(() => { if (net.online) refreshTop(); }, 20000);
+  setInterval(() => {
+    if (idleKicked || !net.online || performance.now() - lastInput < IDLE_MS) return;
+    idleKicked = true; net.disconnect();
+    $('idle').style.display = 'flex';
+  }, 5000);
+  function rejoinAfterIdle() {
+    idleKicked = false; $('idle').style.display = 'none';
+    if (net.creds) net.connect(...net.creds).then(w => { me.xp = Math.max(me.xp, w.xp); chatLog.push({ text: 'Welcome back.', col: '#0f0', t: 0 }); }).catch(e => chatLog.push({ text: 'Could not reconnect: ' + e.message, col: '#f00', t: 0 }));
+  }
   const qs = new URLSearchParams(location.search);
   const $ = id => document.getElementById(id);
   if (qs.get('name')) $('lname').value = qs.get('name');
@@ -400,14 +421,22 @@ async function main() {
     if (after > before) { hud.pop(`LEVEL ${after}!`, '#0f0'); audio.event({ type: 'levelup' }); }
   }
   const localProg = () => { try { return JSON.parse(localStorage.getItem('rs_prog') || 'null'); } catch { return null; } };
-  const goals = new Goals({ scene, world, sk, hud, audio, reward: addXP, save: p => {
+  const runeList = await pRunes;
+  const goals = new Goals({ scene, world, sk, hud, audio, reward: addXP, runeList, save: p => {
     if (me.name !== 'offline') net.prog(p);
-    try { localStorage.setItem('rs_prog', JSON.stringify({ found: [...goals.found], done: [...goals.done] })); } catch {}
+    try { localStorage.setItem('rs_prog', JSON.stringify({ who: me.name, found: [...goals.found], done: [...goals.done] })); } catch {}
   } });
-  goals.load(localProg());
+  const offlineProg = localProg();
   window.RS.goals = goals;
   window.RS.onLogin = async who => {
+    // this browser's saved progress only counts for the account that made it (or a solo run)
+    const lp = offlineProg && (!offlineProg.who || offlineProg.who === who.name || offlineProg.who === 'offline') ? offlineProg : null;
+    if (lp) goals.load(lp);
     if (who.prog) goals.load(who.prog);
+    if (who.name !== 'offline') {                            // anything found offline the account doesn't have yet
+      const have = new Set(who.prog?.found || []);
+      for (const id of goals.found) if (!have.has(id)) net.prog({ kind: 'rune', id });
+    }
     refreshTop();
     if (who.outfit) await wearOutfit(who.outfit);
     if (who.isNew && net.online) { keys.clear(); designer.show(who.outfit, true); }
@@ -440,11 +469,11 @@ async function main() {
      .on('outfit', m => reskin(m.id, m.outfit))
      .on('say', m => { say.set(m.id, { text: m.text, t: 0 }); chatLog.push({ text: m.name + ': ' + m.text, col: '#ff0', t: 0 }); })
      .on('kicked', () => { chatLog.push({ text: 'Logged in somewhere else - disconnected.', col: '#f00', t: 0 }); })
-     .on('closed', () => { chatLog.push({ text: 'Connection lost - reconnecting...', col: '#f00', t: 0 }); for (const id of [...remotes.keys()]) dropRemote(id); })
+     .on('closed', () => { if (!idleKicked) chatLog.push({ text: 'Connection lost - reconnecting...', col: '#f00', t: 0 }); for (const id of [...remotes.keys()]) dropRemote(id); })
      .on('rejoined', w => { me.xp = Math.max(me.xp, w.xp); chatLog.push({ text: 'Reconnected.', col: '#0f0', t: 0 }); });
   const SNAP = ['x', 'y', 'z', 'heading', 'body', 'boardYaw', 'boardRoll', 'charge', 'airTime', 'pushing', 'tumble', 'tumbleAxis', 'speed'];
   function snapshot() {
-    const o = { mode: sk.mode, gk: sk.grindKind, sl: sk.slide ? 1 : 0, w: sk.inWater ? 1 : 0 };
+    const o = { mode: sk.mode, gk: sk.grindKind, sl: sk.slide ? 1 : 0, w: sk.inWater ? 1 : 0, wk: sk.walking || 0 };   // wk: 0 stand, 1 walk, 2 run
     for (const k of SNAP) o[k] = Math.round((sk[k] || 0) * 1000) / 1000;
     if (sk.mode === 'bail' && sk.board) o.b = [sk.board.x, sk.board.y, sk.board.z, sk.board.yaw, sk.board.roll].map(v => Math.round(v * 1000) / 1000);
     return o;
@@ -458,7 +487,7 @@ async function main() {
       const s = r.s;
       for (const f of ['x', 'y', 'z', 'charge', 'airTime', 'pushing', 'tumble', 'speed']) s[f] += (t[f] - s[f]) * k;
       for (const f of ['heading', 'body', 'boardYaw', 'boardRoll', 'tumbleAxis']) s[f] = wrapA(s[f] + wrapA(t[f] - s[f]) * k);
-      s.mode = t.mode; s.grindKind = t.gk; s.slide = !!t.sl; s.inWater = !!t.w;
+      s.mode = t.mode; s.grindKind = t.gk; s.slide = !!t.sl; s.inWater = !!t.w; s.walking = t.wk || 0;
       if (t.b) s.board = { x: t.b[0], y: t.b[1], z: t.b[2], yaw: t.b[3], roll: t.b[4] };
       drawRider(dt, s, r.m, r.board);
       r.shadow ||= makeShadow(); placeShadow(r.shadow, s.x, s.y, s.z, true);

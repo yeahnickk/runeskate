@@ -261,5 +261,17 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
   check('manor lane is clear', onManor.length > 40 && onManor.every(([x, z]) => w.tileKind(x + 0.5, z + 0.5) === 0), `${onManor.length} lane tiles`);
 }
 
+// the hidden rune: skate in through Lumbridge church's west doorway and reach it
+{
+  const sk = new Skater(w);
+  const [x, z] = L(3236.5, 3210.5); sk.reset(x, z, 0); sk.vx = 5;
+  const [rx, rz] = L(3246.5, 3207.5);
+  let best = 99;
+  run(sk, 4, (t, s) => { best = Math.min(best, Math.hypot(s.x - rx, s.z - rz)); const want = Math.atan2(rz - s.z, rx - s.x); let d = want - s.heading; d = Math.atan2(Math.sin(d), Math.cos(d)); return { push: false, brake: best < 1, steer: s.x > x + 4 ? Math.max(-1, Math.min(1, d * 2)) : 0 }; });
+  check('church rune is reachable', best < 1.2, `closest ${best.toFixed(2)} ${where(sk)}`);
+  const runes = JSON.parse(readFileSync(new URL('../assets/runes.json', import.meta.url))).runes;
+  check('40 runes, unique ids, all on open ground', runes.length === 40 && new Set(runes.map(r => r.id)).size === 40 && runes.every(r => w.tileKind(...L(r.x + 0.5, r.z + 0.5)) === 0));
+}
+
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
 process.exit(fails ? 1 : 0);

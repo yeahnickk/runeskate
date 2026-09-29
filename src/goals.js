@@ -45,28 +45,21 @@ let LETTER_MATS = null;
 function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
 export class Goals {
-  constructor({ scene, world, sk, hud, audio, reward, save }) {
+  constructor({ scene, world, sk, hud, audio, reward, save, runeList }) {
     Object.assign(this, { scene, world, sk, hud, audio, reward, save });
     this.found = new Set(); this.done = new Set();
     this.active = null; this.t = 0;
     this.runes = []; this.spots = [];
-    const W = world, rnd = mulberry(0x5ca7e);
+    const W = world;
     const mats = RUNES.map(r => new THREE.SpriteMaterial({ map: runeTexture(r), fog: true }));
-    // runes: spread over open ground, 12+ tiles apart; air runes near rails (grind or ollie up to them)
-    const railPts = W.rails.map(r => [r.ax + (r.bx - r.ax) / 2, r.az + (r.bz - r.az) / 2]);
-    let tries = 0;
-    while (this.runes.length < 40 && tries++ < 20000) {
-      const k = this.runes.length % 4, R = RUNES[k];
-      let x, z;
-      if (R.high && railPts.length) { const p = railPts[Math.floor(rnd() * railPts.length)]; x = p[0] + (rnd() - 0.5) * 3; z = p[1] + (rnd() - 0.5) * 3; }
-      else { x = 6 + rnd() * (W.N - 12); z = 6 + rnd() * (W.N - 12); }
-      x = Math.floor(x) + 0.5; z = Math.floor(z) + 0.5;
-      if (W.tileKind(x, z) !== 0 || this.nearWall(x, z)) continue;
-      if (this.runes.some(r => Math.hypot(r.x - x, r.z - z) < 12)) continue;
-      const id = `${R.kind}-${Math.round(x)}-${Math.round(z)}`;
+    // runes: a FIXED list (tools/runes.py -> assets/runes.json) with stable ids the server checks, so a map
+    // change can't move them or let anyone collect the same rune twice. Air runes float high: ollie or grind.
+    const byKind = Object.fromEntries(RUNES.map((r, i) => [r.kind, i]));
+    for (const q of runeList || []) {
+      const k = byKind[q.kind] ?? 0, x = q.x - W.base[0] + 0.5, z = q.z - W.base[1] + 0.5;
       const s = new THREE.Sprite(mats[k]); s.scale.set(0.7, 0.7, 1);
       scene.add(s);
-      this.runes.push({ id, kind: R.kind, high: R.high, x, z, y: W.height(x, z) + (R.high ? 1.35 : 0.6), s });
+      this.runes.push({ id: q.id, kind: q.kind, high: !!q.high, x, z, y: W.height(x, z) + (q.high ? 1.35 : 0.6), s });
     }
     // spot beams
     const beamMat = new THREE.MeshBasicMaterial({ color: 0xffcc33, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide });
@@ -88,7 +81,12 @@ export class Goals {
 
   nearWall(x, z) { for (const s of this.world.segsNear(x, z, 1)) if (s.kind !== 'water') { const L2 = s.dx * s.dx + s.dz * s.dz, t = Math.max(0, Math.min(1, ((x - s.ax) * s.dx + (z - s.az) * s.dz) / L2)); if (Math.hypot(x - s.ax - s.dx * t, z - s.az - s.dz * t) < 0.8) return true; } return false; }
 
-  load(p) { this.found = new Set(p?.found || []); this.done = new Set(p?.done || []); }
+  /** merge, never replace: a rune picked up offline stays picked up when the account's list arrives */
+  load(p) {
+    const valid = new Set(this.runes.map(r => r.id));
+    for (const id of p?.found || []) if (valid.has(id)) this.found.add(id);
+    for (const id of p?.done || []) this.done.add(id);
+  }
 
   /** called for every skater event (trick, banked, grind...) and NPC kills */
   event(e) {
