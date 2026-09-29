@@ -270,7 +270,13 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
   run(sk, 4, (t, s) => { best = Math.min(best, Math.hypot(s.x - rx, s.z - rz)); const want = Math.atan2(rz - s.z, rx - s.x); let d = want - s.heading; d = Math.atan2(Math.sin(d), Math.cos(d)); return { push: false, brake: best < 1, steer: s.x > x + 4 ? Math.max(-1, Math.min(1, d * 2)) : 0 }; });
   check('church rune is reachable', best < 1.2, `closest ${best.toFixed(2)} ${where(sk)}`);
   const runes = JSON.parse(readFileSync(new URL('../assets/runes.json', import.meta.url))).runes;
-  check('40 runes, unique ids, all on open ground', runes.length === 40 && new Set(runes.map(r => r.id)).size === 40 && runes.every(r => w.tileKind(...L(r.x + 0.5, r.z + 0.5)) === 0));
+  const wAll = new World(JSON.parse(readFileSync(new URL('../assets/world.json', import.meta.url))));
+  for (const r of wAll.regions) wAll.addRegion(JSON.parse(readFileSync(new URL(`../assets/world_${r.name}.json`, import.meta.url))));
+  const orig = runes.slice(0, 40).map(r => r.id).join();
+  check('100 runes, unique ids, all on open ground (full map)', runes.length === 100 && new Set(runes.map(r => r.id)).size === 100 && runes.every(r => wAll.tileKind(r.x + 0.5 - wAll.base[0], r.z + 0.5 - wAll.base[1]) === 0),
+    runes.filter(r => wAll.tileKind(r.x + 0.5 - wAll.base[0], r.z + 0.5 - wAll.base[1]) !== 0).map(r => r.id).join(' '));
+  check('first 40 runes unchanged', orig.startsWith('fire-3246-3207,water-3095-3315,earth-3235-3308'));
+  check('every region loaded: no frontier walls left inside the playable map', wAll.segs.filter(s => s.frontier).every(s => !(wAll.isLive(Math.floor(s.ax), Math.floor(s.az)) && wAll.isLive(Math.floor(s.ax) - (s.ax === s.bx ? 1 : 0), Math.floor(s.az) - (s.az === s.bz ? 1 : 0)))));
 }
 
 // jump the River Lum: its bed has invisible server walls, which used to stop you mid-air ("hit a wall")
@@ -296,6 +302,18 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
     const after = go();
     check('varrock open once streamed in', after.z + w2.base[1] > 3395, `z=${(after.z + w2.base[1]).toFixed(1)} rails=${w2.rails.length}`);
   }
+}
+
+// Falador streams in west of Draynor: skate west along z=3240 (open fields), wall until it loads
+{
+  const fj = JSON.parse(readFileSync(new URL('../assets/world_falador.json', import.meta.url)));
+  const pj = JSON.parse(readFileSync(new URL('../assets/world_portsarim.json', import.meta.url)));
+  const w3 = new World(JSON.parse(readFileSync(new URL('../assets/world.json', import.meta.url))));
+  const edge = w3.segs.filter(s => s.frontier && s.ax === 3072 - w3.base[0] && s.bx === s.ax).length;
+  check('west frontier walled before Falador streams in', edge >= 250, `edge segs ${edge}`);
+  w3.addRegion(fj); w3.addRegion(pj);
+  const left = w3.segs.filter(s => s.frontier && s.ax === 3072 - w3.base[0] && s.bx === s.ax && s.az >= 3136 - w3.base[1] && s.az < 3392 - w3.base[1]).length;
+  check('west frontier gone once Falador + Port Sarim load', left === 0, `left ${left}`);
 }
 
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');

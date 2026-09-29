@@ -59,7 +59,8 @@ export class Goals {
       const k = byKind[q.kind] ?? 0, x = q.x - W.base[0] + 0.5, z = q.z - W.base[1] + 0.5;
       const s = new THREE.Sprite(mats[k]); s.scale.set(0.7, 0.7, 1);
       scene.add(s);
-      this.runes.push({ id: q.id, kind: q.kind, high: !!q.high, x, z, y: W.height(x, z) + (q.high ? 1.35 : 0.6), s });
+      this.runes.push({ id: q.id, kind: q.kind, high: !!q.high, x, z, y: W.height(x, z) + (q.high ? 1.35 : 0.6), s,
+        live: W.isLive ? W.isLive(Math.floor(x), Math.floor(z)) : true });
     }
     // spot beams
     const beamMat = new THREE.MeshBasicMaterial({ color: 0xffcc33, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide });
@@ -77,6 +78,11 @@ export class Goals {
       g.add(beam, ring); g.position.set(x, W.height(x, z), -z); scene.add(g);
       this.spots.push({ ...sp, x, z, g, cool: 0 });
     }
+  }
+
+  /** a streamed region arrived: runes standing in it now have real ground under them */
+  regionLoaded() {
+    for (const r of this.runes) if (!r.live && this.world.isLive(Math.floor(r.x), Math.floor(r.z))) { r.live = true; r.y = this.world.height(r.x, r.z) + (r.high ? 1.35 : 0.6); }
   }
 
   nearWall(x, z) { for (const s of this.world.segsNear(x, z, 1)) if (s.kind !== 'water') { const L2 = s.dx * s.dx + s.dz * s.dz, t = Math.max(0, Math.min(1, ((x - s.ax) * s.dx + (z - s.az) * s.dz) / L2)); if (Math.hypot(x - s.ax - s.dx * t, z - s.az - s.dz * t) < 0.8) return true; } return false; }
@@ -160,7 +166,7 @@ export class Goals {
     // runes
     for (const r of this.runes) {
       const got = this.found.has(r.id), d = Math.hypot(sk.x - r.x, sk.z - r.z);
-      r.s.visible = !got && d < 60;
+      r.s.visible = !got && d < 60 && r.live;
       if (!r.s.visible) continue;
       r.s.position.set(r.x, r.y + Math.sin(now * 2 + r.x) * 0.1, -r.z);
       r.s.material.rotation = Math.sin(now * 1.5 + r.z) * 0.3;

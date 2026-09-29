@@ -12,6 +12,7 @@ import { levelFor, XP_AT, MAX_LEVEL } from './levels.js';
 import { buildOutfitModel, loadKit } from './rsanim.js';
 import { Designer } from './designer.js';
 import { Goals } from './goals.js';
+import { EXTRA_SPAWNS } from './npc-spawns.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
@@ -113,27 +114,29 @@ async function main() {
     if (bvhQueue.length) { const m = bvhQueue.shift(); if (!m.geometry.boundsTree) m.geometry.computeBoundsTree(); }
   }
 
-  // ---------------- minimap: the whole map rendered ONCE from straight above (north up), 2 px per tile
+  // ---------------- minimap: each region rendered ONCE from straight above (north up), 2 px per tile, into
+  // one canvas the size of the whole grid (land not loaded yet stays black)
   status('drawing the map...');
-  const renderMini = () => {
-    const N = world.N, PX = 2, S = N * PX;
-    const rtm = new THREE.WebGLRenderTarget(S, S);
-    const cam = new THREE.OrthographicCamera(0, N, 0, -N, 1, 600);
+  const miniMap = (() => { const c = document.createElement('canvas'); c.width = c.height = world.N * 2; return { canvas: c, PX: 2, N: world.N }; })();
+  const renderMini = ({ x0, z0, w, h }) => {
+    const N = world.N, PX = miniMap.PX, SW = w * PX, SH = h * PX;
+    const rtm = new THREE.WebGLRenderTarget(SW, SH);
+    const cam = new THREE.OrthographicCamera(0, 1, 1, 0, 1, 600);
     cam.position.set(0, 400, 0); cam.up.set(0, 0, -1); cam.lookAt(0, 0, 0);
-    // after lookAt the view's +x is east and +y is north (-z): frame x 0..N, z 0..-N
-    cam.left = 0; cam.right = N; cam.top = N; cam.bottom = 0; cam.updateProjectionMatrix();
+    // after lookAt the view's +x is east and +y is north (-z): frame x x0..x0+w, z z0..z0+h
+    cam.left = x0; cam.right = x0 + w; cam.top = z0 + h; cam.bottom = z0; cam.updateProjectionMatrix();
     const fog = scene.fog; scene.fog = null;
+    const vis = chunkMeshes.map(m => m.visible);
     for (const m of chunkMeshes) m.visible = true;
     renderer.setRenderTarget(rtm); renderer.setClearColor(0x000000, 1); renderer.render(scene, cam);
-    const px = new Uint8Array(S * S * 4); renderer.readRenderTargetPixels(rtm, 0, 0, S, S, px);
+    const px = new Uint8Array(SW * SH * 4); renderer.readRenderTargetPixels(rtm, 0, 0, SW, SH, px);
     renderer.setRenderTarget(null); renderer.setClearColor(0x000000, 0); scene.fog = fog; rtm.dispose();
-    const c = document.createElement('canvas'); c.width = c.height = S;
-    const im = c.getContext('2d').createImageData(S, S);
-    for (let y = 0; y < S; y++) im.data.set(px.subarray((S - 1 - y) * S * 4, (S - y) * S * 4), y * S * 4);   // GL rows are bottom-up
-    c.getContext('2d').putImageData(im, 0, 0);
-    return { canvas: c, PX, N };
+    chunkMeshes.forEach((m, i) => { m.visible = vis[i]; });
+    const im = new ImageData(SW, SH);
+    for (let y = 0; y < SH; y++) im.data.set(px.subarray((SH - 1 - y) * SW * 4, (SH - y) * SW * 4), y * SW * 4);   // GL rows are bottom-up
+    miniMap.canvas.getContext('2d').putImageData(im, x0 * PX, (N - z0 - h) * PX);
   };
-  let miniMap = renderMini();
+  for (const r of world.rects) renderMini(r);
 
   // ---------------- streamed regions: Varrock (and anything else split.py packs) is NOT in the first load.
   // It is fetched in the background once a skater gets within STREAM_AT tiles of it, then dropped into the
@@ -144,15 +147,17 @@ async function main() {
     for (const r of world.regions) {
       if (world.loaded.has(r.name)) continue;
       const d = Math.hypot(Math.max(r.x0 - x, 0, x - (r.x0 + r.w)), Math.max(r.z0 - z, 0, z - (r.z0 + r.h)));
-      const title = r.name[0].toUpperCase() + r.name.slice(1);
+      const title = r.title || r.name;
       if (d < 8 && (loadNoteT -= dt) <= 0) { loadNoteT = 4; hud.pop(`loading ${title}...`, '#ff981f'); }
       if (d > STREAM_AT || regionState.get(r.name) === 'loading') continue;
       regionState.set(r.name, 'loading');
       Promise.all([fetch(`assets/world_${r.name}.json`).then(q => q.json()), fetch(`assets/world_${r.name}.bin`).then(q => q.arrayBuffer())])
         .then(([pack, rbin]) => {
           world.addRegion(pack); addLanes(pack.lanes); addChunks(pack, rbin);
-          miniMap = renderMini();
+          renderMini(pack);
           regionState.set(r.name, 'ready');
+          spawnNpcs(pack);
+          goals.regionLoaded();
           hud.pop(`${title.toUpperCase()} IS OPEN`, '#0f0');
         })
         .catch(() => { regionState.set(r.name, 'failed'); setTimeout(() => regionState.delete(r.name), 10000); });   // try again shortly
@@ -175,7 +180,18 @@ async function main() {
     goblin: { xp: 240, hp: 5, r: 0.55, h: 1.3 }, cow: { xp: 180, hp: 8, r: 0.9, h: 1.4 }, chicken: { xp: 60, hp: 3, r: 0.4, h: 0.6 },
     rat: { xp: 60, hp: 2, r: 0.4, h: 0.4 }, imp: { xp: 300, hp: 8, r: 0.5, h: 1.0 }, man: { xp: 250, hp: 7, r: 0.5, h: 1.8 },
     darkwizard: { xp: 400, hp: 12, r: 0.5, h: 1.8 },
+    guard: { xp: 450, hp: 22, r: 0.5, h: 1.8 }, whiteknight: { xp: 700, hp: 52, r: 0.5, h: 1.9 }, blackknight: { xp: 650, hp: 42, r: 0.5, h: 1.9 },
+    barbarian: { xp: 300, hp: 14, r: 0.5, h: 1.8 }, dwarf: { xp: 280, hp: 16, r: 0.45, h: 1.2 }, bear: { xp: 450, hp: 27, r: 0.9, h: 1.3 },
+    unicorn: { xp: 350, hp: 19, r: 0.8, h: 1.8 }, giantspider: { xp: 500, hp: 32, r: 0.8, h: 0.9 }, scorpion: { xp: 320, hp: 17, r: 0.8, h: 0.7 },
+    skeleton: { xp: 450, hp: 29, r: 0.5, h: 1.8 }, zombie: { xp: 400, hp: 24, r: 0.5, h: 1.8 }, ghost: { xp: 420, hp: 25, r: 0.5, h: 1.8 },
+    icewarrior: { xp: 800, hp: 59, r: 0.5, h: 2.0 }, giant: { xp: 600, hp: 35, r: 0.9, h: 3.0 }, mossgiant: { xp: 800, hp: 60, r: 0.9, h: 3.0 },
+    icegiant: { xp: 900, hp: 70, r: 0.9, h: 3.0 }, blackunicorn: { xp: 450, hp: 29, r: 0.8, h: 1.8 },
+    lesserdemon: { xp: 1200, hp: 79, r: 0.9, h: 2.6 }, greaterdemon: { xp: 1600, hp: 87, r: 1.3, h: 3.2 },
+    greendragon: { xp: 2000, hp: 75, r: 1.6, h: 3.0 }, kbd: { xp: 10000, hp: 240, r: 2.8, h: 5.5, scale: 1.6 },
   };
+  const NPC_NAME = { darkwizard: 'DARK WIZARD', whiteknight: 'WHITE KNIGHT', blackknight: 'BLACK KNIGHT', giantspider: 'GIANT SPIDER',
+    icewarrior: 'ICE WARRIOR', mossgiant: 'MOSS GIANT', icegiant: 'ICE GIANT', blackunicorn: 'BLACK UNICORN', lesserdemon: 'LESSER DEMON',
+    greaterdemon: 'GREATER DEMON', greendragon: 'GREEN DRAGON', kbd: 'KING BLACK DRAGON' };
   const NPC_SPAWNS = {
     goblin: [[3141, 3258], [3142, 3230], [3145, 3229], [3183, 3244], [3187, 3246], [3244, 3245], [3247, 3247], [3250, 3238], [3252, 3228], [3255, 3222], [3258, 3245], [3260, 3233]],
     cow: [[3254, 3258], [3258, 3260], [3261, 3259], [3243, 3295], [3247, 3284], [3255, 3278], [3160, 3318], [3182, 3329]],
@@ -186,13 +202,22 @@ async function main() {
     // the stone circle south of Varrock, and the pair by Draynor
     darkwizard: [[3223, 3367], [3223, 3372], [3224, 3370], [3225, 3365], [3225, 3374], [3228, 3373], [3230, 3363], [3230, 3365], [3230, 3374], [3232, 3367], [3232, 3372], [3084, 3236], [3085, 3238]],
   };
-  const npcs = [];
-  for (const [kind, spots] of Object.entries(NPC_SPAWNS)) for (const [gx, gz] of spots) {
-    const m = await loadRSModel('npc_' + kind);          // cached: already downloaded above
-    scene.add(m.group);
-    const x = gx - world.base[0] + 0.5, z = gz - world.base[1] + 0.5;
-    npcs.push({ kind, ...NPC_KIND[kind], m, x, z, home: [x, z], dir: Math.random() * 6.28, walkT: 0, state: 'idle', t: 0 });
+  // every spawn is sorted into the region it stands in; a region's NPCs (and their models) arrive with it
+  for (const [kind, spots] of Object.entries(EXTRA_SPAWNS)) (NPC_SPAWNS[kind] ||= []).push(...spots);
+  const npcs = [], pendingNpcs = [];
+  for (const [kind, spots] of Object.entries(NPC_SPAWNS)) for (const [gx, gz] of spots)
+    pendingNpcs.push({ kind, x: gx - world.base[0] + 0.5, z: gz - world.base[1] + 0.5 });
+  async function spawnNpcs({ x0, z0, w, h }) {
+    const mine = pendingNpcs.filter(p => p.x >= x0 && p.x < x0 + w && p.z >= z0 && p.z < z0 + h);
+    for (const p of mine) pendingNpcs.splice(pendingNpcs.indexOf(p), 1);
+    for (const { kind, x, z } of mine) {
+      let m; try { m = await loadRSModel('npc_' + kind); } catch { continue; }    // cached after the first of a kind
+      if (NPC_KIND[kind].scale) m.group.scale.setScalar(NPC_KIND[kind].scale);      // the boss gets boss size
+      scene.add(m.group);
+      npcs.push({ kind, ...NPC_KIND[kind], m, x, z, home: [x, z], dir: Math.random() * 6.28, walkT: 0, state: 'idle', t: 0 });
+    }
   }
+  for (const r of world.rects) await spawnNpcs(r);
   const goblins = npcs;                                     // (test hooks still say goblins)
 
   // ---------------- collision debug overlay (F3)
@@ -380,7 +405,7 @@ async function main() {
       const mine = rows.find(r => r.name === me.name);
       const runes = window.RS.goals?.found?.size || 0;
       if (mine) { mine.xp = Math.max(mine.xp, me.xp); mine.runes = Math.max(mine.runes || 0, runes); mine.on = true; }
-      else rows.push({ name: me.name, xp: me.xp, runes, runeTotal: 40, on: true });
+      else rows.push({ name: me.name, xp: me.xp, runes, runeTotal: window.RS.goals?.runes?.length || 100, on: true });
     }
     const cap = XP_AT[MAX_LEVEL];                           // same order as the server: XP to max level, then runes
     return rows.sort((a, b) => Math.min(b.xp, cap) - Math.min(a.xp, cap) || (b.runes || 0) - (a.runes || 0) || b.xp - a.xp).slice(0, 15);
@@ -715,7 +740,7 @@ async function main() {
     const stomp = how === 'stomp';
     const pts = Math.round(n.xp * (stomp ? 1.5 : 1));
     hud.splats.push({ gob: n, t: 0, n: n.hp });
-    const label = n.kind === 'darkwizard' ? 'DARK WIZARD' : n.kind.toUpperCase();
+    const label = NPC_NAME[n.kind] || n.kind.toUpperCase();
     sk.addCombo(label + (stomp ? ' STOMP' : ' SMACK'), pts);
     shake = stomp ? 0.15 : 0.25; audio.event({ type: stomp ? 'stomp' : 'smack' });
     if (stomp) { sk.vy = Math.max(sk.vy, 6.5); sk.airTime = 0.2; }          // bounce off them

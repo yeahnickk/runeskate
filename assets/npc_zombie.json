@@ -1,0 +1,1 @@
+{"verts":252,"faces":401,"nframes":20,"anims":{"ready":{"seq":301,"frames":[1,2],"delay":[25,25]},"walk":{"seq":298,"frames":[3,4,5,6,7,8,9,10],"delay":[5,5,5,5,5,5,5,5]},"death":{"seq":302,"frames":[11,12,13,14,15,16,17,18,19],"delay":[4,3,3,3,10,3,2,1,20000]}},"npc":74,"name":"Zombie","level":18,"size":1}

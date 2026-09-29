@@ -256,7 +256,7 @@ export class HUD {
       if (r.own) this.crown(px + 12 + nw + 3 * k, y, k);
       this.text(`lvl ${levelFor(r.xp)}`, px + pw * 0.44, y, col, k, 'l', 'p12');
       this.text(Math.floor(r.xp).toLocaleString(), px + pw * 0.80, y, col, k, 'r', 'p12');
-      this.text(`${r.runes || 0}/${r.runeTotal || 40}`, px + pw - 12, y, '#0cf', k, 'r', 'p12');
+      this.text(`${r.runes || 0}/${r.runeTotal || 100}`, px + pw - 12, y, '#0cf', k, 'r', 'p12');
     });
   }
 

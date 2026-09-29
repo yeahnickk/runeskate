@@ -41,8 +41,16 @@ const hslRgb = (hsl: number) => Pix3D.colourTable[hsl & 0xffff];
 // name -> [npc id, death seq]
 const NPCS: Record<string, [number, number]> = {
   goblin: [100, 313], cow: [81, 62], chicken: [41, 57], rat: [47, 243], imp: [708, 172], man: [1, 836], darkwizard: [174, 836],
+  // the rest of F2P (death seqs from each npc's param=death_anim, resolved through content/pack/seq.pack)
+  guard: [9, 836], whiteknight: [19, 836], blackknight: [179, 836], barbarian: [12, 836], dwarf: [206, 102],
+  darkwarrior: [192, 836], bear: [105, 44], unicorn: [89, 292], giantspider: [60, 146], scorpion: [107, 248],
+  skeleton: [92, 263], zombie: [74, 302], ghost: [103, 126], icewarrior: [125, 843], giant: [117, 131],
+  mossgiant: [112, 131], icegiant: [111, 131], blackunicorn: [133, 292], lesserdemon: [82, 67], greaterdemon: [83, 68],
+  greendragon: [941, 92], kbd: [50, 92],
 };
+const ONLY = process.argv.slice(2);                      // export just these (default: all)
 for (const [name, [npcId, death]] of Object.entries(NPCS)) {
+  if (ONLY.length && !ONLY.includes(name)) continue;
   const t: any = NpcType.list(npcId);
   const base = t.getTempModel(-1, -1, null);
   const faces: number[] = [], col: number[] = [];

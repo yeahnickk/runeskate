@@ -1,0 +1,1 @@
+{"verts":260,"faces":496,"nframes":20,"anims":{"ready":{"seq":43,"frames":[1,2],"delay":[25,25]},"walk":{"seq":37,"frames":[3,4,5,6,7,8,9,10],"delay":[5,5,5,5,5,5,6,5]},"death":{"seq":44,"frames":[11,12,13,14,15,16,17,18,19],"delay":[4,4,3,3,10,3,2,2,20000]}},"npc":105,"name":"Bear","level":21,"size":2}

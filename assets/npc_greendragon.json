@@ -1,0 +1,1 @@
+{"verts":367,"faces":776,"nframes":20,"anims":{"ready":{"seq":90,"frames":[1,2],"delay":[35,35]},"walk":{"seq":79,"frames":[3,4,5,6,7,8,9,10],"delay":[6,6,6,6,6,6,6,6]},"death":{"seq":92,"frames":[11,12,13,14,15,16,17,18,19],"delay":[4,4,3,3,2,2,1,1,20000]}},"npc":941,"name":"Green dragon","level":79,"size":4}

@@ -1,0 +1,1 @@
+{"verts":290,"faces":521,"nframes":12,"anims":{"ready":{"seq":245,"frames":[1,2],"delay":[25,25]},"walk":{"seq":244,"frames":[3,4,5,6],"delay":[6,6,6,6]},"death":{"seq":248,"frames":[7,8,9,10,11],"delay":[4,3,2,1,20000]}},"npc":107,"name":"Scorpion","level":14,"size":2}
