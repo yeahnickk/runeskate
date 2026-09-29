@@ -6,6 +6,7 @@
 import { join, normalize } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync } from 'fs';
 import { XP_AT, MAX_LEVEL } from './src/levels.js';
+import { cleanChat } from './profanity.ts';
 const ROOT = import.meta.dir;
 const port = Number(process.argv[2] || process.env.PORT || 8123);
 
@@ -55,6 +56,7 @@ const loadJson = (f: string, d: any) => { try { return JSON.parse(readFileSync(f
 const samples: [number, number, number][] = loadJson(STATS, []);
 let chatLog: { t: number; n: string; m: string }[] = loadJson(CHAT, []);
 let peak = 0, statsDirty = false;
+for (const c of chatLog) { const m = cleanChat(c.m); if (m !== c.m) { c.m = m; statsDirty = true; } }   // scrub history written before the filter
 const writeJson = (f: string, v: any) => { writeFileSync(f + '.tmp', JSON.stringify(v)); renameSync(f + '.tmp', f); };
 const saveStats = () => { if (!statsDirty) return; statsDirty = false; writeJson(STATS, samples); writeJson(CHAT, chatLog); };
 function pruneChat() {
@@ -183,7 +185,7 @@ Bun.serve({
         if (list === a.prog.found && !RUNE_IDS.has(id)) return;   // not a real rune
         if (list && id && !list.includes(id) && list.length < 500) { list.push(id); dirty = true; }
       } else if (m.t === 'say') {
-        const text = String(m.text || '').slice(0, 80).trim();
+        const text = cleanChat(String(m.text || '').slice(0, 80).trim()).slice(0, 80);
         if (text) { broadcast({ t: 'say', id: s.id, name: s.name, text }); chatLog.push({ t: Date.now(), n: s.name, m: text }); statsDirty = true; }
       }
     },
