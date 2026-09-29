@@ -3,12 +3,14 @@ import * as THREE from 'three';
 
 const modelCache = new Map();
 export async function loadRSModel(name) {
-  if (!modelCache.has(name)) modelCache.set(name, (async () => [
-    await (await fetch(`assets/${name}.json`)).json(),
-    new Float32Array(await (await fetch(`assets/${name}.frames.bin`)).arrayBuffer()),
-    new Uint32Array(await (await fetch(`assets/${name}.faces.bin`)).arrayBuffer()),
-    new Uint8Array(await (await fetch(`assets/${name}.fcol.bin`)).arrayBuffer()),
-  ])());
+  // all four parts in parallel: over a tunnel each round trip is ~0.5 s, so serial fetches added up fast
+  const buf = ext => fetch(`assets/${name}.${ext}`).then(r => r.arrayBuffer());
+  if (!modelCache.has(name)) modelCache.set(name, Promise.all([
+    fetch(`assets/${name}.json`).then(r => r.json()),
+    buf('frames.bin').then(b => new Float32Array(b)),
+    buf('faces.bin').then(b => new Uint32Array(b)),
+    buf('fcol.bin').then(b => new Uint8Array(b)),
+  ]));
   const [meta, frames, faces, fcol] = await modelCache.get(name);
   return new RSModel(meta, frames, faces, fcol);
 }

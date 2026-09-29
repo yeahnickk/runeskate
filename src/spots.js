@@ -5,7 +5,9 @@
 //        trick (land a named trick) · grabflip (a grab + flip in one air) · stomp/smack (n npcs)
 //        air (n seconds of hang time in one jump) · chain (bank a combo of n+ tricks)
 //        letters (collect S-K-A-T-E around the spot; `high` letters need air or a grind)
-export const SPOTS = [
+// Only the ones listed in ACTIVE are placed in the world (user: too many glowing rings). Add ids back to enable.
+export const ACTIVE = new Set(["bridge"]);
+export const SPOTS_ALL = [
   // --- Lumbridge ---
   { id: 'courtyard', at: [3224, 3220], name: 'Castle Courtyard', task: 'Bank a 1,500 point combo', time: 40, kind: 'combo', n: 1500, xp: 3000 },
   { id: 'bridge', at: [3238, 3224], name: 'Lumbridge Bridge', task: 'Grind for 3 seconds', time: 35, kind: 'grind', n: 3, xp: 3500 },
@@ -49,3 +51,4 @@ export const SPOTS = [
   { id: 'akroad', at: [3280, 3230], name: 'Desert Road', task: 'Hit 30 km/h', time: 30, kind: 'speed', n: 30, xp: 2500 },
   { id: 'akman', at: [3294, 3200], name: 'Al Kharid Streets', task: 'Manual for 4 seconds', time: 35, kind: 'manual', n: 4, xp: 4000 },
 ];
+export const SPOTS = SPOTS_ALL.filter(s => ACTIVE.has(s.id));

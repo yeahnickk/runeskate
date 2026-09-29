@@ -183,5 +183,35 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
   check('360 flip lands regular', log.some(e => e.type === 'trick' && /360 Flip/.test(e.name)) && sk.mode === 'ground' && d < 0.5, 'dHead=' + d.toFixed(2) + ' ' + where(sk));
 }
 
+// 15. trees/props: ride straight into a block footprint -> glance off it, keep most of the speed, no bail
+{
+  // a lone 1-tile footprint edge with open tiles to its south, near Lumbridge
+  const seg = w.segs.find(s => s.kind === 'block' && s.az === s.bz && Math.abs(s.ax + w.base[0] - 3240) < 25 && Math.abs(s.az + w.base[1] - 3230) < 25
+    && w.tileKind(Math.min(s.ax, s.bx) + 0.5, s.az - 0.5) === 0 && w.tileKind(Math.min(s.ax, s.bx) + 0.5, s.az - 1.5) === 0 && w.tileKind(Math.min(s.ax, s.bx) + 0.5, s.az - 2.5) === 0);
+  const sk = new Skater(w); const x = Math.min(seg.ax, seg.bx) + 0.45;
+  sk.reset(x, seg.az - 2.5, Math.PI / 2); sk.vz = 6;
+  const log = run(sk, 0.8);
+  check('tree hit glances, keeps speed', !log.some(e => e.type === 'bail') && sk.speed > 3.5, 'v=' + sk.speed.toFixed(2) + ' ' + where(sk));
+}
+
+// 16. dropped inside a blocked footprint (bad landing) -> slides out to open ground by itself
+{
+  let bx = -1, bz = -1;
+  for (let x = Math.floor(w.spawn[0]) - 20; x < w.spawn[0] + 20 && bx < 0; x++) for (let z = Math.floor(w.spawn[1]) - 20; z < w.spawn[1] + 20; z++)
+    if (w.tileKind(x + 0.5, z + 0.5) === 1 && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => w.tileKind(x + a + 0.5, z + b + 0.5) === 0)) { bx = x; bz = z; break; }
+  const sk = new Skater(w); sk.reset(bx + 0.5, bz + 0.5, 0);
+  run(sk, 1.0);
+  check('pushed out of a hitbox', w.tileKind(sk.x, sk.z) === 0 && !sk.wedged(), where(sk));
+}
+
+// 17. rails are easy to catch: ollie from a little way off the parapet line still locks on
+{
+  const sk = new Skater(w);
+  const [x, z] = L(3242.3, 3225.75); sk.reset(x, z, 0);   // 0.75 tiles off the rail line (was 0.6 max)
+  sk.vx = 5.5; sk.vz = -0.3;
+  const log = run(sk, 1.2, (t) => ({ jump: t < 0.3 }));
+  check('loose rail catch', log.some(e => e.type === 'grind'), log.map(e => e.type).join(','));
+}
+
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
 process.exit(fails ? 1 : 0);

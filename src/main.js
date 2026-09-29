@@ -9,7 +9,7 @@ import { RSFont, loadHitsplat, HUD } from './hud.js';
 import { SkateAudio } from './audio.js';
 import { Net } from './net.js';
 import { levelFor } from './levels.js';
-import { buildOutfitModel } from './rsanim.js';
+import { buildOutfitModel, loadKit } from './rsanim.js';
 import { Designer } from './designer.js';
 import { Goals } from './goals.js';
 
@@ -24,14 +24,24 @@ const T = (x, y, z) => new THREE.Vector3(x, y, -z);
 
 async function main() {
   status('loading world...');
-  const wjson = await (await fetch('assets/world.json')).json();
+  // start EVERY download now, in parallel: the world, the player/NPC models, fonts, hitsplats and the
+  // outfit kit all stream together instead of queueing behind each other
+  const pJson = fetch('assets/world.json').then(r => r.json());
+  const pBin = fetch('assets/world.bin').then(r => r.arrayBuffer());
+  const NPC_KINDS = ['goblin', 'cow', 'chicken', 'rat', 'imp', 'man'];
+  const pModels = Promise.all([loadRSModel('nickai3'), ...NPC_KINDS.map(k => loadRSModel('npc_' + k))]);
+  const pFonts = Promise.all([RSFont.load('b12'), RSFont.load('p12')]);
+  const pHit = loadHitsplat();
+  loadKit(0).catch(() => {});
+  const wjson = await pJson;
   const world = new World(wjson);
-  const bin = await (await fetch('assets/world.bin')).arrayBuffer();
+  const bin = await pBin;
   status('building Lumbridge...');
 
   // resource friendly: no MSAA on hi-dpi screens, pixel ratio capped, ~60 fps cap, nothing drawn while hidden
   const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gl'), antialias: devicePixelRatio < 1.5, alpha: true, powerPreference: 'low-power' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));
+  const BASE_DPR = Math.min(devicePixelRatio, 1.25);
+  renderer.setPixelRatio(BASE_DPR);
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;     // RS colours are baked, show them 1:1
   renderer.setClearColor(0x000000, 0);
   const scene = new THREE.Scene();
@@ -58,17 +68,24 @@ async function main() {
       m.userData.c = [(ch.cx + 0.5) * CH, (ch.cz + 0.5) * CH];
       if (alpha) m.renderOrder = 1;
       scene.add(m); chunkMeshes.push(m);
-      if (!alpha) { g.computeBoundsTree(); occluders.push(m); }
+      if (!alpha) occluders.push(m);             // BVH built lazily, only for chunks the camera gets near
     }
   }
-  const nearOccluders = [];
+  const nearOccluders = [], bvhQueue = [];
   function cullChunks(x, z) {
     nearOccluders.length = 0;
     for (const m of chunkMeshes) {
       const d = Math.max(Math.abs(m.userData.c[0] - x), Math.abs(m.userData.c[1] - z)) - CH / 2;
-      m.visible = d < 64;
-      if (d < 12 && m.material === mats.opaque) nearOccluders.push(m);
+      // round, not square: anything past the fog is invisible anyway (the camera trails the skater ~5 tiles)
+      const ex = Math.max(0, Math.abs(m.userData.c[0] - x) - CH / 2), ez = Math.max(0, Math.abs(m.userData.c[1] - z) - CH / 2);
+      m.visible = Math.hypot(ex, ez) < scene.fog.far + 6;
+      if (d < 12 && m.material === mats.opaque) {
+        if (!m.geometry.boundsTree) m.geometry.computeBoundsTree();
+        nearOccluders.push(m);
+      } else if (d < 24 && m.material === mats.opaque && !m.geometry.boundsTree && !bvhQueue.includes(m)) bvhQueue.push(m);
     }
+    // warm the next ring of chunks one per frame so crossing into them never hitches
+    if (bvhQueue.length) { const m = bvhQueue.shift(); if (!m.geometry.boundsTree) m.geometry.computeBoundsTree(); }
   }
 
   // ---------------- minimap: the whole map rendered ONCE from straight above (north up), 2 px per tile
@@ -91,13 +108,15 @@ async function main() {
     c.getContext('2d').putImageData(im, 0, 0);
     return { canvas: c, PX, N };
   })();
-  status('loading NickAI3...');
+  status('loading skaters...');
+  await pModels;
   let player = await loadRSModel('nickai3');
   scene.add(player.group);
   const board = buildBoard();
   scene.add(board.root);
-  const fonts = { b12: await RSFont.load('b12'), p12: await RSFont.load('p12') };
-  const hud = new HUD(document.getElementById('hud'), fonts, await loadHitsplat());
+  const [b12, p12] = await pFonts;
+  const fonts = { b12, p12 };
+  const hud = new HUD(document.getElementById('hud'), fonts, await pHit);
   const audio = new SkateAudio();
 
   // ---------------- NPCs you can take out: land on them from the air (STOMP, and you bounce) or ram them
@@ -116,7 +135,7 @@ async function main() {
   };
   const npcs = [];
   for (const [kind, spots] of Object.entries(NPC_SPAWNS)) for (const [gx, gz] of spots) {
-    const m = await loadRSModel('npc_' + kind);
+    const m = await loadRSModel('npc_' + kind);          // cached: already downloaded above
     scene.add(m.group);
     const x = gx - world.base[0] + 0.5, z = gz - world.base[1] + 0.5;
     npcs.push({ kind, ...NPC_KIND[kind], m, x, z, home: [x, z], dir: Math.random() * 6.28, walkT: 0, state: 'idle', t: 0 });
@@ -660,7 +679,7 @@ async function main() {
     updateGoblins(dt);
     placeShadow(myShadow, sk.x, sk.y, sk.z, sk.mode !== 'bail' || !sk.inWater);
     updateSparks(dt);
-    goals.update(dt);
+    goals.update(dt, camera);
     drawSkater(dt);
     updateRemotes(dt);
     net.state(snapshot(), performance.now());
@@ -691,11 +710,26 @@ async function main() {
     hud.goal = goals.status();
     hud.draw(dt, sk, cfg);
   }
+  // adaptive resolution: if frames run long for a second, render fewer pixels (down to 55%); step back up
+  // once there's headroom. Keeps slower laptops smooth without making fast machines look worse.
+  let resScale = 1, perfT = 0, perfN = 0, perfSum = 0, goodT = 0;
+  function adaptResolution(frameMs, dt) {
+    perfT += dt; perfN++; perfSum += frameMs;
+    if (perfT < 1) return;
+    const avg = perfSum / perfN; perfT = perfN = perfSum = 0;
+    let next = resScale;
+    if (avg > 21 && resScale > 0.56) { next = Math.max(0.55, resScale * 0.85); goodT = 0; }
+    else if (avg < 17.5 && resScale < 1) { if (++goodT >= 4) { next = Math.min(1, resScale / 0.85); goodT = 0; } }
+    else goodT = 0;
+    if (next !== resScale) { resScale = next; renderer.setPixelRatio(BASE_DPR * resScale); resize(); }
+  }
+  window.RS.res = () => resScale;
   function frame(now) {
     requestAnimationFrame(frame);
     if (now - last < 15.5 || document.hidden) return;       // ~60 fps cap (high-refresh screens would double the work)
-    const dt = Math.min(0.1, (now - last) / 1000); last = now;
-    if (!window.RS.paused) tick(dt);
+    const gap = now - last;
+    const dt = Math.min(0.1, gap / 1000); last = now;
+    if (!window.RS.paused) { tick(dt); if (gap < 250) adaptResolution(gap, dt); }
   }
   // test hook: step the game synchronously with scripted keys, e.g.
   //   RS.advance(1.5, t => t < 1 ? ['w'] : ['w', ' '])

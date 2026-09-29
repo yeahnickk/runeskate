@@ -30,7 +30,8 @@ export const P = {
   hardLanding: 15.5,     // vertical impact that bails you
   landAngle: 0.95,       // clean landing window (rad) between board and travel
   landSketchy: 1.52,     // up to here you ride it out (speed wobble), past it you bail
-  grindCatch: 0.6,       // horizontal snap distance to a rail
+  grindCatch: 0.85,      // horizontal snap distance to a rail (generous: rails should be easy to land on)
+  blockRadius: 0.14,     // trees/rocks/props: a much smaller collider than walls, and you glance off them
   grindFriction: 0.55,
   grindMin: 2.2,
   slideDecel: 7.5,
@@ -99,6 +100,11 @@ export class Skater {
       case 'bail': this.stepBail(dt, input); break;
       case 'walk': this.stepWalk(dt, input); break;
     }
+    // the exported map ends: a soft invisible edge, so nobody rides off the world
+    const lo = 0.6, hi = this.w.N - 0.6;
+    if (this.x < lo) { this.x = lo; this.vx = Math.max(0, this.vx); } else if (this.x > hi) { this.x = hi; this.vx = Math.min(0, this.vx); }
+    if (this.z < lo) { this.z = lo; this.vz = Math.max(0, this.vz); } else if (this.z > hi) { this.z = hi; this.vz = Math.min(0, this.vz); }
+    if (this.mode === 'ground' || this.mode === 'walk' || this.mode === 'air') this.unstick(dt);
     if (this.mode !== 'bail') { this.board.x = this.x; this.board.z = this.z; }
   }
 
@@ -269,10 +275,9 @@ export class Skater {
       }
     }
     this.x += this.vx * dt; this.z += this.vz * dt; this.y += this.vy * dt;
+    // catch a rail on the way down (checked before walls, so brushing a rail's side catches it instead of bouncing off)
+    if (this.vy < 3 && this.tryGrind()) return;
     if (this.collide(dt, true)) return;
-
-    // catch a rail on the way down
-    if (this.vy < 1.5 && this.tryGrind()) return;
 
     const g = this.w.height(this.x, this.z);
     if (this.y <= g) {
@@ -341,17 +346,17 @@ export class Skater {
       if (r === this.ignoreRail) continue;
       // distance to the rail line + position along it
       const t = r.horiz ? this.x - r.ax : this.z - r.az;
-      if (t < -0.1 || t > r.len + 0.1) continue;
+      if (t < -0.3 || t > r.len + 0.3) continue;
       const off = r.horiz ? this.z - r.az : this.x - r.ax;
       if (Math.abs(off) > P.grindCatch) continue;
       const top = railTop(r, Math.max(0, Math.min(r.len, t)));
-      if (this.y < top - 0.35 || this.y > top + 0.6) continue;
+      if (this.y < top - (this.vy < 0 ? 0.6 : 0.3) || this.y > top + 1.0) continue;
       if (!best || Math.abs(off) < best.off) best = { r, t, off: Math.abs(off), top };
     }
     if (!best) return false;
     const { r, t, top } = best;
     const along = this.vx * r.dirx + this.vz * r.dirz;
-    if (Math.abs(along) < 0.8 || Math.abs(along) < 0.3 * this.speed) return false;   // crossing it, not riding along it
+    if (Math.abs(along) < 0.6 || Math.abs(along) < 0.2 * this.speed) return false;   // crossing it, not riding along it
     const rdir = Math.atan2(r.dirz, r.dirx);
     const rel = Math.abs(wrap(this.heading - rdir));
     const relA = Math.min(rel, Math.PI - rel);           // 0 = board along rail, pi/2 = across
@@ -415,7 +420,13 @@ export class Skater {
     if (inp.jumpPressed || this.railT < -0.05 || this.railT > r.len + 0.05) {
       const pop = inp.jumpPressed ? P.ollieMin * 0.95 : 1.2;
       this.popOffRail = !!inp.jumpPressed;
+      const side = inp.jumpPressed ? inp.steer : 0;   // hold A/D while popping to hop across to the next rail
       this.leaveRail(pop);
+      if (side) {
+        // same sense as steering: rotate the travel direction 90 degrees toward the steer side
+        const dx = r.dirx * this.railDir, dz = r.dirz * this.railDir, k = 2.6 * Math.sign(side);
+        this.vx += -dz * k; this.vz += dx * k;
+      }
     }
   }
 
@@ -443,25 +454,54 @@ export class Skater {
   // ------------------------------------------------------------ collisions
   /** push the skater out of walls; returns true if it caused a bail */
   collide(dt, air) {
+    if (this.unstickTo) return false;   // gliding out of a hitbox: from inside, wall pushes point further in
     const R = P.radius;
     for (let iter = 0; iter < 3; iter++) {
       let hit = null;
       for (const s of this.w.segsNear(this.x, this.z, 1)) {
         if (!this.solid(s, air)) continue;
+        const r = s.kind === 'block' ? P.blockRadius : R;
         const c = closest(this.x, this.z, s);
         const d = Math.hypot(this.x - c.x, this.z - c.z);
-        if (d < R && (!hit || d < hit.d)) hit = { s, c, d };
+        if (d < r && (!hit || d - r < hit.d - hit.r)) hit = { s, c, d, r };
       }
       if (!hit) return false;
       let nx = this.x - hit.c.x, nz = this.z - hit.c.z;
       const L = Math.hypot(nx, nz);
       if (L < 1e-6) { nx = -hit.s.dz / hit.s.len; nz = hit.s.dx / hit.s.len; } else { nx /= L; nz /= L; }
-      this.x = hit.c.x + nx * R; this.z = hit.c.z + nz * R;
+      this.x = hit.c.x + nx * hit.r; this.z = hit.c.z + nz * hit.r;
       const vn = this.vx * nx + this.vz * nz;
+      if (vn < 0 && hit.s.kind === 'block') {
+        // trees, rocks, props: glance off and keep your speed, redirected along the obstacle. Never a dead stop.
+        const sp = this.speed, headOn = -vn / Math.max(sp, 1e-6);
+        let tx = -nz, tz = nx;
+        const vt = this.vx * tx + this.vz * tz;
+        if (Math.abs(vt) < 0.35 * sp) {
+          // (nearly) head-on: go round whichever corner of the obstacle is open, preferring the nearer one
+          const s = hit.s, u = segParam(this.x, this.z, s), sx = s.dx / s.len, sz = s.dz / s.len;
+          const cost = dir => {                          // dir +1 = toward s.b, -1 = toward s.a
+            const run = (dir > 0 ? 1 - u : u) * s.len;
+            const ex = (dir > 0 ? s.bx : s.ax) + sx * dir * 0.45 + nx * 0.35, ez = (dir > 0 ? s.bz : s.az) + sz * dir * 0.45 + nz * 0.35;
+            let open = this.w.tileKind(ex, ez) === 0;
+            if (open) for (const o of this.w.segsNear(ex, ez, 1)) if (o !== s && o.kind !== 'water' && this.solid(o, air) && segDist(ex, ez, o) < 0.2) { open = false; break; }
+            return run + (open ? 0 : 5);
+          };
+          const want = cost(1) <= cost(-1) ? 1 : -1;
+          if ((tx * sx + tz * sz) * want < 0) { tx = -tx; tz = -tz; }
+        } else if (vt < 0) { tx = -tx; tz = -tz; }
+        const keep = 1 - 0.2 * headOn, out = Math.min(1.2, -vn * 0.12);
+        this.vx = tx * sp * keep + nx * out; this.vz = tz * sp * keep + nz * out;
+        if (!air && this.speed > 0.5) {
+          const dir = Math.atan2(this.vz, this.vx);
+          this.heading = Math.abs(wrap(this.heading - dir)) < Math.PI / 2 ? dir : wrap(dir + Math.PI);
+        }
+        if (headOn > 0.6 && sp > 3) this.bumpSound(-vn);
+        continue;
+      }
       if (vn < 0) {
         const impact = -vn;
         const headOn = impact / Math.max(this.speed, 1e-6);
-        if (impact > (air ? P.slamAir : P.slamWall) && headOn > P.slamHeadOn && !(this.railExitT > 0)) { this.bail('wall', { impact }); return true; }
+        if (impact > (air ? P.slamAir : P.slamWall) && headOn > P.slamHeadOn && !(this.railExitT > 0) && hit.s.kind !== 'rail') { this.bail('wall', { impact }); return true; }
         if (headOn > 0.85 && impact > 2.5) {
           // square-on but survivable: bounce back off it and stay on the board
           this.vx -= vn * nx * 1.1; this.vz -= vn * nz * 1.1;   // mostly stop, tiny rebound: no 180 camera flip
@@ -491,6 +531,63 @@ export class Skater {
       return this.y < Math.max(s.top[0], s.top[1], s.top[2], top) - 0.02;
     }
     return true;
+  }
+
+  /** never stay inside a hitbox: if the skater ends up in a blocked tile or wedged between walls,
+   *  glide it smoothly to the nearest open spot (a few tiles/s), keeping its speed, then carry on. */
+  unstick(dt) {
+    const w = this.w;
+    if (!this.unstickTo) {
+      if (w.tileKind(this.x, this.z) !== 1 && !this.wedged()) { this.stuckT = 0; return; }
+      this.stuckT = (this.stuckT || 0) + dt;
+      if (this.stuckT < 0.08) return;                    // a one-frame graze resolves itself
+      this.unstickTo = this.freeSpot(this.x, this.z);
+      if (!this.unstickTo) return;
+    }
+    const t = this.unstickTo, dx = t.x - this.x, dz = t.z - this.z, d = Math.hypot(dx, dz);
+    if (d < 0.02) { this.unstickTo = null; this.stuckT = 0; return; }
+    const step = Math.min(d, Math.max(3, d * 6) * dt);
+    this.x += dx / d * step; this.z += dz / d * step;
+    const vn = (this.vx * dx + this.vz * dz) / d;        // no speed back into the thing we left
+    if (vn < 0) { this.vx -= vn * dx / d; this.vz -= vn * dz / d; }
+    if (this.mode !== 'air') this.y = w.height(this.x, this.z);
+    if (d - step < 0.02) { this.unstickTo = null; this.stuckT = 0; }
+  }
+
+  /** closer to a solid segment than collide() could resolve (pinched in a corner, landed inside a footprint) */
+  wedged() {
+    const air = this.mode === 'air';
+    for (const s of this.w.segsNear(this.x, this.z, 1)) {
+      if (s.kind === 'water' || !this.solid(s, air)) continue;
+      if (segDist(this.x, this.z, s) < (s.kind === 'block' ? P.blockRadius : P.radius) * 0.5) return true;
+    }
+    return false;
+  }
+
+  /** nearest open point clear of every solid segment, searched outward ring by ring */
+  freeSpot(x, z) {
+    const w = this.w; let best = null, bd = 1e9;
+    const clear = (px, pz) => {
+      if (w.tileKind(px, pz) !== 0) return false;
+      if (this.mode !== 'air' && Math.abs(w.height(px, pz) - this.y) > 1.6) return false;
+      for (const s of w.segsNear(px, pz, 1)) {
+        if (s.kind === 'water' || s.kind === 'edge') continue;
+        if (segDist(px, pz, s) < (s.kind === 'block' ? P.blockRadius : P.radius) + 0.06) return false;
+      }
+      return true;
+    };
+    for (let r = 0; r <= 5 && !best; r++) {
+      for (let ix = -r; ix <= r; ix++) for (let iz = -r; iz <= r; iz++) {
+        if (Math.max(Math.abs(ix), Math.abs(iz)) !== r) continue;
+        const tx = Math.floor(x) + ix, tz = Math.floor(z) + iz;
+        const near = [Math.min(tx + 0.95, Math.max(tx + 0.05, x)), Math.min(tz + 0.95, Math.max(tz + 0.05, z))];
+        for (const [px, pz] of [near, [tx + 0.5, tz + 0.5]]) {
+          const d = Math.hypot(px - x, pz - z);
+          if (d < bd && clear(px, pz)) { bd = d; best = { x: px, z: pz }; }
+        }
+      }
+    }
+    return best;
   }
 
   clampSpeed() {

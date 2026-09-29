@@ -4,7 +4,7 @@
 // (an unknown name is registered on the spot). Accounts live in runeskate/data/accounts.json:
 // hashed password, outfit, points (= total XP). Everything else is relayed peer state.
 import { join, normalize } from 'path';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync } from 'fs';
 const ROOT = import.meta.dir;
 const port = Number(process.argv[2] || process.env.PORT || 8123);
 
@@ -35,6 +35,35 @@ function cleanOutfit(o: any) {
   return { g: o.g ? 1 : 0, items: map(o.items, PHAT), kits: map(o.kits) };
 }
 
+// ------------------------------------------------------------------ static files
+// Fast public loading: pre-compressed .br/.gz siblings (tools/compress.ts), on-the-fly gzip for the small
+// source files, and an ETag on everything so a returning player revalidates (a 304) instead of
+// re-downloading the 12 MB world. vendor/ never changes, so the browser may keep it for a day.
+const TYPES: Record<string, string> = { js: 'text/javascript; charset=utf-8', json: 'application/json', html: 'text/html; charset=utf-8', bin: 'application/octet-stream', png: 'image/png', css: 'text/css' };
+const gzCache = new Map<string, { m: number; buf: Uint8Array }>();
+async function sendFile(req: Request, full: string) {
+  let st; try { st = statSync(full); } catch { return new Response('not found', { status: 404 }); }
+  if (!st.isFile()) return new Response('not found', { status: 404 });
+  const ext = full.slice(full.lastIndexOf('.') + 1).toLowerCase();
+  const etag = `"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+  const headers: Record<string, string> = {
+    ETag: etag, Vary: 'Accept-Encoding', 'Content-Type': TYPES[ext] || 'application/octet-stream',
+    'Cache-Control': /[\\/]vendor[\\/]/.test(full) ? 'public, max-age=86400' : 'no-cache',
+  };
+  if (req.headers.get('if-none-match') === etag) return new Response(null, { status: 304, headers });
+  const ae = req.headers.get('accept-encoding') || '';
+  for (const [enc, suf] of [['br', '.br'], ['gzip', '.gz']]) {
+    if (!ae.includes(enc)) continue;
+    try { if (statSync(full + suf).mtimeMs >= st.mtimeMs - 2000) return new Response(Bun.file(full + suf), { headers: { ...headers, 'Content-Encoding': enc } }); } catch {}
+  }
+  if (ae.includes('gzip') && st.size > 1024 && /^(js|json|html|css)$/.test(ext)) {
+    let c = gzCache.get(full);
+    if (!c || c.m !== st.mtimeMs) gzCache.set(full, c = { m: st.mtimeMs, buf: Bun.gzipSync(readFileSync(full)) });
+    return new Response(c.buf, { headers: { ...headers, 'Content-Encoding': 'gzip' } });
+  }
+  return new Response(Bun.file(full), { headers });
+}
+
 // ------------------------------------------------------------------ sessions
 type Sess = { id: number; name: string; k: string; st: any; ws: any; xp: number; outfit: any };
 const sessions = new Map<number, Sess>();
@@ -55,7 +84,7 @@ Bun.serve({
     }
     if (p === '/api/players') return Response.json([...sessions.values()].map(s => ({ name: s.name, xp: s.xp })));
     // dev hook: the page POSTs rendered frames here (RS.shot) so they can be inspected offline
-    if (req.method === 'POST' && p.startsWith('/__shot/')) {
+    if (req.method === 'POST' && p.startsWith('/__shot/') && /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(url.host)) {
       const name = p.slice(8).replace(/[^\w.-]/g, '');
       const data = (await req.text()).replace(/^data:image\/png;base64,/, '');
       await Bun.write(join(ROOT, 'test', 'shots', name + '.png'), Buffer.from(data, 'base64'));
@@ -64,12 +93,7 @@ Bun.serve({
     if (p === '/' || p === '') p = '/index.html';
     const full = normalize(join(ROOT, p));
     if (!full.startsWith(normalize(ROOT)) || full.startsWith(normalize(DATA))) return new Response('no', { status: 403 });
-    const gz = Bun.file(full + '.gz');
-    if ((req.headers.get('accept-encoding') || '').includes('gzip') && await gz.exists())
-      return new Response(gz, { headers: { 'Cache-Control': 'no-cache', 'Content-Encoding': 'gzip', 'Content-Type': 'application/octet-stream' } });
-    const f = Bun.file(full);
-    if (!(await f.exists())) return new Response('not found', { status: 404 });
-    return new Response(f, { headers: { 'Cache-Control': 'no-cache' } });
+    return sendFile(req, full);
   },
   websocket: {
     async message(ws: any, raw) {

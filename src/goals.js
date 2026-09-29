@@ -157,7 +157,7 @@ export class Goals {
     sp.cool = 8;
   }
 
-  update(dt) {
+  update(dt, cam) {
     const sk = this.sk, now = performance.now() / 1000;
     // runes
     for (const r of this.runes) {
@@ -180,7 +180,14 @@ export class Goals {
       if (sp.cool > 0) sp.cool -= dt;
       const d = Math.hypot(sk.x - sp.x, sk.z - sp.z);
       sp.g.visible = d < 90;
-      if (sp.g.visible) { sp.g.children[0].material.opacity = (this.done.has(sp.id) ? 0.15 : 0.35 + Math.sin(now * 3) * 0.08) * Math.min(1, Math.max(0.25, (d - 1) / 8)); sp.g.rotation.y = now * 0.5; }
+      if (sp.g.visible) {
+        // fade the beam away when the CAMERA is near it too, or it becomes a pale wall across the screen
+        const dc = cam ? Math.hypot(cam.position.x - sp.x, -cam.position.z - sp.z) : 99;
+        const near = Math.min(1, Math.max(0, (dc - 1.2) / 4));
+        sp.g.children[0].material.opacity = (this.done.has(sp.id) ? 0.1 : 0.35 + Math.sin(now * 3) * 0.08) * Math.min(1, Math.max(0.25, (d - 1) / 8)) * near;
+        sp.g.children[0].visible = near > 0.02;
+        sp.g.rotation.y = now * 0.5;
+      }
       if (!this.active && sp.cool <= 0 && d < 1.3 && sk.mode !== 'bail' && sk.mode !== 'walk') {
         this.active = { sp, t: sp.time, count: 0, bails: 0, grind: 0, manual: 0, airT: 0, bestAir: 0 };
         if (sp.kind === 'letters') this.active.letters = this.spawnLetters(sp);
@@ -220,7 +227,7 @@ export class Goals {
   status() {
     const a = this.active;
     const runes = this.runes.filter(r => this.found.has(r.id)).length;
-    const base = { runes, runeTotal: this.runes.length, spots: this.done.size, spotTotal: SPOTS.length };
+    const base = { runes, runeTotal: this.runes.length, spots: SPOTS.filter(s => this.done.has(s.id)).length, spotTotal: SPOTS.length };
     if (!a) return base;
     const sp = a.sp;
     let prog = '';

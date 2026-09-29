@@ -11,6 +11,7 @@ export class World {
     this.segs = [];
     this.grid = new Map();
     for (const [ax, az, bx, bz, kind, top] of json.segs) this.addSeg({ ax, az, bx, bz, kind, top });
+    this.weldGround();
     this.rails = buildRails(this.segs.filter(s => s.kind === 'rail'));
     this.railGrid = new Map();
     for (const r of this.rails) {
@@ -19,6 +20,47 @@ export class World {
         this.railGrid.get(cell).push(r);
       }
     }
+  }
+
+  /** Each tile carries its own four corner heights, and where a loc (bridge deck, stairs) raised some tiles
+   *  the neighbours can disagree about a shared corner: a pit or a cliff the renderer never shows (the
+   *  Lumbridge bridge's west end dropped to the river bed, then stepped up 1.3 tiles). Weld every corner
+   *  shared by two open tiles with no wall/ledge between them to the median of its copies. */
+  weldGround() {
+    const N = this.N, g = this.ground, B = this.blocked;
+    const edges = new Set();                              // tile edges that have a segment on them
+    for (const s of this.segs) {
+      if (s.ax === s.bx && Math.abs(s.bz - s.az) === 1) edges.add('v' + s.ax + ',' + Math.min(s.az, s.bz));
+      else if (s.az === s.bz && Math.abs(s.bx - s.ax) === 1) edges.add('h' + Math.min(s.ax, s.bx) + ',' + s.az);
+    }
+    const par = new Int32Array(N * N * 4); for (let i = 0; i < par.length; i++) par[i] = i;
+    const find = i => { while (par[i] !== i) i = par[i] = par[par[i]]; return i; };
+    const join = (a, b) => { a = find(a); b = find(b); if (a !== b) par[a] = b; };
+    const id = (tx, tz, k) => (tx * N + tz) * 4 + k;     // corners: 0 (x0,z0) 1 (x1,z0) 2 (x1,z1) 3 (x0,z1)
+    const open = (tx, tz) => B[tz * N + tx] === 0;
+    for (let tx = 0; tx < N; tx++) for (let tz = 0; tz < N; tz++) {
+      if (!open(tx, tz)) continue;
+      if (tx + 1 < N && open(tx + 1, tz) && !edges.has('v' + (tx + 1) + ',' + tz)) { join(id(tx, tz, 1), id(tx + 1, tz, 0)); join(id(tx, tz, 2), id(tx + 1, tz, 3)); }
+      if (tz + 1 < N && open(tx, tz + 1) && !edges.has('h' + tx + ',' + (tz + 1))) { join(id(tx, tz, 3), id(tx, tz + 1, 0)); join(id(tx, tz, 2), id(tx, tz + 1, 1)); }
+    }
+    const size = new Int32Array(par.length);
+    for (let i = 0; i < par.length; i++) size[find(i)]++;
+    const groups = new Map();
+    for (let i = 0; i < par.length; i++) {
+      const r = find(i);
+      if (size[r] < 2) continue;
+      let l = groups.get(r); if (!l) groups.set(r, l = []); l.push(i);
+    }
+    let welded = 0;
+    for (const l of groups.values()) {
+      if (l.length < 2) continue;
+      let lo = Infinity, hi = -Infinity; for (const i of l) { lo = Math.min(lo, g[i]); hi = Math.max(hi, g[i]); }
+      if (hi - lo < 0.05) continue;
+      const v = l.map(i => g[i]).sort((a, b) => a - b), m = v.length & 1 ? v[v.length >> 1] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+      for (const i of l) g[i] = m;
+      welded++;
+    }
+    this.welded = welded;
   }
 
   addSeg(s) {

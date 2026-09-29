@@ -4,7 +4,7 @@
 // wall / fence / door / block / water segment (rails and ledge edges can be ollied, so they pass).
 import { readFileSync } from 'fs';
 import { World } from '../src/world.js';
-import { SPOTS } from '../src/spots.js';
+import { SPOTS_ALL as SPOTS } from '../src/spots.js';
 
 const w = new World(JSON.parse(readFileSync(new URL('../assets/world.json', import.meta.url), 'utf8')));
 const N = w.N, SOLID = new Set(['wall', 'fence', 'door', 'block', 'water']);
