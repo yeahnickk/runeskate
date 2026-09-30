@@ -768,7 +768,12 @@ async function main() {
       board.root.rotation.set(0, byaw, 0); board.roll.rotation.x = broll; board.pitch.rotation.z = bpitch;
     }
     // player transform: feet on the deck
-    const yaw = sk.body + yawOff + fkYaw;
+    // a stance flip (switch -> regular on a push) turns the rider round over ~0.2s instead of in one frame
+    const db = m._lb === undefined ? 0 : Math.atan2(Math.sin(sk.body - m._lb), Math.cos(sk.body - m._lb));
+    m._lb = sk.body;
+    if (sk.mode === 'ground' && Math.abs(db) > 2.6) m._rv = (m._rv || 0) - db;
+    m._rv = (m._rv || 0) * Math.exp(-dt * 14); if (Math.abs(m._rv) < 0.01) m._rv = 0;
+    const yaw = sk.body + yawOff + fkYaw + m._rv;
     const crouch = sk.charge >= 0 && sk.mode === 'ground' ? 0.12 * sk.charge : (sk.mode === 'air' && sk.grab ? 0.22 : 0);
     const PT = P.pushEvery + 0.08, bob = clip !== 'push' && sk.pushing > 0 ? Math.sin((PT - sk.pushing) / PT * Math.PI) * 0.05 : 0;   // (old model only)
     let py = sk.mode === 'bail' ? sk.y : by + TOP_Z - crouch - bob;

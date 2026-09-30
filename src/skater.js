@@ -36,6 +36,7 @@ export const P = {
   grindFriction: 0.55,
   grindMin: 2.2,
   grindGap: 1.6,
+  trunkPad: 0.1,         // rider half-width against a tree trunk (the trunk itself is measured, see tools/build.py)
   treeClear: 0.6,         // tiles of air under the board: from here up you fly through trees/props
   treeGain: 0.1,          // steer only toward a line at least this much clearer (fraction of the look distance)
   treeCap: 1.4,           // rad: most the board will steer itself off your line
@@ -62,6 +63,8 @@ const TRICKS = {
 export const TRICK_KEYS = { j: 'kickflip', k: 'heelflip', l: 'shove', i: 'varial', u: 'tre', n: 'hardflip', m: 'shove360', y: 'double', b: 'doubleheel' };
 
 const wrap = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+
+const TRUNK = { kind: 'block', trunk: true };            // collide()'s stand-in segment for a trunk hit
 
 export class Skater {
   constructor(world) {
@@ -184,7 +187,12 @@ export class Skater {
       this.pushT -= dt;
       if (inp.push && !this.manual && this.pushT <= 0 && Math.abs(vf) < P.pushMax && this.charge < 0) {
         // camera-relative: W always pushes toward where the camera looks, whichever end of the board that is
-        const s = inp.fwd ? inp.fwd : (vf < -0.2 ? -1 : 1);
+        const s = 1, want = inp.fwd ? inp.fwd : (vf < -0.2 ? -1 : 1);
+        if (want < 0) {
+          // riding switch and pushing where the camera looks: the rider turns round and pushes regular, so W
+          // always takes you toward the screen and you're never stuck steering a backwards board
+          this.heading = wrap(this.heading + Math.PI); fx = -fx; fz = -fz; vf = -vf; vl = -vl; this.emit('revert');
+        }
         const kick = Math.abs(vf) < 1.5 ? P.pushKick : P.pushAccel;
         vf += s * kick * (1 - Math.abs(vf) / (P.pushMax + 2.5));
         this.pushT = P.pushEvery; this.pushing = P.pushEvery + 0.08; this.emit('push');
@@ -270,7 +278,8 @@ export class Skater {
       const px = this.x + dx * d, pz = this.z + dz * d;
       for (const o of [0, 1, -1]) {
         const qx = px + lx * o, qz = pz + lz * o, k = w.tileKind(qx, qz);
-        if (k === 0) continue;
+        if (w.trunkAt(qx, qz, 0.05)) return { d, tree: true };
+        if (k === 0 || k === 4) continue;
         const tree = k === 1 && this.tallBlock(Math.floor(qx), Math.floor(qz));
         if (tree || k !== 1) return { d, tree };
       }
@@ -351,7 +360,8 @@ export class Skater {
     // catch a rail on the way down (checked before walls, so brushing a rail's side catches it instead of bouncing off)
     if (this.vy < 3 && this.tryGrind()) return;
     // flying through a tree: hold the board just over it until you're out the other side, so you never land in one
-    if (!this.noclip && this.speed > 1.5 && this.w.tileKind(this.x, this.z) === 1 && this.tallBlock(Math.floor(this.x), Math.floor(this.z))) {
+    if (!this.noclip && this.speed > 1.5 && (this.w.trunkAt(this.x, this.z, P.trunkPad + 0.1)
+        || (this.w.tileKind(this.x, this.z) === 1 && this.tallBlock(Math.floor(this.x), Math.floor(this.z))))) {
       const gt = this.w.height(this.x, this.z) + P.treeClear + 0.01;
       if (this.y < gt && this.y > gt - 0.5) { this.y = gt; this.vy = Math.max(this.vy, -1.5); }
     }
@@ -616,10 +626,32 @@ export class Skater {
         const d = Math.hypot(this.x - c.x, this.z - c.z);
         if (d < r && (!hit || d - r < hit.d - hit.r)) hit = { s, c, d, r };
       }
+      // tree trunks: circles the size of the trunk itself, so you only touch a tree where it stands
+      if (!this.noclip && !(air && this.y - this.w.height(this.x, this.z) > P.treeClear)) {
+        for (const t of this.w.trunksNear(this.x, this.z, 1)) {
+          const r = t.r + P.trunkPad, d = Math.hypot(this.x - t.x, this.z - t.z);
+          if (d < r && (!hit || d - r < hit.d - hit.r)) hit = { s: TRUNK, t, c: { x: t.x, z: t.z }, d, r };
+        }
+      }
       if (!hit) return false;
+      if (hit.t && this.speed > 0.8) {
+        // a trunk is small: slip round it on the side you're already on and keep your line, like brushing past
+        // (a glance along the tangent turned a dead-centre hit into a 90 degree swerve)
+        const sp = this.speed, ux = this.vx / sp, uz = this.vz / sp, lx = -uz, lz = ux;
+        const rx = this.x - hit.c.x, rz = this.z - hit.c.z, a = rx * ux + rz * uz, lat = rx * lx + rz * lz;
+        const side = lat >= 0 ? 1 : -1, need = Math.sqrt(Math.max(0, hit.r * hit.r - a * a)) + 0.005;
+        this.x = hit.c.x + ux * a + lx * need * side; this.z = hit.c.z + uz * a + lz * need * side;
+        const headOn = Math.max(0, 1 - Math.abs(lat) / hit.r), k = Math.exp(-dt * 1.5 * headOn);
+        this.vx *= k; this.vz *= k;
+        if (headOn > 0.7 && sp > 3) this.bumpSound(sp * headOn);
+        continue;
+      }
       let nx = this.x - hit.c.x, nz = this.z - hit.c.z;
       const L = Math.hypot(nx, nz);
-      if (L < 1e-6) { nx = -hit.s.dz / hit.s.len; nz = hit.s.dx / hit.s.len; } else { nx /= L; nz /= L; }
+      if (L < 1e-6) {
+        if (hit.t) { const sp = Math.max(this.speed, 1e-6); nx = -this.vz / sp || 1; nz = this.vx / sp; }
+        else { nx = -hit.s.dz / hit.s.len; nz = hit.s.dx / hit.s.len; }
+      } else { nx /= L; nz /= L; }
       this.x = hit.c.x + nx * hit.r; this.z = hit.c.z + nz * hit.r;
       const vn = this.vx * nx + this.vz * nz;
       if (vn < 0 && hit.s.kind === 'block') {
@@ -627,7 +659,8 @@ export class Skater {
         const sp = this.speed, headOn = -vn / Math.max(sp, 1e-6);
         let tx = -nz, tz = nx;
         const vt = this.vx * tx + this.vz * tz;
-        if (Math.abs(vt) < 0.35 * sp) {
+        if (hit.t) { if (vt < 0) { tx = -tx; tz = -tz; } }   // round a trunk on whichever side you're already heading
+        else if (Math.abs(vt) < 0.35 * sp) {
           // (nearly) head-on: go round whichever corner of the obstacle is open, preferring the nearer one
           const s = hit.s, u = segParam(this.x, this.z, s), sx = s.dx / s.len, sz = s.dz / s.len;
           const cost = dir => {                          // dir +1 = toward s.b, -1 = toward s.a
@@ -694,7 +727,7 @@ export class Skater {
     if (this.noclip) { this.unstickTo = null; return; }
     if (!this.unstickTo) {
       // in the air you may be flying over a hedge/cactus tile: only a real wedge counts there
-      const inBlocked = this.mode !== 'air' && w.tileKind(this.x, this.z) === 1;
+      const inBlocked = this.mode !== 'air' && (w.tileKind(this.x, this.z) === 1 || !!w.trunkAt(this.x, this.z, -0.02));
       if (!inBlocked && !this.wedged()) { this.stuckT = 0; return; }
       this.stuckT = (this.stuckT || 0) + dt;
       if (this.stuckT < 0.08) return;                    // a one-frame graze resolves itself
@@ -718,14 +751,15 @@ export class Skater {
       if (s.kind === 'water' || !this.solid(s, air)) continue;
       if (segDist(this.x, this.z, s) < (s.kind === 'block' ? P.blockRadius : P.radius) * 0.5) return true;
     }
-    return false;
+    return !air && !this.noclip && !!this.w.trunkAt(this.x, this.z, P.trunkPad * 0.5);
   }
 
   /** nearest open point clear of every solid segment, searched outward ring by ring */
   freeSpot(x, z) {
     const w = this.w; let best = null, bd = 1e9;
     const clear = (px, pz) => {
-      if (w.tileKind(px, pz) !== 0) return false;
+      const k = w.tileKind(px, pz);
+      if ((k !== 0 && k !== 4) || w.trunkAt(px, pz, P.trunkPad + 0.06)) return false;
       if (this.mode !== 'air' && Math.abs(w.height(px, pz) - this.y) > 1.6) return false;
       for (const s of w.segsNear(px, pz, 1)) {
         if (s.kind === 'water' || s.kind === 'edge') continue;

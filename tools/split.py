@@ -53,6 +53,7 @@ for r in RECTS:
         blocked += w['blocked'][tz * N + x0: tz * N + x0 + rw]
     rsegs = [s for s in segs if inside(r, (s[0] + s[2]) / 2, (s[1] + s[3]) / 2)]
     lanes = [l for l in w.get('lanes', []) if inside(r, l[0], l[1])]
+    trunks = [t for t in w.get('trunks', []) if inside(r, t[0], t[1])]
     rb = bytearray(); chunks = []
     for ch in w['index']['chunks']:
         if not inside(r, ch['cx'] * CH, ch['cz'] * CH): continue
@@ -67,7 +68,7 @@ for r in RECTS:
             while len(rb) % 4: rb.append(0)
             ent[k] = e
         chunks.append(ent)
-    pack = {**r, 'ground': ground, 'blocked': blocked, 'segs': rsegs, 'lanes': lanes, 'index': {'chunk': CH, 'chunks': chunks}}
+    pack = {**r, 'ground': ground, 'blocked': blocked, 'segs': rsegs, 'lanes': lanes, 'trunks': trunks, 'index': {'chunk': CH, 'chunks': chunks}}
     if r['name'] == 'core':
         pack.update({'baseX': BX, 'baseZ': BZ, 'size': N, 'spawn': w['spawn'], 'regions': RECTS[1:]})
         jf, bf = 'world.json', 'world.bin'

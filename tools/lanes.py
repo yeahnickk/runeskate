@@ -49,7 +49,7 @@ acc = np.zeros((N, N, 3)); cnt = np.zeros((N, N))
 np.add.at(acc, (tx[ok], tz[ok]), col[ok].mean(1)); np.add.at(cnt, (tx[ok], tz[ok]), 1)
 mean = acc / np.maximum(cnt, 1)[..., None]
 blue = ((mean[..., 2] - (mean[..., 0] + mean[..., 1]) / 2 >= 20)       # rivers, lakes
-        | (mean[..., 1] - mean[..., 0] > 40)) & (blk >= 2)        # ...and the green bog of Lumbridge swamp
+        | (mean[..., 1] - mean[..., 0] > 40)) & (blk == 2)        # ...and the green bog of Lumbridge swamp
 near = np.zeros_like(blue)
 for dx in range(-3, 4):
     for dz in range(-3, 4):
@@ -67,7 +67,7 @@ def edge_ok(x, z, nx, nz):
     """orthogonal step (x,z)->(nx,nz) crosses no stopping edge"""
     if nx != x: return (max(x, nx), z, 'v') not in stop
     return (x, max(z, nz), 'h') not in stop
-def tile_ok(x, z): return 0 <= x < N and 0 <= z < N and blk[x, z] <= 1
+def tile_ok(x, z): return 0 <= x < N and 0 <= z < N and (blk[x, z] <= 1 or blk[x, z] == 4)
 DIRS = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)]
 def step_ok(x, z, dx, dz):
     nx, nz = x + dx, z + dz
@@ -94,7 +94,7 @@ def search(a, b):
         for i, (dx, dz) in enumerate(DIRS):
             if not step_ok(x, z, dx, dz): continue
             nx, nz = x + dx, z + dz
-            c = math.hypot(dx, dz) * (TREE_COST if blk[nx, nz] == 1 else 1.0)
+            c = math.hypot(dx, dz) * (TREE_COST if blk[nx, nz] in (1, 4) else 1.0)
             if d >= 0 and d != i: c += TURN_COST * min((i - d) % 8, (d - i) % 8)
             ns = (nx, nz, i); ng = g + c
             if ng < dist.get(ns, 1e18):
@@ -122,12 +122,16 @@ for name, p in paths.items():
                 X, Z = x + dx, z + dz
                 if not (0 <= X < N and 0 <= Z < N): continue
                 d = math.hypot(dx, dz)
-                if d <= CLEAR_R and blk[X, Z] == 1 and (X, Z) not in cleared: cleared.add((X, Z)); ntree += 1
-                if d <= PAINT_R and blk[X, Z] <= 1:
+                if d <= CLEAR_R and blk[X, Z] in (1, 4) and (X, Z) not in cleared: cleared.add((X, Z)); ntree += 1
+                if d <= PAINT_R and (blk[X, Z] <= 1 or blk[X, Z] == 4):
                     s = 1.0 if d < 0.5 else 0.75 if d <= 1.0 else 0.45
                     paint[(X, Z)] = max(paint.get((X, Z), 0), s)
     print(f'  {name}: {len(p)} tiles, {ntree} trees cleared')
 for (x, z) in cleared: blk[x, z] = 0
+# trunks standing in a lane go with their tree
+nt = len(w.get('trunks', []))
+w['trunks'] = [t for t in w.get('trunks', []) if (int(math.floor(t[0])), int(math.floor(t[1]))) not in cleared]
+print('lane trunks removed', nt - len(w['trunks']))
 
 # block segments: drop the outline of cleared trees, outline the trees left standing against the new lane
 top_of = {}
@@ -152,7 +156,7 @@ added = 0
 for (x, z) in cleared:
     for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
         X, Z = x + dx, z + dz
-        if not (0 <= X < N and 0 <= Z < N) or blk[X, Z] == 0: continue
+        if not (0 <= X < N and 0 <= Z < N) or blk[X, Z] in (0, 4): continue
         if dx: ex, ez, key = max(x, X), z, (max(x, X), z, 'v'); a, b = (ex, ez), (ex, ez + 1)
         else: ex, ez, key = x, max(z, Z), (x, max(z, Z), 'h'); a, b = (ex, ez), (ex + 1, ez)
         if key in have: continue
@@ -181,5 +185,5 @@ if '--map' in sys.argv:
         for z in range(min(z1, N - 1), max(z0, 0) - 1, -1):
             row = ''
             for x in range(max(x0, 0), min(x1, N - 1) + 1):
-                row += '@' if (x, z) in on else 'x' if (x, z) in cleared else '.' if blk[x, z] == 0 else 'T' if blk[x, z] == 1 else '~' if blk[x, z] == 2 else 'r'
+                row += '@' if (x, z) in on else 'x' if (x, z) in cleared else '.' if blk[x, z] == 0 else 'T' if blk[x, z] in (1, 4) else '~' if blk[x, z] == 2 else 'r'
             print(z + BZ, row)

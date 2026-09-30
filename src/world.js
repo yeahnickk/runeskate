@@ -10,13 +10,14 @@ export class World {
     this.base = [json.baseX, json.baseZ];
     const N = this.N;
     this.ground = new Float32Array(N * N * 4);
-    this.blocked = new Uint8Array(N * N).fill(1);          // [z*N+x] 0 open, 1 blocked, 2 water, 3 rock (tools/lanes.py)
+    this.blocked = new Uint8Array(N * N).fill(1);          // [z*N+x] 0 open, 1 blocked, 2 water, 3 rock (tools/lanes.py), 4 a tree stands here (its trunk collides, see trunks)
     this.live = new Uint8Array(N * N);                     // [z*N+x] 1 = inside a loaded region
     this.spawn = json.spawn;
     this.segs = [];
     this.grid = new Map();
     this.rails = [];
     this.railGrid = new Map();
+    this.trunkGrid = new Map();                            // 'tx,tz' -> [{x, z, r}]: tree trunks, measured by tools/build.py
     this.regions = json.regions || [];
     this.loaded = new Set();
     this.rects = [];
@@ -32,6 +33,11 @@ export class World {
     for (let j = 0; j < h; j++) {
       this.blocked.set(p.blocked.slice(j * w, (j + 1) * w), (z0 + j) * N + x0);
       this.live.fill(1, (z0 + j) * N + x0, (z0 + j) * N + x0 + w);
+    }
+    for (const [x, z, r] of p.trunks || []) {
+      const k = Math.floor(x) + ',' + Math.floor(z);
+      if (!this.trunkGrid.has(k)) this.trunkGrid.set(k, []);
+      this.trunkGrid.get(k).push({ x, z, r });
     }
     const added = [];
     for (const [ax, az, bx, bz, kind, top] of p.segs) { const s = { ax, az, bx, bz, kind, top }; this.addSeg(s); added.push(s); }
@@ -147,6 +153,27 @@ export class World {
     const tx = Math.floor(x), tz = Math.floor(z);
     if (tx < 0 || tz < 0 || tx >= this.N || tz >= this.N) return 1;
     return this.blocked[tz * this.N + tx];
+  }
+
+  /** tree trunks (circles) whose centre lies within r tiles' worth of grid cells of (x,z) */
+  trunksNear(x, z, r = 1) {
+    const out = [];
+    for (let cx = Math.floor(x - r); cx <= Math.floor(x + r); cx++)
+      for (let cz = Math.floor(z - r); cz <= Math.floor(z + r); cz++) {
+        const l = this.trunkGrid.get(cx + ',' + cz);
+        if (l) out.push(...l);
+      }
+    return out;
+  }
+
+  /** the nearest trunk surface within reach: distance from (x,z) to its edge (negative = inside) */
+  trunkAt(x, z, reach) {
+    let best = null;
+    for (const t of this.trunksNear(x, z, reach + 0.8)) {
+      const d = Math.hypot(x - t.x, z - t.z) - t.r;
+      if (d < reach && (!best || d < best.d)) best = { t, d };
+    }
+    return best;
   }
 
   segsNear(x, z, r = 1) {

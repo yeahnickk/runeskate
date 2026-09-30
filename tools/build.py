@@ -258,6 +258,7 @@ def tile_top(x, z):
 # flags them as blocking, but on a board they are nothing
 SMALL = os.path.join(WEXP, 'small-locs.json')
 TINY_TILES = {tuple(t) for t in json.load(open(SMALL))['tiles']} if os.path.exists(SMALL) else set()
+TREE_TILES = {tuple(t) for t in json.load(open(SMALL)).get('trees', [])} if os.path.exists(SMALL) else set()
 FLAT_OBSTACLE = 0.3                                      # tiles: below this it is a bump, not an obstacle
 nflat = 0
 for x in range(N):
@@ -267,6 +268,71 @@ for x in range(N):
         if (x, z) in TINY_TILES or (t is not None and t - float(min(ground[x, z])) < FLAT_OBSTACLE):
             blocked[x, z] = False; nflat += 1
 print('tiny/flat obstacles made rideable', nflat)
+trunk_tile = np.zeros((N, N), bool)
+# trees: a tall blocked tile used to collide as the WHOLE tile (a 2x2 tree = a 2x2 box), so you hit it a metre
+# from the trunk. Measure the trunk instead: the loc geometry in the bottom ~0.7 tiles (the canopy is far above)
+# clustered into trunks, each a circle. The tiles go to code 4 (a tree stands here: not a spawn/landing spot,
+# but no outline) and the circles do the colliding. Boxy things (statues, crates, fountains) stay blocks.
+TRUNK_LOW = 0.7; TRUNK_SLICE = 0.45; TRUNK_MAX_R = 0.62
+def comp_tiles():
+    seen = set()
+    for x in range(N):
+        for z in range(N):
+            if (x, z) in seen or not blocked[x, z] or water[x, z]: continue
+            t = tile_top(x, z)
+            if t is None or t - float(min(ground[x, z])) < LOW_OBSTACLE: continue
+            st = [(x, z)]; seen.add((x, z)); comp = []
+            while st:
+                a, b = st.pop(); comp.append((a, b))
+                for c in ((a + 1, b), (a - 1, b), (a, b + 1), (a, b - 1)):
+                    if c in seen or not (0 <= c[0] < N and 0 <= c[1] < N) or not blocked[c] or water[c]: continue
+                    tt = tile_top(*c)
+                    if tt is None or tt - float(min(ground[c])) < LOW_OBSTACLE: continue
+                    seen.add(c); st.append(c)
+            yield comp
+trunks = []; tree_tiles = 0; kept_box = 0
+for comp in comp_tiles():
+    # only real trees (by loc name, tools/small-locs.ts): a diagonal fence or a statue would slice into
+    # thin posts too, and you'd ride between them
+    if sum(c in TREE_TILES for c in comp) < 0.75 * len(comp): kept_box += 1; continue
+    cs = set(comp); pts = set()
+    for (a, b) in comp:
+        for i in cells.get((a, b), ()):
+            if ymin[i] > float(max(ground[a, b])) + TRUNK_LOW: continue
+            # slice the triangle at knee height: that ring of points IS the trunk (roots flare out lower down)
+            cx0 = float(tx[i].mean()); cz0 = float(tn[i].mean()); h = gh(cx0, cz0) + TRUNK_SLICE
+            if not (ymin[i] < h < ymax[i]): continue
+            for k0, k1 in ((0, 1), (1, 2), (2, 0)):
+                y0, y1 = float(ty[i, k0]), float(ty[i, k1])
+                if (y0 - h) * (y1 - h) > 0 or y0 == y1: continue
+                u = (h - y0) / (y1 - y0)
+                vx = float(tx[i, k0] + (tx[i, k1] - tx[i, k0]) * u); vz = float(tn[i, k0] + (tn[i, k1] - tn[i, k0]) * u)
+                if (int(math.floor(vx)), int(math.floor(vz))) in cs: pts.add((round(vx, 3), round(vz, 3)))
+    pts = list(pts)
+    if len(pts) < 3: kept_box += 1; continue
+    # single-link clusters (0.5 tiles): one per trunk, even when trees stand shoulder to shoulder
+    par = list(range(len(pts)))
+    def f(i):
+        while par[i] != i: par[i] = par[par[i]]; i = par[i]
+        return i
+    for i in range(len(pts)):
+        for j in range(i + 1, len(pts)):
+            if abs(pts[i][0] - pts[j][0]) < 0.5 and abs(pts[i][1] - pts[j][1]) < 0.5: par[f(i)] = f(j)
+    groups = {}
+    for i, p in enumerate(pts): groups.setdefault(f(i), []).append(p)
+    circ = []
+    for g_ in groups.values():
+        if len(g_) < 3: continue
+        xs = [p[0] for p in g_]; zs = [p[1] for p in g_]
+        cx, cz = (min(xs) + max(xs)) / 2, (min(zs) + max(zs)) / 2
+        r = max(math.hypot(p[0] - cx, p[1] - cz) for p in g_) * 0.9
+        circ.append((cx, cz, r))
+    if not circ or max(c[2] for c in circ) > TRUNK_MAX_R: kept_box += 1; continue
+    for cx, cz, r in circ: trunks.append([round(cx, 2), round(cz, 2), round(max(0.14, r), 2)])
+    for c in comp: tree_tiles += 1
+    for c in comp: blocked[c] = False; trunk_tile[c] = True
+print('trunks', len(trunks), 'tree tiles', tree_tiles, 'kept as blocks', kept_box)
+import collections; print('trunk r histogram', sorted(collections.Counter(round(t[2], 1) for t in trunks).items()))
 for x in range(N):
     for z in range(N):
         if not blocked[x, z]: continue
@@ -345,7 +411,8 @@ json.dump({
     'baseX': BX, 'baseZ': BZ, 'size': N,
     'ground': np.round(ground, 3).reshape(-1).tolist(),     # [x][z][sw,se,ne,nw]
     'bridge': np.argwhere(bridge).tolist(),
-    'blocked': (blocked.astype(np.uint8) + water.astype(np.uint8)).T.reshape(-1).tolist(),   # [z][x]: 1 block, 2 water
+    'blocked': (blocked.astype(np.uint8) + water.astype(np.uint8) + 4 * trunk_tile.astype(np.uint8)).T.reshape(-1).tolist(),   # [z][x]: 1 block, 2 water, 4 tree (trunks collide)
+    'trunks': trunks,                                     # [x, z, r] tile coords: tree trunks as circles
     'segs': segs,
     'spawn': [3222.5 - BX, 3218.5 - BZ],
     'index': index,

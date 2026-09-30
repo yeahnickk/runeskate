@@ -28,7 +28,7 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
   let bad = 0;
   run(sk, 1.2, () => ({ push: true }));
   check('push from spawn moves', sk.speed > 3, where(sk) + ' v=' + sk.speed.toFixed(2));
-  for (let i = 0; i < 400; i++) { run(sk, 0.05, (t) => ({ push: true, steer: Math.sin(i / 30) })); if (w.tileKind(sk.x, sk.z) !== 0 && sk.mode !== 'bail') bad++; }
+  for (let i = 0; i < 400; i++) { run(sk, 0.05, (t) => ({ push: true, steer: Math.sin(i / 30) })); const k = w.tileKind(sk.x, sk.z); if (((k !== 0 && k !== 4) || w.trunkAt(sk.x, sk.z, -0.03)) && sk.mode !== 'bail') bad++; }
   check('never inside a blocked tile while riding', bad === 0, `bad=${bad} ` + where(sk));
 }
 
@@ -183,17 +183,44 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
   check('360 flip lands regular', log.some(e => e.type === 'trick' && /360 Flip/.test(e.name)) && sk.mode === 'ground' && d < 0.5, 'dHead=' + d.toFixed(2) + ' ' + where(sk));
 }
 
-// 15. trees/props: ride straight into a block footprint -> glance off it, keep most of the speed, no bail
+// 15. trees: ride straight into a trunk -> glance off it, keep most of the speed, no bail. And the hitbox is the
+// TRUNK: roll past one a hand's width off it and nothing happens at all (it used to be the whole 2x2 footprint)
+const loneTrunk = (() => {
+  for (const l of w.trunkGrid.values()) for (const t of l) {
+    if (Math.abs(t.x + w.base[0] - 3230) > 40 || Math.abs(t.z + w.base[1] - 3230) > 40 || t.r > 0.3) continue;
+    let ok = true;
+    for (let dz = -4; dz <= -0.5 && ok; dz += 0.25) for (const dx of [-1, -0.5, 0, 0.5, 1]) {
+      const k = w.tileKind(t.x + dx, t.z + dz), o = w.trunkAt(t.x + dx, t.z + dz, 0.6);
+      if ((k !== 0 && k !== 4) || (o && o.t !== t)) ok = false;
+      for (const s of w.segsNear(t.x + dx, t.z + dz, 1)) if (s.kind !== 'edge') { const px = t.x + dx, pz = t.z + dz; if (Math.hypot(px - (s.ax + s.bx) / 2, pz - (s.az + s.bz) / 2) < 1.2) ok = false; }
+    }
+    if (ok) return t;
+  }
+})();
 {
-  // a lone 1-tile footprint edge with open tiles to its south, near Lumbridge
-  const seg = w.segs.find(s => s.kind === 'block' && s.az === s.bz && Math.abs(s.ax + w.base[0] - 3240) < 25 && Math.abs(s.az + w.base[1] - 3230) < 25
-    && w.tileKind(Math.min(s.ax, s.bx) + 0.5, s.az - 0.5) === 0 && w.tileKind(Math.min(s.ax, s.bx) + 0.5, s.az - 1.5) === 0 && w.tileKind(Math.min(s.ax, s.bx) + 0.5, s.az - 2.5) === 0);
-  const sk = new Skater(w); const x = Math.min(seg.ax, seg.bx) + 0.45;
-  sk.reset(x, seg.az - 2.5, Math.PI / 2); sk.vz = 6;
+  const t = loneTrunk, sk = new Skater(w);
+  sk.reset(t.x + 0.04, t.z - 3, Math.PI / 2); sk.vz = 6;
   const av = P.treeAvoid; P.treeAvoid = 0;                // the contact itself (the look-ahead steer has its own test)
   const log = run(sk, 0.8);
   P.treeAvoid = av;
-  check('tree hit glances, keeps speed', !log.some(e => e.type === 'bail') && sk.speed > 3.5, 'v=' + sk.speed.toFixed(2) + ' ' + where(sk));
+  check('tree trunk hit glances, keeps speed', !log.some(e => e.type === 'bail') && sk.speed > 3.5 && sk.z > t.z + 0.5, 'v=' + sk.speed.toFixed(2) + ' ' + where(sk) + ` trunk (${(t.x + w.base[0]).toFixed(2)},${(t.z + w.base[1]).toFixed(2)}) r=${t.r}`);
+}
+{
+  const t = loneTrunk, sk = new Skater(w), off = t.r + P.trunkPad + 0.08;
+  sk.reset(t.x + off, t.z - 3, Math.PI / 2); sk.vz = 6;
+  const av = P.treeAvoid; P.treeAvoid = 0;
+  const log = run(sk, 0.8);
+  P.treeAvoid = av;
+  check('tree hitbox is the trunk: pass within ' + off.toFixed(2) + ' tiles untouched', Math.abs(sk.x - (t.x + off)) < 0.06 && sk.speed > 5.25 && !log.some(e => e.type === 'bump'), where(sk) + ' v=' + sk.speed.toFixed(2) + ' ' + [...new Set(log.map(e => e.type))].join(','));
+}
+
+// 15b. riding switch (nose pointing back at the camera) and pushing where the camera looks: goes that way, and
+// the rider turns round to regular so the next push/steer is normal again
+{
+  const sk = new Skater(w); sk.reset(w.spawn[0], w.spawn[1], Math.PI / 2 + Math.PI); sk.vz = 2;   // rolling north, board facing south
+  const log = run(sk, 0.6, (t, s) => ({ push: true, fwd: Math.sin(s.heading) >= 0 ? 1 : -1 }));   // camera looks north, as in main.js
+  const reg = Math.cos(sk.heading - Math.atan2(sk.vz, sk.vx));
+  check('switch push goes toward the camera and reverts to regular', sk.vz > 3 && reg > 0.9 && log.some(e => e.type === 'revert'), 'vz=' + sk.vz.toFixed(2) + ' align=' + reg.toFixed(2));
 }
 
 // 16. dropped inside a blocked footprint (bad landing) -> slides out to open ground by itself
