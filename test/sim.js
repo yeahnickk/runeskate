@@ -1,7 +1,7 @@
 // Headless physics checks:  bun runeskate/test/sim.js
 import { readFileSync } from 'fs';
-import { World } from '../src/world.js';
-import { Skater } from '../src/skater.js';
+import { World, railTop } from '../src/world.js';
+import { Skater, P } from '../src/skater.js';
 
 const w = new World(JSON.parse(readFileSync(new URL('../assets/world.json', import.meta.url))));
 const L = (x, z) => [x - w.base[0], z - w.base[1]];
@@ -190,7 +190,9 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
     && w.tileKind(Math.min(s.ax, s.bx) + 0.5, s.az - 0.5) === 0 && w.tileKind(Math.min(s.ax, s.bx) + 0.5, s.az - 1.5) === 0 && w.tileKind(Math.min(s.ax, s.bx) + 0.5, s.az - 2.5) === 0);
   const sk = new Skater(w); const x = Math.min(seg.ax, seg.bx) + 0.45;
   sk.reset(x, seg.az - 2.5, Math.PI / 2); sk.vz = 6;
+  const av = P.treeAvoid; P.treeAvoid = 0;                // the contact itself (the look-ahead steer has its own test)
   const log = run(sk, 0.8);
+  P.treeAvoid = av;
   check('tree hit glances, keeps speed', !log.some(e => e.type === 'bail') && sk.speed > 3.5, 'v=' + sk.speed.toFixed(2) + ' ' + where(sk));
 }
 
@@ -287,13 +289,43 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
   check('tree stumps / fungus / flowers are rideable', tiny.every(([x, z]) => w.tileKind(x + 0.5 - w.base[0], z + 0.5 - w.base[1]) === 0), tiny.map(([x, z]) => w.tileKind(x + 0.5 - w.base[0], z + 0.5 - w.base[1])).join());
 }
 
+// grinds carry on round fence corners and across small gaps onto the next rail (was: dropped off at every bend)
+{
+  const end = (r, t) => [r.horiz ? r.ax + t : r.ax, r.horiz ? r.az : r.az + t];
+  const grindFrom = (r, dir) => {                       // start on r a few tiles before its end, riding toward that end
+    const sk = new Skater(w), t0 = dir > 0 ? Math.max(0, r.len - 3) : Math.min(r.len, 3);
+    const [x, z] = end(r, t0); sk.reset(x, z + (r.horiz ? 0 : 0), Math.atan2(r.dirz * dir, r.dirx * dir));
+    Object.assign(sk, { mode: 'grind', rail: r, railT: t0, railDir: dir, railSpeed: 6, railSide: 1, grindKind: '50-50', grindHeading: sk.heading, balance: 0, grindTime: 0, y: railTop(r, t0) });
+    const rails = new Set([r]); let ungrind = false;
+    run(sk, 1.6, (t, s) => { if (s.mode === 'grind') rails.add(s.rail); else ungrind = true; return { steer: Math.max(-1, Math.min(1, (s.balance || 0) * 4)) }; });
+    return { rails, ungrind, sk };
+  };
+  let corner = null, gap = null;
+  for (const r of w.rails) for (const dir of [1, -1]) {
+    if (r.len < 4) continue;
+    const [ex, ez] = end(r, dir > 0 ? r.len : 0);
+    for (const q of w.railsNear(ex, ez, 2)) for (const u of [0, q.len]) {
+      if (q === r || q.len < 3) continue;
+      const [qx, qz] = end(q, u), d = Math.hypot(qx - ex, qz - ez), dh = Math.abs(railTop(q, u) - railTop(r, dir > 0 ? r.len : 0));
+      const out = u === 0 ? 1 : -1, dot = r.dirx * dir * q.dirx * out + r.dirz * dir * q.dirz * out;
+      if (!corner && d === 0 && q.horiz !== r.horiz && dh < 0.3) corner = [r, dir, q];
+      if (!gap && d > 0.4 && d < 1.4 && dot > 0.99 && dh < 0.3 && (qx - ex) * r.dirx * dir + (qz - ez) * r.dirz * dir > 0) gap = [r, dir, q];
+    }
+  }
+  const c = grindFrom(corner[0], corner[1]);
+  check('grind carries round a fence corner', c.rails.has(corner[2]), `rails ridden ${c.rails.size} ungrind=${c.ungrind} ` + where(c.sk));
+  if (gap) { const g = grindFrom(gap[0], gap[1]); check('grind carries across a small gap', g.rails.has(gap[2]), `gap rails ${g.rails.size} ` + where(g.sk)); }
+  else check('a gapped rail pair exists to test', false);
+}
+
 // jump the River Lum: its bed has invisible server walls, which used to stop you mid-air ("hit a wall")
 {
   const sk = new Skater(w);
   const [x, z] = L(3229.3, 3243.5); sk.reset(x, z, 0); sk.vx = 12.5;
   let jumped = false;
-  const log = run(sk, 2, (t, s) => { const wx = s.x + w.base[0]; const j = !jumped && wx > 3233.7 && wx < 3234.6; if (wx >= 3234.6) jumped = true; return { jump: j }; });
-  check('jump across the River Lum', !log.some(e => e.type === 'bail') && sk.x + w.base[0] > 3241 && sk.mode === 'ground', where(sk));
+  let landX = null, flew = false;
+  const log = run(sk, 2, (t, s) => { const wx = s.x + w.base[0]; const j = !jumped && wx > 3233.7 && wx < 3234.6; if (wx >= 3234.6) jumped = true; if (s.mode === 'air') flew = true; if (landX === null && flew && s.mode === 'ground') landX = wx; return { jump: j }; });
+  check('jump across the River Lum', !log.some(e => e.type === 'bail') && landX > 3241 && sk.mode === 'ground', `landed x=${landX?.toFixed(1)} ` + where(sk));
 }
 
 // Varrock is a streamed pack: walled off until it loads, then open (road north at x=3211)

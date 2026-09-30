@@ -35,6 +35,12 @@ export const P = {
   blockRadius: 0.17,     // trees/rocks/props: a smaller collider than walls, and you glance off them
   grindFriction: 0.55,
   grindMin: 2.2,
+  grindGap: 1.6,
+  treeClear: 0.6,         // tiles of air under the board: from here up you fly through trees/props
+  treeGain: 0.1,          // steer only toward a line at least this much clearer (fraction of the look distance)
+  treeCap: 1.4,           // rad: most the board will steer itself off your line
+  treeAvoid: 7,           // rad/s max: the board steers itself round trees in your line (forests flow instead of pinballing)
+          // a grind carries on across a gap/corner up to this long onto the next rail
   slideDecel: 7.5,
   safeEvery: 0.4,
   manualMin: 1.5,        // tiles/s to hold a manual
@@ -156,6 +162,14 @@ export class Skater {
     // no fakie inversion: the chase cam follows TRAVEL, and rotating the nose rotates travel the same way,
     // so A is always screen-left whichever end of the board leads
     this.heading = wrap(this.heading + inp.steer * rate * dt);
+    // forests: bend the line round the trees ahead instead of pinballing off them (velocity turns with the board)
+    if (!this.slide && !this.noclip && spd > 1.2) {
+      // what the board has steered itself: resets as you steer yourself, or slowly once it's had nothing to dodge
+      this.treeYaw = (this.treeYaw || 0) * Math.exp(-dt * (inp.steer ? 4 : this.treeIdle > 0.6 ? 0.6 : 0));
+      const yaw = this.treeSteer(spd) * dt, c = Math.cos(yaw), s = Math.sin(yaw);
+      this.treeYaw += yaw; this.treeIdle = yaw ? 0 : (this.treeIdle || 0) + dt;
+      if (yaw) { this.heading = wrap(this.heading + yaw); const vx = this.vx; this.vx = vx * c - this.vz * s; this.vz = vx * s + this.vz * c; }
+    }
     fx = Math.cos(this.heading); fz = Math.sin(this.heading);
     vf = this.vx * fx + this.vz * fz; vl = -this.vx * fz + this.vz * fx;
 
@@ -228,6 +242,57 @@ export class Skater {
     void px; void pz; void h0;
   }
 
+  /** turn rate (rad/s, + = left) that steers round tall blocked tiles (trees, statues) in the path ahead:
+   *  cast feelers across a fan of directions and bend toward the clearest one. Only kicks in when a TREE is in
+   *  the line (never for walls, water or low stuff you can ollie/grind), but a feeler that runs into water counts
+   *  as blocked so it never dodges a tree into the river. */
+  treeSteer(spd) {
+    const a0 = Math.atan2(this.vz, this.vx), LOOK = Math.max(1.6, Math.min(4, 0.45 * spd + 0.8));
+    const first = this.feeler(a0, LOOK);
+    if (first.d >= LOOK || !first.tree) return 0;
+    let best = { off: 0, score: first.d / LOOK };
+    for (let k = 1; k <= 10; k++) for (const sgn of [1, -1]) {
+      const off = sgn * k * 0.12, f = this.feeler(a0 + off, LOOK);
+      const score = f.d / LOOK - 0.22 * Math.abs(off);
+      if (score > best.score + 1e-3) best = { off, score };
+    }
+    // only for a line that is really clearer, and never more than ~60 degrees off where you were going in total
+    // (it helps you round trees, it doesn't drive for you: no U-turns in a dead end)
+    if (!best.off || best.score < first.d / LOOK + P.treeGain) return 0;
+    if (Math.sign(best.off) === Math.sign(this.treeYaw) && Math.abs(this.treeYaw) > P.treeCap) return 0;
+    return Math.max(-P.treeAvoid, Math.min(P.treeAvoid, best.off * 10)) * Math.min(1, spd / 2.5);
+  }
+
+  /** distance along a ray (half-width ~ the rider) to the first tall block / water / rock tile */
+  feeler(a, look) {
+    const dx = Math.cos(a), dz = Math.sin(a), lx = -dz * 0.3, lz = dx * 0.3, w = this.w;
+    for (let d = 0.3; d < look; d += 0.25) {
+      const px = this.x + dx * d, pz = this.z + dz * d;
+      for (const o of [0, 1, -1]) {
+        const qx = px + lx * o, qz = pz + lz * o, k = w.tileKind(qx, qz);
+        if (k === 0) continue;
+        const tree = k === 1 && this.tallBlock(Math.floor(qx), Math.floor(qz));
+        if (tree || k !== 1) return { d, tree };
+      }
+      // walls/fences (anything you can't just roll through) end a feeler too, so it never dodges a tree into a wall
+      if (d > 0.5) for (const s of w.segsNear(px, pz, 0.5)) if (s.kind !== 'block' && s.kind !== 'water' && this.solid(s, false) && segDist(px, pz, s) < 0.3) return { d, tree: false };
+    }
+    return { d: look, tree: false };
+  }
+
+  tallBlock(tx, tz) {
+    const w = this.w;
+    if (w.tileKind(tx + 0.5, tz + 0.5) !== 1) return false;
+    const c = w._tall || (w._tall = new Map()), k = tx * 4096 + tz;
+    let v = c.get(k);
+    if (v === undefined) {
+      v = true;
+      for (const s of w.segsNear(tx + 0.5, tz + 0.5, 0.6)) if (s.kind === 'block' && s.top && segDist(tx + 0.5, tz + 0.5, s) < 0.55) { v = false; break; }
+      c.set(k, v);
+    }
+    return v;
+  }
+
   pop(vy, kind) {
     if (this.manual) this.endManual(false);
     this.mode = 'air'; this.vy = vy; this.charge = -1; this.airTime = 0; this.spin = 0;
@@ -285,6 +350,11 @@ export class Skater {
     this.x += this.vx * dt; this.z += this.vz * dt; this.y += this.vy * dt;
     // catch a rail on the way down (checked before walls, so brushing a rail's side catches it instead of bouncing off)
     if (this.vy < 3 && this.tryGrind()) return;
+    // flying through a tree: hold the board just over it until you're out the other side, so you never land in one
+    if (!this.noclip && this.speed > 1.5 && this.w.tileKind(this.x, this.z) === 1 && this.tallBlock(Math.floor(this.x), Math.floor(this.z))) {
+      const gt = this.w.height(this.x, this.z) + P.treeClear + 0.01;
+      if (this.y < gt && this.y > gt - 0.5) { this.y = gt; this.vy = Math.max(this.vy, -1.5); }
+    }
     if (this.collide(dt, true)) return;
 
     const g = this.w.height(this.x, this.z);
@@ -405,6 +475,9 @@ export class Skater {
       this.emit('wobble');
       return;
     }
+    // board swings smoothly onto the rail line (corners, stair-stepped diagonal fences) instead of snapping
+    this.heading = wrap(this.heading + wrap(this.grindHeading - this.heading) * Math.min(1, dt * 12)); this.body = this.heading;
+    if (this.bridge) { this.stepBridge(dt, inp); return; }
     // slope of the rail speeds you up / slows you down
     const t0 = this.railT;
     const slope = (railTop(r, Math.min(r.len, t0 + 0.2)) - railTop(r, Math.max(0, t0 - 0.2))) / 0.4 * this.railDir;
@@ -425,6 +498,8 @@ export class Skater {
                              : [Math.min(s.ax, s.bx), Math.max(s.ax, s.bx), r.ax, s.az, this.z];
       if (across[0] < across[2] - 0.05 && across[1] > across[2] + 0.05 && Math.abs(across[4] - across[3]) < 0.1) { this.bail('slam'); return; }
     }
+    // rail end: carry the grind round the corner / across the gap onto the next rail if there is one
+    if (!inp.jumpPressed && (this.railT < -0.05 || this.railT > r.len + 0.05) && this.continueRail()) return;
     // pop off / rail end
     if (inp.jumpPressed || this.railT < -0.05 || this.railT > r.len + 0.05) {
       const pop = inp.jumpPressed ? P.ollieMin * 0.95 : 1.2;
@@ -436,6 +511,73 @@ export class Skater {
         const dx = r.dirx * this.railDir, dz = r.dirz * this.railDir, k = 2.6 * Math.sign(side);
         this.vx += -dz * k; this.vz += dx * k;
       }
+    }
+  }
+
+  /** at the end of this.rail: find the rail the line carries on to (a corner, a bend, a small gap) and bridge
+   *  onto it. Fences in RS are chains of straight tile edges, so a bent fence is several rails end to end. */
+  continueRail() {
+    const r = this.rail, endT = this.railDir > 0 ? r.len : 0;
+    const ex = r.horiz ? r.ax + endT : r.ax, ez = r.horiz ? r.az : r.az + endT, ey = railTop(r, endT);
+    const fx = r.dirx * this.railDir, fz = r.dirz * this.railDir;
+    let best = null;
+    for (const q of this.w.railsNear(ex, ez, 2)) {
+      if (q === r) continue;
+      for (const [qt, qdir] of [[0, 1], [q.len, -1]]) {
+        const qx = q.horiz ? q.ax + qt : q.ax, qz = q.horiz ? q.az : q.az + qt;
+        const gap = Math.hypot(qx - ex, qz - ez);
+        if (gap > P.grindGap) continue;
+        const ox = q.dirx * qdir, oz = q.dirz * qdir, dot = fx * ox + fz * oz;
+        if (dot < -0.1) continue;                                           // no hairpins
+        if (gap > 0.05 && (qx - ex) * fx + (qz - ez) * fz < -0.3) continue;   // never hop back to a rail behind you
+        const qy = railTop(q, qt);
+        if (qy - ey > 0.6 || ey - qy > 1.3) continue;
+        if (gap > 0.05 && this.gapBlocked(ex, ez, qx, qz, Math.max(ey, qy))) continue;
+        const score = gap + (1 - dot) * 0.6;
+        if (!best || score < best.score) best = { q, qt, qdir, qx, qz, qy, dot, score, gap };
+      }
+    }
+    if (!best) return false;
+    const { q, qt, qdir, qx, qz, qy, dot, gap } = best;
+    // keep riding on the same side of the line and with the board the same way round relative to travel
+    const left = this.railSide * (r.horiz ? fx : -fz), ox = q.dirx * qdir, oz = q.dirz * qdir;
+    const off = wrap(this.grindHeading - Math.atan2(fz, fx));
+    this.railSpeed = Math.max(P.grindMin * 0.8, this.railSpeed * (0.9 + 0.1 * Math.max(0, dot)));
+    this.bridge = { x0: ex, z0: ez, y0: ey, x1: qx, z1: qz, y1: qy, len: gap, d: 0, dx: gap > 1e-6 ? (qx - ex) / gap : ox, dz: gap > 1e-6 ? (qz - ez) / gap : oz,
+      next: { rail: q, t: qt, dir: qdir, side: left * (q.horiz ? ox : -oz) || this.railSide, heading: wrap(Math.atan2(oz, ox) + off) } };
+    if (gap < 1e-6) this.stepBridge(0, {});
+    return true;
+  }
+
+  /** a solid wall/fence standing across the gap you'd bridge? (low stuff under the rail height is fine) */
+  gapBlocked(ax, az, bx, bz, y) {
+    for (const s of this.w.segsNear((ax + bx) / 2, (az + bz) / 2, Math.hypot(bx - ax, bz - az) / 2 + 0.6)) {
+      if (s.kind === 'rail' || s.kind === 'water' || s.kind === 'edge') continue;
+      if (s.top && y > Math.max(...s.top) - 0.05) continue;
+      if (segsCross(ax, az, bx, bz, s.ax, s.az, s.bx, s.bz)) return true;
+    }
+    return false;
+  }
+
+  /** riding across the gap between two rails (straight line, a little float over longer gaps) */
+  stepBridge(dt, inp) {
+    const b = this.bridge;
+    b.d += this.railSpeed * dt;
+    const u = b.len > 1e-6 ? Math.min(1, b.d / b.len) : 1;
+    this.x = b.x0 + (b.x1 - b.x0) * u; this.z = b.z0 + (b.z1 - b.z0) * u;
+    this.y = b.y0 + (b.y1 - b.y0) * u + Math.sin(u * Math.PI) * Math.min(0.25, b.len * 0.15);
+    this.vx = b.dx * this.railSpeed; this.vz = b.dz * this.railSpeed;
+    this.comboPts += Math.round(dt * 160); this.grindPts = (this.grindPts || 0) + dt * 160;
+    if (inp.jumpPressed) {                                // popping off mid-gap: same as popping off the rail
+      this.bridge = null; this.popOffRail = true; this.leaveRail(P.ollieMin * 0.95);
+      if (inp.steer) { const k = 2.6 * Math.sign(inp.steer); this.vx += -b.dz * k; this.vz += b.dx * k; }
+      return;
+    }
+    if (u >= 1) {
+      const n = b.next;
+      this.bridge = null; this.rail = n.rail; this.railT = n.t; this.railDir = n.dir; this.railSide = n.side;
+      this.grindHeading = n.heading;
+      this.emit('grindLink');
     }
   }
 
@@ -451,7 +593,7 @@ export class Skater {
       const o = 0.34 * this.railSide;
       if (r.horiz) this.z = r.az + o; else this.x = r.ax + o;
     }
-    this.rail = null;
+    this.rail = null; this.bridge = null;
     this.mode = 'air'; this.vy = vy; this.airTime = 0; this.spin = 0; this.airTricks = []; this.trick = null;
     // boardslide exits: board swings back in line with travel
     const dir = Math.atan2(this.vz, this.vx);
@@ -534,6 +676,8 @@ export class Skater {
   solid(s, air) {
     if (this.noclip) return !!s.frontier;         // owner ::noclip: through everything except the edge of the loaded map
     if (s.kind === 'water') return !air;          // you can fly over the bank... and into the river
+    // trees, statues, props: any real air carries you straight through (not realistic, but forests are for flowing)
+    if (s.kind === 'block' && air && this.y - this.w.height(this.x, this.z) > P.treeClear) return false;
     if (s.top) {
       // low walls, railings, fences, gates, hedges, small cacti/rocks: clear them if the board is above the top
       const u = segParam(this.x, this.z, s);
@@ -619,7 +763,7 @@ export class Skater {
     b.spinR = (Math.random() - 0.5) * 22; b.spinY = (Math.random() - 0.5) * 12;
     if (why === 'wall') { b.vx *= -0.35; b.vz *= -0.35; this.vx *= -0.25; this.vz *= -0.25; }
     this.mode = 'bail'; this.bailWhy = why; this.bailT = 0; this.slide = 0;
-    this.rail = null; this.trick = null; this.boardRoll = 0; this.boardYaw = 0; this.manual = 0; this.grab = null; this.grabPts = 0;
+    this.rail = null; this.bridge = null; this.trick = null; this.boardRoll = 0; this.boardYaw = 0; this.manual = 0; this.grab = null; this.grabPts = 0;
     this.tumble = 0; this.tumbleAxis = Math.atan2(this.vz, this.vx);
     this.lostCombo = this.comboPts; this.combo = []; this.comboPts = 0; this.comboTimer = 0;
     this.inWater = why === 'water';
@@ -716,6 +860,11 @@ function ease(u) { return u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
 function segParam(x, z, s) {
   const L2 = s.dx * s.dx + s.dz * s.dz;
   return Math.max(0, Math.min(1, ((x - s.ax) * s.dx + (z - s.az) * s.dz) / L2));
+}
+function segsCross(ax, az, bx, bz, cx, cz, dx, dz) {
+  const d1 = (bx - ax) * (cz - az) - (bz - az) * (cx - ax), d2 = (bx - ax) * (dz - az) - (bz - az) * (dx - ax);
+  const d3 = (dx - cx) * (az - cz) - (dz - cz) * (ax - cx), d4 = (dx - cx) * (bz - cz) - (dz - cz) * (bx - cx);
+  return d1 * d2 < -1e-9 && d3 * d4 < -1e-9;
 }
 function closest(x, z, s) { const t = segParam(x, z, s); return { x: s.ax + s.dx * t, z: s.az + s.dz * t }; }
 function segDist(x, z, s) { const c = closest(x, z, s); return Math.hypot(x - c.x, z - c.z); }

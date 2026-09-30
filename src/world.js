@@ -25,6 +25,7 @@ export class World {
 
   /** drop a streamed-in region into the grid: tiles, heights, segments, rails; moves the frontier wall */
   addRegion(p) {
+    this._tall = null;                                   // skater.tallBlock cache: the new land may change it
     if (this.loaded.has(p.name)) return;
     const N = this.N, { x0, z0, w, h } = p;
     for (let i = 0; i < w; i++) this.ground.set(p.ground.slice(i * h * 4, (i + 1) * h * 4), ((x0 + i) * N + z0) * 4);
