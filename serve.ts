@@ -35,21 +35,22 @@ for (const a of Object.values(accounts)) if (a.prog) {
 }
 const runesOf = (a: Account) => a.prog?.found.length || 0;
 
-// ------------------------------------------------------------------ the owner (user, 2026-09-29)
-// Kickflip3089 is the owner's account. It shows as "Nick" everywhere (tags, chat, highscores) with a crown
-// and [OWNER] tag, gilded armour and a gold board. Only the display name changes: the account key, XP and
-// runes stay exactly where they are, and you still log in as Kickflip3089 (`login` below).
+// ------------------------------------------------------------------ the owner (optional)
+// RUNESKATE_OWNER=<login> makes that account the server owner: crown + [OWNER] tag, gilded armour, a gold board,
+// the rune scimitar and ::noclip. RUNESKATE_OWNER_NAME=<display name> shows it under another name (tags, chat,
+// highscores) while you still log in as RUNESKATE_OWNER. Unset = nobody is owner.
 // The owner flag comes from the account key on the server, so nobody can claim it from a client.
-const OWNER_KEY = 'kickflip3089', OWNER_NAME = 'Nick';
+const OWNER_KEY = key(process.env.RUNESKATE_OWNER || ''), OWNER_NAME = cleanName(process.env.RUNESKATE_OWNER_NAME || '');
 const SCIMITAR = 1333;                // rune scimitar: the owner's weapon (slot 3), click to smack a skater down
 const GILDED = { g: 0, gild: 1, kits: {}, items: { 0: 2619, 1: 1052, 2: 1702, 3: SCIMITAR, 4: 2615, 5: 2621, 7: 2617, 9: 2489, 10: 88 } };
-// names nobody else may register (display names "Nick" and staff lookalikes)
-const RESERVED = new Set(['nick', 'n1ck', 'nlck', 'nicck', 'nickk', 'owner', 'admin', 'administrator', 'mod', 'jmod', 'moderator', 'staff']);
-const isOwner = (k: string) => k === OWNER_KEY;
+// names nobody else may register: staff lookalikes, and the owner's display name (+ RUNESKATE_RESERVED=a,b,c)
+const RESERVED = new Set(['owner', 'admin', 'administrator', 'mod', 'jmod', 'moderator', 'staff',
+  ...(OWNER_NAME ? [key(OWNER_NAME)] : []), ...(process.env.RUNESKATE_RESERVED || '').split(',').map(key).filter(Boolean)]);
+const isOwner = (k: string) => !!OWNER_KEY && k === OWNER_KEY;
 {
-  const a = accounts[OWNER_KEY];
+  const a = OWNER_KEY ? accounts[OWNER_KEY] : undefined;
   if (a) {
-    if (a.name !== OWNER_NAME) { a.login ||= a.name; a.name = OWNER_NAME; dirty = true; }
+    if (OWNER_NAME && a.name !== OWNER_NAME) { a.login ||= a.name; a.name = OWNER_NAME; dirty = true; }
     if (!a.outfit?.gild) { a.outfit = structuredClone(GILDED); dirty = true; }
     if (a.outfit.items?.[3] !== SCIMITAR) { a.outfit.items[3] = SCIMITAR; dirty = true; }
   }
