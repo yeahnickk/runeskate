@@ -110,6 +110,16 @@ export class HUD {
     this.text(`SPEED ${(sk.speed * 3.6 * 1.1).toFixed(0)} KM/H`, W - 16, 14, '#0f0', k1, 'r', 'p12');
     this.text(`CAM: ${cfg.camName}  [C]`, W - 16, 14 + k1 * 11, '#fff', k1, 'r', 'p12', 0.8);
     if (this.mini && cfg.map !== false) this.drawMini(W - 16, 14 + k1 * 24, K, sk);
+    // the one standing challenge, small, under the minimap: all runes unlock ::noclip (the owner has it anyway)
+    if (this.goal && this.me && !this.me.own) {
+      const g = this.goal, cy = 14 + k1 * 24 + (this.mini && cfg.map !== false ? Math.round(34 * Math.max(2, K)) * 2 + 14 : 0);
+      if (sk.noclip) this.text('NOCLIP ON', W - 16, cy, '#0ff', k1, 'r', 'p12', 0.8);
+      else if (g.allRunes) this.text('::NOCLIP UNLOCKED', W - 16, cy, '#0f0', k1, 'r', 'p12', 0.8);
+      else {
+        this.text(`CHALLENGE  RUNES ${g.runes}/${g.runeTotal}`, W - 16, cy, '#ff981f', k1, 'r', 'p12', 0.75);
+        this.text('reward: ::noclip', W - 16, cy + k1 * 9, '#fff', k1, 'r', 'p12', 0.65);
+      }
+    }
     // level + xp (points are total XP)
     if (this.me) {
       const xp = this.me.xp, L = levelFor(xp), y0 = 14 + K * 24 + 4;

@@ -5,16 +5,7 @@
 // All tiles are world coords, checked open and reachable with tools/place.py's flood fill.
 import * as THREE from 'three';
 
-const HOME = { name: 'Lumbridge', at: [3222, 3218], col: '#3cf' };
-const DESTS = [
-  { name: 'Varrock', pad: [3226, 3223], at: [3209, 3425], back: [3207, 3427], col: '#f93' },
-  { name: 'Falador', pad: [3218, 3223], at: [2965, 3378], back: [2962, 3377], col: '#fff' },
-  { name: 'Draynor', pad: [3218, 3214], at: [3092, 3249], back: [3089, 3248], col: '#9f6' },
-  { name: 'Port Sarim', pad: [3218, 3211], at: [3016, 3242], back: [3013, 3241], col: '#6cf' },
-  { name: 'Edgeville', pad: [3218, 3226], at: [3094, 3496], back: [3092, 3498], col: '#fd4' },
-  { name: 'Al Kharid', pad: [3226, 3214], at: [3292, 3176], back: [3291, 3179], col: '#fc6' },
-  { name: 'King Black Dragon', pad: [3226, 3226], sub: 'deep Wilderness!', at: [2965, 3856], back: [2964, 3853], col: '#f33' },
-];
+import { PORTAL_HOME as HOME, PORTAL_DESTS as DESTS } from './mapdata.js';
 
 function labelTexture(text, sub, col) {
   const c = document.createElement('canvas'); c.width = 512; c.height = 128;

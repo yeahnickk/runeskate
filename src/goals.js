@@ -176,7 +176,7 @@ export class Goals {
         const n = this.runes.filter(q => this.found.has(q.id)).length;
         this.hud.pop(`${r.kind.toUpperCase()} RUNE  ${n}/${this.runes.length}  +${RUNE_XP}`, '#0ff');
         this.audio.event({ type: 'rune' }); this.reward(RUNE_XP);
-        if (n === this.runes.length) { this.hud.big('ALL RUNES FOUND!', '#0ff', `+${ALL_RUNES_XP.toLocaleString()} XP`, 4); this.reward(ALL_RUNES_XP); }
+        if (n === this.runes.length) { this.hud.big('ALL RUNES FOUND!', '#0ff', `+${ALL_RUNES_XP.toLocaleString()} XP  ·  ::noclip UNLOCKED`, 5); this.reward(ALL_RUNES_XP); this.onAllRunes?.(); }
       }
     }
     // spots
@@ -228,10 +228,13 @@ export class Goals {
   }
 
   /** HUD line for the running challenge + a progress summary */
+  /** every rune collected: unlocks ::noclip */
+  allRunes() { return this.runes.length > 0 && this.runes.every(r => this.found.has(r.id)); }
+
   status() {
     const a = this.active;
     const runes = this.runes.filter(r => this.found.has(r.id)).length;
-    const base = { runes, runeTotal: this.runes.length, spots: SPOTS.filter(s => this.done.has(s.id)).length, spotTotal: SPOTS.length };
+    const base = { runes, runeTotal: this.runes.length, allRunes: this.allRunes(), spots: SPOTS.filter(s => this.done.has(s.id)).length, spotTotal: SPOTS.length };
     if (!a) return base;
     const sp = a.sp;
     let prog = '';

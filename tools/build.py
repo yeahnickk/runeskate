@@ -253,6 +253,20 @@ def tile_top(x, z):
         if best is None or ymax[i] > best: best = float(ymax[i])
     _tile_top[(x, z)] = best
     return best
+# tiny things (tree stumps, roots, flowers, fungus, mushrooms, potted plants: tools/small-locs.ts picks them by
+# name) and anything that barely rises off the ground are skated straight over, not ollied: the server still
+# flags them as blocking, but on a board they are nothing
+SMALL = os.path.join(WEXP, 'small-locs.json')
+TINY_TILES = {tuple(t) for t in json.load(open(SMALL))['tiles']} if os.path.exists(SMALL) else set()
+FLAT_OBSTACLE = 0.3                                      # tiles: below this it is a bump, not an obstacle
+nflat = 0
+for x in range(N):
+    for z in range(N):
+        if not blocked[x, z] or water[x, z]: continue
+        t = tile_top(x, z)
+        if (x, z) in TINY_TILES or (t is not None and t - float(min(ground[x, z])) < FLAT_OBSTACLE):
+            blocked[x, z] = False; nflat += 1
+print('tiny/flat obstacles made rideable', nflat)
 for x in range(N):
     for z in range(N):
         if not blocked[x, z]: continue

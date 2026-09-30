@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>RuneSkate Map</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23ff981f'/%3E%3C/svg%3E">
+<style>
+  :root { --bg: #14100a; --panel: rgba(30, 24, 16, .92); --line: #5a4a2a; --text: #e8dcc0; --dim: #a0927a; --accent: #ff981f; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--text); font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; }
+  canvas { display: block; width: 100vw; height: 100vh; cursor: grab; touch-action: none; }
+  canvas.drag { cursor: grabbing; }
+  #panel { position: fixed; top: 10px; left: 10px; background: var(--panel); border: 1px solid var(--line); padding: 10px 12px; max-width: calc(100vw - 20px); }
+  #panel h1 { margin: 0 0 2px; font-size: 16px; color: var(--accent); letter-spacing: 2px; }
+  #panel label { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+  #panel .sw { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px solid #000; }
+  #panel .muted { color: var(--dim); font-size: 11px; }
+  #panel a { color: #ff0; }
+  #who { position: fixed; top: 10px; right: 10px; background: var(--panel); border: 1px solid var(--line); padding: 8px 12px; max-height: 60vh; overflow-y: auto; min-width: 150px; }
+  #who h2 { margin: 0 0 4px; font-size: 13px; color: var(--accent); }
+  #who div { cursor: pointer; white-space: nowrap; }
+  #who div:hover { color: #ff0; }
+  #tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--line); padding: 3px 7px; display: none; font-size: 12px; }
+  @media (max-width: 600px) { #who { top: auto; bottom: 10px; max-height: 30vh; } #panel { font-size: 12px; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="panel">
+  <h1>RUNESKATE MAP</h1>
+  <div class="muted">drag to pan · wheel / pinch to zoom · live</div>
+  <div id="toggles" style="margin-top:6px"></div>
+  <div class="muted" style="margin-top:6px"><a href="/">play</a> · <a href="/stats">stats</a></div>
+</div>
+<div id="who"><h2>ONLINE <span id="n">0</span></h2><div id="list" class="muted">nobody yet</div></div>
+<div id="tip"></div>
+<script>
+const cv = document.getElementById('c'), g = cv.getContext('2d'), tip = document.getElementById('tip');
+const RUNE_COL = { air: '#e8f4ff', water: '#3c7cff', earth: '#8b5a2b', fire: '#ff4d1a' };
+const LAYERS = [
+  { k: 'players', label: 'Players (live)', col: '#ff0', on: true },
+  { k: 'runes', label: 'Runes', col: '#fff', on: true },
+  { k: 'portals', label: 'Portals', col: '#c4f', on: true },
+  { k: 'npcs', label: 'NPCs', col: '#f55', on: true },
+  { k: 'regions', label: 'Regions', col: '#ff981f', on: false },
+];
+const on = {}; for (const l of LAYERS) on[l.k] = l.on;
+try { Object.assign(on, JSON.parse(localStorage.getItem('rsmap.layers') || '{}')); } catch {}
+document.getElementById('toggles').innerHTML = LAYERS.map(l =>
+  `<label><input type="checkbox" data-k="${l.k}" ${on[l.k] ? 'checked' : ''}><span class="sw" style="background:${l.col}"></span>${l.label}</label>`).join('');
+document.getElementById('toggles').addEventListener('change', e => {
+  on[e.target.dataset.k] = e.target.checked;
+  try { localStorage.setItem('rsmap.layers', JSON.stringify(on)); } catch {}
+  draw();
+});
+
+let M = null, img = null, live = [];
+// view: world tile at screen centre + pixels per tile
+let view = { x: 3222, z: 3250, s: 2 };
+const W2S = (x, z) => [(x - view.x) * view.s + cv.width / 2, (view.z - z) * view.s + cv.height / 2];
+const S2W = (sx, sy) => [(sx - cv.width / 2) / view.s + view.x, view.z - (sy - cv.height / 2) / view.s];
+function resize() { const d = devicePixelRatio || 1; cv.width = innerWidth * d; cv.height = innerHeight * d; draw(); }
+addEventListener('resize', resize);
+
+function dot(x, z, r, fill, stroke) {
+  const [sx, sy] = W2S(x + 0.5, z + 0.5);
+  if (sx < -20 || sy < -20 || sx > cv.width + 20 || sy > cv.height + 20) return;
+  g.beginPath(); g.arc(sx, sy, r, 0, 7); g.fillStyle = fill; g.fill();
+  if (stroke) { g.lineWidth = Math.max(1, r / 3); g.strokeStyle = stroke; g.stroke(); }
+}
+function label(x, z, text, col, dy, size) {
+  const [sx, sy] = W2S(x + 0.5, z + 0.5);
+  g.font = `bold ${size}px ui-monospace, Menlo, Consolas, monospace`; g.textAlign = 'center';
+  g.lineWidth = 3; g.strokeStyle = '#000'; g.strokeText(text, sx, sy + dy); g.fillStyle = col; g.fillText(text, sx, sy + dy);
+}
+function draw() {
+  const d = devicePixelRatio || 1;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#000'; g.fillRect(0, 0, cv.width, cv.height);
+  if (!M) return;
+  if (img && img.complete) {
+    const [sx, sy] = W2S(M.img.x0, M.img.z1);
+    g.imageSmoothingEnabled = view.s < M.img.px * 2;
+    g.drawImage(img, sx, sy, img.width / M.img.px * view.s, img.height / M.img.px * view.s);
+  }
+  const u = Math.max(0.55, Math.min(3, view.s / 2)) * d;    // marker scale with zoom
+  if (on.regions) for (const r of M.regions) {
+    const [ax, ay] = W2S(r.x, r.z + r.h), [bx, by] = W2S(r.x + r.w, r.z);
+    g.strokeStyle = 'rgba(255,152,31,.7)'; g.lineWidth = 1.5 * d; g.strokeRect(ax, ay, bx - ax, by - ay);
+    label(r.x + r.w / 2, r.z + r.h - 4, r.title, '#ff981f', 0, 12 * d);
+  }
+  if (on.npcs) for (const [k, list] of Object.entries(M.npcs)) for (const [x, z] of list) dot(x, z, (k === 'kbd' ? 6 : 2.2) * u, k === 'kbd' ? '#111' : '#f55', k === 'kbd' ? '#f33' : '#400');
+  if (on.npcs && M.npcs.kbd) for (const [x, z] of M.npcs.kbd) label(x, z, 'KING BLACK DRAGON', '#f55', -10 * u, 11 * d);
+  if (on.runes) for (const r of M.runes) dot(r.x, r.z, 3.2 * u, RUNE_COL[r.kind] || '#fff', '#000');
+  if (on.portals) for (const p of M.portals) { dot(p.x, p.z, 3.6 * u, p.col, '#c4f'); if (p.home && view.s >= 5) label(p.x, p.z, p.name, p.col, -7 * u, 10 * d); }
+  if (on.portals && view.s < 5) label(M.spawn[0], M.spawn[1], 'PORTALS', '#c4f', -12 * u, 11 * d);
+  if (on.players) for (const p of live) {
+    dot(p.x - 0.5, p.z - 0.5, 4.2 * u, p.own ? '#ffd700' : '#ff0', '#000');
+    label(p.x - 0.5, p.z - 0.5, (p.own ? '♛ ' : '') + p.name, p.own ? '#ffd700' : '#fff', -9 * u, 12 * d);
+  }
+}
+
+// pan / zoom (mouse, wheel, touch)
+const ptrs = new Map(); let pinch0 = null;
+cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); cv.classList.add('drag'); });
+cv.addEventListener('pointerup', e => { ptrs.delete(e.pointerId); pinch0 = null; if (!ptrs.size) cv.classList.remove('drag'); });
+cv.addEventListener('pointercancel', e => { ptrs.delete(e.pointerId); pinch0 = null; });
+cv.addEventListener('pointermove', e => {
+  const d = devicePixelRatio || 1;
+  if (!ptrs.has(e.pointerId)) { hover(e.clientX * d, e.clientY * d, e.clientX, e.clientY); return; }
+  const [px, py] = ptrs.get(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+  if (ptrs.size === 2) {
+    const [a, b] = [...ptrs.values()], dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    if (pinch0) zoomAt((a[0] + b[0]) / 2 * d, (a[1] + b[1]) / 2 * d, dist / pinch0);
+    pinch0 = dist; return;
+  }
+  view.x -= (e.clientX - px) * d / view.s; view.z += (e.clientY - py) * d / view.s; tip.style.display = 'none'; draw();
+});
+function zoomAt(sx, sy, f) {
+  const [wx, wz] = S2W(sx, sy);
+  view.s = Math.max(0.4, Math.min(24, view.s * f));
+  const [nx, nz] = S2W(sx, sy); view.x += wx - nx; view.z += wz - nz; draw();
+}
+cv.addEventListener('wheel', e => { e.preventDefault(); const d = devicePixelRatio || 1; zoomAt(e.clientX * d, e.clientY * d, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+function hover(sx, sy, cx, cy) {
+  if (!M) return;
+  const [wx, wz] = S2W(sx, sy), r = 8 / view.s;
+  const hits = [];
+  if (on.players) for (const p of live) if (Math.hypot(p.x - wx, p.z - wz) < r) hits.push(`${p.own ? '♛ ' : ''}${p.name} · ${p.runes} runes · ${p.mode || ''}`);
+  if (on.runes) for (const q of M.runes) if (Math.hypot(q.x + 0.5 - wx, q.z + 0.5 - wz) < r) hits.push(`${q.kind} rune${q.high ? ' (up high)' : ''}`);
+  if (on.portals) for (const q of M.portals) if (Math.hypot(q.x + 0.5 - wx, q.z + 0.5 - wz) < r) hits.push(`portal: ${q.name}`);
+  if (on.npcs) for (const [k, list] of Object.entries(M.npcs)) for (const [x, z] of list) if (Math.hypot(x + 0.5 - wx, z + 0.5 - wz) < r) hits.push(k === 'kbd' ? 'King Black Dragon' : k);
+  if (!hits.length) { tip.style.display = 'none'; return; }
+  tip.textContent = [...new Set(hits)].slice(0, 6).join('\n'); tip.style.whiteSpace = 'pre';
+  tip.style.left = cx + 14 + 'px'; tip.style.top = cy + 10 + 'px'; tip.style.display = 'block';
+}
+
+async function poll() {
+  try { live = await (await fetch('/api/live', { cache: 'no-store' })).json(); } catch {}
+  document.getElementById('n').textContent = live.length;
+  const list = document.getElementById('list');
+  list.className = live.length ? '' : 'muted';
+  list.innerHTML = live.length ? live.slice().sort((a, b) => b.runes - a.runes).map((p, i) =>
+    `<div data-i="${live.indexOf(p)}" style="color:${p.own ? '#ffd700' : '#fff'}">${p.own ? '♛ ' : ''}${p.name.replace(/[<&]/g, '')} <span class="muted">${p.runes}/100</span></div>`).join('') : 'nobody yet';
+  draw();
+}
+document.getElementById('list').addEventListener('click', e => {
+  const i = e.target.closest('div[data-i]')?.dataset.i; if (i === undefined || !live[i]) return;
+  view.x = live[i].x; view.z = live[i].z; view.s = Math.max(view.s, 6); draw();
+});
+
+(async () => {
+  M = await (await fetch('/api/map')).json();
+  img = new Image(); img.onload = draw; img.src = M.img.src;
+  resize();
+  view.s = Math.max(1, cv.height / 320);                     // open on Lumbridge, ~300 tiles tall
+  poll(); setInterval(poll, 1000);
+})();
+</script>
+</body>
+</html>

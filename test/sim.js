@@ -276,7 +276,15 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
   check('100 runes, unique ids, all on open ground (full map)', runes.length === 100 && new Set(runes.map(r => r.id)).size === 100 && runes.every(r => wAll.tileKind(r.x + 0.5 - wAll.base[0], r.z + 0.5 - wAll.base[1]) === 0),
     runes.filter(r => wAll.tileKind(r.x + 0.5 - wAll.base[0], r.z + 0.5 - wAll.base[1]) !== 0).map(r => r.id).join(' '));
   check('first 40 runes unchanged', orig.startsWith('fire-3246-3207,water-3095-3315,earth-3235-3308'));
+  check('no rune past the wilderness edge (x < 2944, the unreachable mountains)', runes.every(r => !(r.z >= 3520 && r.x < 2944)), runes.filter(r => r.z >= 3520 && r.x < 2944).map(r => r.id).join(' '));
+  check('moved runes keep their ids (players keep what they collected)', ['air-2919-3568', 'water-2903-3805', 'earth-2934-3850'].every(id => runes.some(r => r.id === id)));
   check('every region loaded: no frontier walls left inside the playable map', wAll.segs.filter(s => s.frontier).every(s => !(wAll.isLive(Math.floor(s.ax), Math.floor(s.az)) && wAll.isLive(Math.floor(s.ax) - (s.ax === s.bx ? 1 : 0), Math.floor(s.az) - (s.az === s.bz ? 1 : 0)))));
+}
+
+// tiny things (tree stumps, roots, fungus, flowers) no longer block: you skate straight over them
+{
+  const tiny = [[3194, 3247], [3198, 3249], [3188, 3253]];
+  check('tree stumps / fungus / flowers are rideable', tiny.every(([x, z]) => w.tileKind(x + 0.5 - w.base[0], z + 0.5 - w.base[1]) === 0), tiny.map(([x, z]) => w.tileKind(x + 0.5 - w.base[0], z + 0.5 - w.base[1])).join());
 }
 
 // jump the River Lum: its bed has invisible server walls, which used to stop you mid-air ("hit a wall")

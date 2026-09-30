@@ -13,6 +13,7 @@ import { buildOutfitModel, loadKit } from './rsanim.js';
 import { Designer } from './designer.js';
 import { Goals } from './goals.js';
 import { EXTRA_SPAWNS } from './npc-spawns.js';
+import { CORE_SPAWNS } from './mapdata.js';
 import { Portals } from './portals.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
@@ -205,16 +206,7 @@ async function main() {
   const NPC_NAME = { darkwizard: 'DARK WIZARD', whiteknight: 'WHITE KNIGHT', blackknight: 'BLACK KNIGHT', giantspider: 'GIANT SPIDER',
     icewarrior: 'ICE WARRIOR', mossgiant: 'MOSS GIANT', icegiant: 'ICE GIANT', blackunicorn: 'BLACK UNICORN', lesserdemon: 'LESSER DEMON',
     greaterdemon: 'GREATER DEMON', greendragon: 'GREEN DRAGON', kbd: 'KING BLACK DRAGON' };
-  const NPC_SPAWNS = {
-    goblin: [[3141, 3258], [3142, 3230], [3145, 3229], [3183, 3244], [3187, 3246], [3244, 3245], [3247, 3247], [3250, 3238], [3252, 3228], [3255, 3222], [3258, 3245], [3260, 3233]],
-    cow: [[3254, 3258], [3258, 3260], [3261, 3259], [3243, 3295], [3247, 3284], [3255, 3278], [3160, 3318], [3182, 3329]],
-    chicken: [[3185, 3277], [3187, 3278], [3191, 3277], [3228, 3297], [3230, 3299], [3232, 3299], [3196, 3352], [3198, 3354]],
-    rat: [[3100, 3273], [3229, 3223], [3232, 3229], [3236, 3222], [3319, 3250]],
-    imp: [[3214, 3281], [3240, 3307], [3205, 3355], [3299, 3273]],
-    man: [[3223, 3240], [3231, 3207], [3100, 3279], [3294, 3196]],
-    // the stone circle south of Varrock, and the pair by Draynor
-    darkwizard: [[3223, 3367], [3223, 3372], [3224, 3370], [3225, 3365], [3225, 3374], [3228, 3373], [3230, 3363], [3230, 3365], [3230, 3374], [3232, 3367], [3232, 3372], [3084, 3236], [3085, 3238]],
-  };
+  const NPC_SPAWNS = JSON.parse(JSON.stringify(CORE_SPAWNS));
   // every spawn is sorted into the region it stands in; a region's NPCs (and their models) arrive with it
   for (const [kind, spots] of Object.entries(EXTRA_SPAWNS)) (NPC_SPAWNS[kind] ||= []).push(...spots);
   const npcs = [], pendingNpcs = [];
@@ -520,6 +512,7 @@ async function main() {
   } });
   const offlineProg = localProg();
   window.RS.goals = goals;
+  goals.onAllRunes = () => chatLog.push({ text: 'Every rune found! Type ::noclip in chat to skate through anything.', col: '#0ff', t: 0, msg: 1 });
   const portals = new Portals({ scene, world, sk, hud, audio, ensureAt });
   window.RS.portals = portals;
   window.RS.onLogin = async who => {
@@ -574,7 +567,7 @@ async function main() {
      .on('rejoined', w => { me.xp = Math.max(me.xp, w.xp); chatLog.push({ text: 'Reconnected.', col: '#0f0', t: 0 }); });
   const SNAP = ['x', 'y', 'z', 'heading', 'body', 'boardYaw', 'boardRoll', 'charge', 'airTime', 'pushing', 'tumble', 'tumbleAxis', 'speed'];
   function snapshot() {
-    const o = { mode: sk.mode, gk: sk.grindKind, sl: sk.slide ? 1 : 0, w: sk.inWater ? 1 : 0, wk: sk.walking || 0, fa: sk.footAir ? 1 : 0, em: emote ? emote * 100 + emoteSeq : 0 };   // wk: 0 stand, 1 walk, 2 run; em: emote*100+seq
+    const o = { mode: sk.mode, gk: sk.grindKind, sl: sk.slide ? 1 : 0, w: sk.inWater ? 1 : 0, wk: sk.walking || 0, fa: sk.footAir ? 1 : 0, fk: sk._fk ? 1 : 0, em: emote ? emote * 100 + emoteSeq : 0 };   // wk: 0 stand, 1 walk, 2 run; em: emote*100+seq
     for (const k of SNAP) o[k] = Math.round((sk[k] || 0) * 1000) / 1000;
     if (sk.mode === 'bail' && sk.board) o.b = [sk.board.x, sk.board.y, sk.board.z, sk.board.yaw, sk.board.roll].map(v => Math.round(v * 1000) / 1000);
     return o;
@@ -589,7 +582,7 @@ async function main() {
       for (const f of ['x', 'y', 'z', 'charge', 'airTime', 'tumble', 'speed']) s[f] += (t[f] - s[f]) * k;
       s.pushing = t.pushing || 0;
       for (const f of ['heading', 'body', 'boardYaw', 'boardRoll', 'tumbleAxis']) s[f] = wrapA(s[f] + wrapA(t[f] - s[f]) * k);
-      s.mode = t.mode; s.grindKind = t.gk; s.slide = !!t.sl; s.inWater = !!t.w; s.walking = t.wk || 0; s.footAir = !!t.fa; s.em = t.em || 0;
+      s.mode = t.mode; s.grindKind = t.gk; s.slide = !!t.sl; s.inWater = !!t.w; s.walking = t.wk || 0; s.footAir = !!t.fa; s.fk = !!t.fk; s.em = t.em || 0;
       if (t.b) s.board = { x: t.b[0], y: t.b[1], z: t.b[2], yaw: t.b[3], roll: t.b[4] };
       drawRider(dt, s, r.m, r.board);
       r.shadow ||= makeShadow(); placeShadow(r.shadow, s.x, s.y, s.z, true);
@@ -597,10 +590,13 @@ async function main() {
   }
   // chat: Enter opens a one-line box
   // ::commands typed in chat stay on this client and are never sent as chat
+  // the owner has every command; everybody else earns ::noclip by collecting all 100 runes
   function command(c) {
-    if (!me.own) { chatLog.push({ text: 'Unknown command.', col: '#f00', t: 0, msg: 1 }); return; }
-    if (c === 'noclip') { sk.noclip = !sk.noclip; chatLog.push({ text: 'Noclip ' + (sk.noclip ? 'ON - skate through anything.' : 'OFF.'), col: GOLD, crown: true, t: 0, msg: 1 }); }
-    else chatLog.push({ text: 'Commands: ::noclip', col: GOLD, t: 0, msg: 1 });
+    const canNoclip = me.own || goals.allRunes();
+    if (c === 'noclip' && canNoclip) { sk.noclip = !sk.noclip; chatLog.push({ text: 'Noclip ' + (sk.noclip ? 'ON - skate through anything.' : 'OFF.'), col: me.own ? GOLD : '#0ff', crown: !!me.own, t: 0, msg: 1 }); }
+    else if (c === 'noclip') chatLog.push({ text: `Collect all ${goals.runes.length} runes to unlock ::noclip (${goals.status().runes}/${goals.runes.length}).`, col: '#f00', t: 0, msg: 1 });
+    else if (canNoclip) chatLog.push({ text: 'Commands: ::noclip', col: me.own ? GOLD : '#0ff', t: 0, msg: 1 });
+    else chatLog.push({ text: 'Unknown command.', col: '#f00', t: 0, msg: 1 });
   }
   function openChat() {
     const box = $('chatbox'); if (box.style.display === 'block') return;
@@ -717,6 +713,14 @@ async function main() {
     drawRider(dt, sk, player, board);
     if (emote && player.clip === EMOTES[emote] && player.done) emote = 0;
   }
+  // fakie = rolling tail-first. Latched on the ground/rail (air keeps the take-off stance); remotes get it as `fk`
+  function fakieOf(sk) {
+    if (sk.vx === undefined) return !!sk.fk;
+    if (sk.mode === 'walk' || sk.mode === 'bail') return (sk._fk = false);
+    if ((sk.mode === 'ground' || sk.mode === 'grind') && Math.hypot(sk.vx, sk.vz) > 0.8)
+      sk._fk = sk.vx * Math.cos(sk.heading) + sk.vz * Math.sin(sk.heading) < 0;
+    return !!sk._fk;
+  }
   function drawRider(dt, sk, m, board) {
     let clip = 'sidestep', yawOff = -Math.PI / 2, loop = true;
     const has = c => !!m.meta.anims[c];                      // (the default nickai3 model predates push/emotes)
@@ -739,6 +743,13 @@ async function main() {
     if ((clip === 'push' || clip === 'sidestep') && (m._clip === 'push' || m._clip === 'sidestep') && m._yo !== undefined)
       yawOff = m._yo + wrapA(yawOff - m._yo) * Math.min(1, dt * 14);
     m._yo = yawOff; m._clip = clip;
+    // pushing while riding fakie (tail-first, e.g. after any 180): the push clip faces down the board to the
+    // NOSE, which is now behind you, so he pushed looking backwards. Turn the push round to face travel. (The
+    // side-on stances read the same either way round, so only the push needs it.)
+    const fkWant = fakieOf(sk) && clip === 'push' ? Math.PI : 0;
+    m._fk = (m._fk ?? 0) + (fkWant - (m._fk ?? 0)) * Math.min(1, dt * 14);
+    if (Math.abs(m._fk - fkWant) < 0.01) m._fk = fkWant;
+    const fkYaw = m._fk;
     m.play(clip, loop);
     m.update(dt);
     const [fx, fz] = m.footOffset(m.meta.anims[m.clip]?.foot ?? m.cur);   // push: keep the planted foot on the deck
@@ -757,7 +768,7 @@ async function main() {
       board.root.rotation.set(0, byaw, 0); board.roll.rotation.x = broll; board.pitch.rotation.z = bpitch;
     }
     // player transform: feet on the deck
-    const yaw = sk.body + yawOff;
+    const yaw = sk.body + yawOff + fkYaw;
     const crouch = sk.charge >= 0 && sk.mode === 'ground' ? 0.12 * sk.charge : (sk.mode === 'air' && sk.grab ? 0.22 : 0);
     const PT = P.pushEvery + 0.08, bob = clip !== 'push' && sk.pushing > 0 ? Math.sin((PT - sk.pushing) / PT * Math.PI) * 0.05 : 0;   // (old model only)
     let py = sk.mode === 'bail' ? sk.y : by + TOP_Z - crouch - bob;

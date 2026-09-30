@@ -7,6 +7,8 @@ import { join, normalize } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync } from 'fs';
 import { XP_AT, MAX_LEVEL } from './src/levels.js';
 import { cleanChat } from './profanity.ts';
+import { PORTAL_HOME, PORTAL_DESTS, CORE_SPAWNS } from './src/mapdata.js';
+import { EXTRA_SPAWNS } from './src/npc-spawns.js';
 const ROOT = import.meta.dir;
 const port = Number(process.argv[2] || process.env.PORT || 8123);
 
@@ -95,6 +97,22 @@ setInterval(() => {
 }, SAMPLE_MS);
 setInterval(saveStats, 30_000);
 const STATS_HTML = readFileSync(join(ROOT, 'stats.html'), 'utf8');
+const MAP_HTML = readFileSync(join(ROOT, 'map.html'), 'utf8');
+// the /map page: everything that never moves, sent once (world tiles)
+const CORE_JSON = (({ name, title, x0, z0, w, h, baseX, baseZ, regions }) => ({ name, title, x0, z0, w, h, baseX, baseZ, regions }))(JSON.parse(readFileSync(join(ROOT, 'assets', 'world.json'), 'utf8')));
+const BASE = [CORE_JSON.baseX, CORE_JSON.baseZ];
+const MAP_STATIC = (() => {
+  const npcs: Record<string, number[][]> = {};
+  for (const src of [CORE_SPAWNS, EXTRA_SPAWNS]) for (const [k, v] of Object.entries(src as Record<string, number[][]>)) (npcs[k] ||= []).push(...v);
+  return {
+    img: { src: '/assets/map.png', x0: 2880, z1: 3968, px: 2 },             // tools/mapimg.py
+    regions: [CORE_JSON, ...(CORE_JSON.regions || [])].map((r: any) => ({ title: r.title, x: r.x0 + BASE[0], z: r.z0 + BASE[1], w: r.w, h: r.h })),
+    runes: JSON.parse(readFileSync(join(ROOT, 'assets', 'runes.json'), 'utf8')).runes.map((r: any) => ({ kind: r.kind, x: r.x, z: r.z, high: !!r.high })),
+    portals: [...PORTAL_DESTS.map((d: any) => ({ name: d.name, x: d.pad[0], z: d.pad[1], col: d.col, home: 1 })),
+      ...PORTAL_DESTS.map((d: any) => ({ name: 'to Lumbridge', x: d.back[0], z: d.back[1], col: PORTAL_HOME.col }))],
+    npcs, spawn: [3222, 3218],
+  };
+})();
 
 // ------------------------------------------------------------------ static files
 // Fast public loading: pre-compressed .br/.gz siblings (tools/compress.ts), on-the-fly gzip for the small
@@ -144,6 +162,15 @@ Bun.serve({
       return Response.json(Object.entries(accounts)
         .sort((a, b) => Math.min(b[1].xp, MAXED) - Math.min(a[1].xp, MAXED) || runesOf(b[1]) - runesOf(a[1]) || b[1].xp - a[1].xp).slice(0, 15)
         .map(([k, a]) => ({ name: a.name, own: isOwner(k) ? 1 : undefined, xp: a.xp, runes: runesOf(a), runeTotal: RUNE_IDS.size, on: online.has(k) })));
+    }
+    if (p === '/map' || p === '/map/') return new Response(MAP_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' } });
+    if (p === '/api/map') return Response.json(MAP_STATIC, { headers: { 'Cache-Control': 'no-cache' } });
+    if (p === '/api/live') {                                         // who is where right now (world tiles)
+      return Response.json([...sessions.values()].filter(s => s.st && typeof s.st.x === 'number').map(s => {
+        const a = accounts[s.k];
+        return { name: s.name, own: s.own ? 1 : undefined, x: Math.round((s.st.x + BASE[0]) * 10) / 10, z: Math.round((s.st.z + BASE[1]) * 10) / 10,
+          mode: s.st.mode, runes: a ? runesOf(a) : 0 };
+      }), { headers: { 'Cache-Control': 'no-cache' } });
     }
     if (p === '/api/players') return Response.json([...sessions.values()].map(s => ({ name: s.name, xp: s.xp })));
     if (p === '/stats' || p === '/stats/') return new Response(STATS_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' } });
