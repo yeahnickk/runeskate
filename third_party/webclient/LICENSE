@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 RuneSkate contributors
+Copyright (c) 2023-2026 Lost City
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,10 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-This license covers the RuneSkate source code only. The game cache and
-game-derived data in assets/, tools/cache/ and tools/data/ (world geometry,
-models, textures, sprites, map data) come from the 2004 RuneScape game and are
-the property of Jagex Ltd.; they are not licensed under these terms.
-third_party/webclient/ is part of the LostCity web client, under its own MIT
-license (third_party/webclient/LICENSE).

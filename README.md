@@ -69,16 +69,38 @@ Optional environment variables:
 - `src/skater.js` is the physics, `src/world.js` the collision world, `src/main.js` the client,
   `serve.ts` the server (static files, accounts, multiplayer relay).
 
-The world in `assets/` is already built. Rebuilding it (`tools/export-*.ts`, then `tools/build.py`,
-`tools/lanes.py` and `tools/split.py`) needs the game cache and a
-[LostCity](https://github.com/LostCityRS) server checkout next to this folder: the export tools import its
-config loader, and a few of them read the server's map files.
+### Rebuilding the world
+
+`assets/` is already built, so you only need this to change the map itself (collision, trees, lanes, runes).
+Everything it needs is in this repo: the 2004 game cache (`tools/cache/`), the server's collision, map-object
+and spawn data (`tools/data/`), and the parts of the [LostCity](https://github.com/LostCityRS) web client
+that read them (`third_party/webclient/`, MIT). You need Bun and Python 3 with `numpy` (plus `Pillow` for
+the map image).
+
+```bash
+bun install                                                        # fflate, for the exporters
+bun --preload ./tools/preload.ts tools/export-world.ts 2880 3072 896   # terrain + objects -> tools/out
+bun --preload ./tools/preload.ts tools/small-locs.ts                   # tiny objects + tree tiles
+python tools/build.py        # meshes, collision, rails, tree trunks -> assets/world.*
+python tools/lanes.py        # forest skate lanes, water vs rock
+python tools/fixrunes.py     # check every rune still sits on open ground (--write to move them)
+python tools/split.py        # cut into the core + streamed region packs
+python tools/mapimg.py       # the world map image
+bun tools/compress.ts        # optional: .br/.gz for fast loading
+```
+
+`tools/export-kit.ts` (outfits) and `tools/export-npcs.ts` (NPC models) run the same way. The game client
+adds a little random shading jitter, so re-exported meshes differ from the committed ones by a shade or two;
+collision and gameplay data come out identical.
+
+Rune ids must never change: accounts store the ids of the runes they have found.
 
 ## License
 
-The code is MIT licensed (see [LICENSE](LICENSE)). That covers the code only. The world geometry, models,
-textures and other game-derived data in `assets/` come from the 2004 RuneScape game cache, which belongs to
-Jagex Ltd. They are not covered by the MIT license.
+The code is MIT licensed (see [LICENSE](LICENSE)). That covers the code only. The game cache and the world
+geometry, models, textures and map data derived from it (`assets/`, `tools/cache/`, `tools/data/`) come from
+the 2004 RuneScape game, which belongs to Jagex Ltd. They are not covered by the MIT license.
+`third_party/webclient/` is from the LostCity web client, under its own MIT license.
 
 ## Disclaimer
 

@@ -1,0 +1,18 @@
+{
+  "name": "runeskate",
+  "private": true,
+  "type": "module",
+  "description": "A multiplayer skateboarding game set in 2004 RuneScape",
+  "scripts": {
+    "start": "bun serve.ts 8123",
+    "test": "bun test/sim.js",
+    "compress": "bun tools/compress.ts"
+  },
+  "imports": {
+    "#3rdparty/*": "./third_party/webclient/src/3rdparty/*",
+    "#/*": "./third_party/webclient/src/*"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  }
+}

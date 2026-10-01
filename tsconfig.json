@@ -5,10 +5,11 @@
         "moduleResolution": "bundler",
         "strict": false,
         "skipLibCheck": true,
+        "allowJs": true,
         "baseUrl": ".",
         "paths": {
-            "#/*": ["../../server/webclient/src/*"],
-            "#3rdparty/*": ["../../server/webclient/src/3rdparty/*"]
+            "#/*": ["./third_party/webclient/src/*"],
+            "#3rdparty/*": ["./third_party/webclient/src/3rdparty/*"]
         }
     }
 }

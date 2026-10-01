@@ -26,7 +26,7 @@ import { join } from 'path';
 
 const BASE = 'https://rs-sdk-demo.fly.dev';
 const OUT = join(import.meta.dir, 'out');
-const CACHE = join(import.meta.dir, '..', '..', 'showreel3', 'export', 'cache');
+const CACHE = join(import.meta.dir, 'cache')          // tools/cache: the 2004 game cache;
 mkdirSync(OUT, { recursive: true });
 const baseX = +(process.argv[2] || 3072), baseZ = +(process.argv[3] || 3136), SIZE = +(process.argv[4] || 256), LEVELS = 4;
 

@@ -17,7 +17,7 @@ import { unzipSync, gunzipSync } from 'fflate';
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
-const CACHE = join(import.meta.dir, '..', '..', 'showreel3', 'export', 'cache');
+const CACHE = join(import.meta.dir, 'cache');
 const ASSETS = join(import.meta.dir, '..', 'assets');
 const rd = (n: string) => new Uint8Array(readFileSync(join(CACHE, n)));
 const crcPkt = new Packet(rd('crc'));

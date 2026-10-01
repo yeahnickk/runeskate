@@ -1,13 +1,20 @@
 // Which blocking map objects are "tiny" (stumps, flowers, fungus, mushrooms...)? build.py lets you skate
-// straight over the tiles they block.   bun --preload ./headless/preload.ts runeskate/tools/small-locs.ts [--stats]
+// straight over the tiles they block. Also lists every TREE tile (build.py shrinks those to the trunk).
+//   bun --preload ./tools/preload.ts tools/small-locs.ts [--stats]
 import * as fs from 'fs';
 import * as path from 'path';
-import { loadConfigs } from '../../headless/src/ConfigLoader.js';
+import Packet from '#/io/Packet.js';
+import JagFile from '#/io/JagFile.js';
 import LocType from '#/config/LocType.js';
-await loadConfigs('https://rs-sdk-demo.fly.dev');
+import { gunzipSync } from 'fflate';
+const CACHE = path.join(import.meta.dir, 'cache');
+const crcPkt = new Packet(new Uint8Array(fs.readFileSync(path.join(CACHE, 'crc'))));
+const crc: number[] = []; for (let i = 0; i < 9; i++) crc[i] = crcPkt.g4();
+LocType.init(new JagFile(new Uint8Array(fs.readFileSync(path.join(CACHE, `config${crc[2]}`)))));
 const X0 = 2880, Z0 = 3072, N = 896;
 export const TINY = /stump|flower|fung|mushroom|daisies|daffodil|tulip|rose|weed|fern|thistle|grass|shoot|sapling|plant|root|toadstool|pot plant|lily|reeds?$|bullrush|dead tree/i;
-const raw = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'headless', 'static-locs.json'), 'utf8'));
+// every static map object (level, x, z, id, shape, rotation), decoded from the cache's map files
+const raw = JSON.parse(new TextDecoder().decode(gunzipSync(new Uint8Array(fs.readFileSync(path.join(import.meta.dir, 'data', 'static-locs.json.gz'))))));
 const names = new Map<string, number>(), tiles: number[][] = [], hit = new Map<string, number>();
 // trees: build.py shrinks their collision to the measured trunk (only for these, never fences/walls/statues)
 export const TREE = /tree|^oak$|willow|^yew$|maple|^magic|evergreen|palm|jungle|dead tree|^achey|^hollow/i;

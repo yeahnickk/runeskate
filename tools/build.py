@@ -1,28 +1,29 @@
 """RuneSkate asset build.
 
-Inputs (all local, nothing live is touched):
-  showreel3/export/out/*        1:1 Lumbridge terrain + locs, player/goblin models + anims (from the game cache)
-  sdk/collision-data.json       the server's own per-tile collision flags (walls, gates, doors, trees, water)
-  server/content/fonts/*.png    RS bitmap fonts
+Inputs (all inside this repo, nothing live is touched):
+  tools/out/*                          the exported world (tools/export-world.ts, from tools/cache)
+  tools/data/collision-data.json.gz    the server's own per-tile collision flags (walls, gates, doors, trees, water)
+  tools/out/small-locs.json            tiny + tree objects (tools/small-locs.ts)
 
-Outputs -> runeskate/assets/
-  world.bin / world.json        render meshes (three.js coords: x=east, y=up, z=-north, 1 unit = 1 tile)
-  collision.json                wall segments (with measured heights -> rails), blocked tiles, ground heights
-  nickai3.* / goblin.*          animated models
-    python runeskate/tools/build.py
-    python runeskate/tools/lanes.py      (then: forest skate lanes + water/rock split, rewrites world.json)
-    python runeskate/tools/split.py      (then: cut into the first-load core + streamed packs, e.g. Varrock)
+Outputs -> assets/
+  world.bin / world.json               render meshes (three.js coords: x=east, y=up, z=-north, 1 unit = 1 tile)
+                                       + wall segments (with measured heights -> rails), blocked tiles, trunks, ground
 
-Export command for the current map (384 square = Lumbridge core + Varrock strip; split.py drops the east):
-    bun --preload ./runeskate/tools/preload.ts runeskate/tools/export-world.ts 3072 3136 384
+The player/goblin models, hitmarks and bitmap fonts in assets/ came from an earlier exporter and are kept as
+they are (tools/export-kit.ts and tools/export-npcs.ts make the outfit kit and the NPCs).
+
+Full rebuild, from the repo root (see README):
+    bun --preload ./tools/preload.ts tools/export-world.ts 2880 3072 896
+    bun --preload ./tools/preload.ts tools/small-locs.ts
+    python tools/build.py && python tools/lanes.py && python tools/fixrunes.py && python tools/split.py
 """
 import json, os, shutil, math
 import numpy as np
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-EXP = os.path.join(ROOT, 'showreel3', 'export', 'out')          # animated models, hitmarks
-WEXP = os.path.join(ROOT, 'runeskate', 'tools', 'out')          # the big world (tools/export-world.ts)
-OUT = os.path.join(ROOT, 'runeskate', 'assets')
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # the repo root
+EXP = os.path.join(ROOT, 'tools', 'out', 'models')                   # optional: re-exported player/goblin models
+WEXP = os.path.join(ROOT, 'tools', 'out')                            # the big world (tools/export-world.ts)
+OUT = os.path.join(ROOT, 'assets')
 os.makedirs(OUT, exist_ok=True)
 
 meta = json.load(open(os.path.join(WEXP, 'meta.json')))
@@ -96,8 +97,8 @@ open(os.path.join(OUT, 'world.bin.gz'), 'wb').write(gzip.compress(bytes(blob), 6
 index = {'chunk': CH, 'chunks': chunks}
 print('world.bin', len(blob) // 1024, 'KB', 'chunks', len(chunks), 'tris', len(traw) // 3, len(lraw) // 3)
 
-# ------------------------------------------------------------------ models
-for name in ('nickai3', 'goblin'):
+# ------------------------------------------------------------------ models (only if re-exported; assets/ already has them)
+for name in (('nickai3', 'goblin') if os.path.exists(os.path.join(EXP, 'goblin.json')) else ()):
     m = json.load(open(os.path.join(EXP, f'{name}.json')))
     fr = np.fromfile(os.path.join(EXP, f'{name}.frames.bin'), np.float32).reshape(m['nframes'], m['verts'], 3)
     fr = np.stack([fr[..., 0] / 128, -fr[..., 1] / 128, -fr[..., 2] / 128], -1).astype(np.float32)
@@ -105,14 +106,14 @@ for name in ('nickai3', 'goblin'):
     shutil.copy(os.path.join(EXP, f'{name}.faces.bin'), os.path.join(OUT, f'{name}.faces.bin'))
     shutil.copy(os.path.join(EXP, f'{name}.fcol.bin'), os.path.join(OUT, f'{name}.fcol.bin'))
     json.dump(m, open(os.path.join(OUT, f'{name}.json'), 'w'))
-for i in range(4):
+for i in range(4 if os.path.exists(os.path.join(EXP, 'hitmark_0.json')) else 0):
     shutil.copy(os.path.join(EXP, f'hitmark_{i}.json'), os.path.join(OUT, f'hitmark_{i}.json'))
 for f in ('b12_full.png', 'p12_full.png', 'q8_full.png'):
     src = os.path.join(ROOT, 'server', 'content', 'fonts', f)
     if os.path.exists(src): shutil.copy(src, os.path.join(OUT, f))
 
 # ------------------------------------------------------------------ collision (the server's own flags)
-col = json.load(open(os.path.join(ROOT, 'sdk', 'collision-data.json')))
+col = json.load(gzip.open(os.path.join(ROOT, 'tools', 'data', 'collision-data.json.gz'), 'rt'))
 flags = {}                    # (level, lx, lz) -> flags
 for lv, x, z, f in col['tiles']:
     lx, lz = x - BX, z - BZ

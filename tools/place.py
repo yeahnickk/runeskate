@@ -4,7 +4,7 @@ Runes: the 40 in assets/runes.json are KEPT exactly (their ids are what players 
 appended with per-region quotas so Falador, Varrock, Port Sarim and the wilderness all get their share. Ids are
 world coords, so re-running with the file at 100 does nothing - only a deliberate edit re-rolls anything.
 
-NPCs: real spawn tiles from headless/spawn-index.json (the server's own map files), kept only where a skater can
+NPCs: real spawn tiles from tools/data/spawn-index.json (the server's own map files), kept only where a skater can
 actually get to them, thinned so no kind crowds one spot, written to src/npc-spawns.js. The KBD really lives
 underground; here it gets a surface lair deep in the wilderness instead.
 
@@ -94,7 +94,7 @@ json.dump({'runes': runes}, open(RP, 'w'), indent=0)
 print(len(runes), 'runes written')
 
 # ---------------------------------------------------------------- NPCs
-idx = json.load(open(os.path.join(ROOT, '..', 'headless', 'spawn-index.json')))
+idx = json.load(open(os.path.join(ROOT, 'tools', 'data', 'spawn-index.json')))
 KIND_IDS = {  # kind -> (npc ids, max spawns)
     'guard': ([9], 22), 'whiteknight': ([19], 8), 'blackknight': ([179, 178], 6), 'barbarian': ([12, 17], 10),
     'dwarf': ([206, 118], 8), 'darkwarrior': ([192], 7), 'bear': ([105], 6), 'unicorn': ([89], 5),

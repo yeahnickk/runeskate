@@ -21,8 +21,7 @@ import { readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { createHash } from 'crypto';
 
-const ROOT = join(import.meta.dir, '..', '..');
-const CACHE = join(ROOT, 'showreel3', 'export', 'cache');
+const CACHE = join(import.meta.dir, 'cache'), DATA = join(import.meta.dir, 'data');
 const ASSETS = join(import.meta.dir, '..', 'assets');
 const rd = (n: string) => new Uint8Array(readFileSync(join(CACHE, n)));
 const crcPkt = new Packet(rd('crc'));
@@ -46,24 +45,9 @@ const hslRgb = (hsl: number) => Pix3D.colourTable[hsl & 0xffff];
 // ---------------------------------------------------------------- wearpos from the server's obj configs
 const SLOT: Record<string, number> = { hat: 0, back: 1, front: 2, righthand: 3, torso: 4, lefthand: 5, arms: 6, legs: 7, head: 8, hands: 9, feet: 10, jaw: 11 };
 const cfg = new Map<string, { wearpos?: string; wearpos2?: string; wearpos3?: string }>();
-function walk(dir: string) {
-  for (const f of readdirSync(dir)) {
-    const p = join(dir, f);
-    if (statSync(p).isDirectory()) walk(p);
-    else if (f.endsWith('.obj')) {
-      let cur: any = null;
-      for (const line of readFileSync(p, 'utf8').split(/\r?\n/)) {
-        const m = line.match(/^\[(.+)\]$/);
-        if (m) { cur = {}; cfg.set(m[1], cur); continue; }
-        const kv = line.match(/^(wearpos2?|wearpos3)=(\w+)/);
-        if (cur && kv) cur[kv[1]] = kv[2];
-      }
-    }
-  }
-}
-walk(join(ROOT, 'server', 'content', 'scripts'));
+for (const [k, v] of Object.entries(JSON.parse(readFileSync(join(DATA, 'obj-wearpos.json'), 'utf8')))) cfg.set(k, v as any);   // from the server's .obj configs
 const sym = new Map<number, string>();
-for (const line of readFileSync(join(ROOT, 'server', 'engine', 'data', 'symbols', 'obj.sym'), 'utf8').split(/\r?\n/)) {
+for (const line of readFileSync(join(DATA, 'obj.sym'), 'utf8').split(/\r?\n/)) {
   const [id, name] = line.split('\t'); if (name) sym.set(+id, name);
 }
 
