@@ -5,7 +5,6 @@
 // hashed password, outfit, points (= total XP). Everything else is relayed peer state.
 import { join, normalize } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync } from 'fs';
-import { XP_AT, MAX_LEVEL } from './src/levels.js';
 import { cleanChat } from './profanity.ts';
 import { PORTAL_HOME, PORTAL_DESTS, CORE_SPAWNS } from './src/mapdata.js';
 import { EXTRA_SPAWNS } from './src/npc-spawns.js';
@@ -24,8 +23,9 @@ setInterval(saveAccounts, 2000);
 for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { try { saveAccounts(); saveStats(); } finally { process.exit(0); } });
 const key = (n: string) => n.toLowerCase().replace(/[^a-z0-9]/g, '');
 const cleanName = (n: string) => String(n || '').replace(/[^A-Za-z0-9 _-]/g, '').trim().slice(0, 12);
-const MAX_XP = 6_488_304 * 4;                                  // headroom past level 126
-const MAXED = XP_AT[MAX_LEVEL];                                // 6,488,304: past this, runes decide the rank
+// highscores have no ceiling. What stops a hacked client from posting billions is the rate: one banked combo is
+// at most XP_PER_MSG and a session earns at most XP_PER_MIN (a token bucket), far above any real run.
+const XP_PER_MSG = 250_000, XP_PER_MIN = 900_000;
 // the only runes that exist (tools/runes.py). Anything else in an account - ids from before the list was
 // fixed, when a map change moved them - is dropped, so nobody keeps credit for collecting one twice.
 const RUNE_IDS = new Set(JSON.parse(readFileSync(join(ROOT, 'assets', 'runes.json'), 'utf8')).runes.map((r: any) => r.id));
@@ -106,7 +106,7 @@ const MAP_STATIC = (() => {
   const npcs: Record<string, number[][]> = {};
   for (const src of [CORE_SPAWNS, EXTRA_SPAWNS]) for (const [k, v] of Object.entries(src as Record<string, number[][]>)) (npcs[k] ||= []).push(...v);
   return {
-    img: { src: '/assets/map.png', x0: 2880, z1: 3968, px: 2 },             // tools/mapimg.py
+    img: { src: '/assets/map.png', x0: 2048, z1: 4032, px: 2 },             // tools/mapimg.py
     regions: [CORE_JSON, ...(CORE_JSON.regions || [])].map((r: any) => ({ title: r.title, x: r.x0 + BASE[0], z: r.z0 + BASE[1], w: r.w, h: r.h })),
     runes: JSON.parse(readFileSync(join(ROOT, 'assets', 'runes.json'), 'utf8')).runes.map((r: any) => ({ kind: r.kind, x: r.x, z: r.z, high: !!r.high })),
     portals: [...PORTAL_DESTS.map((d: any) => ({ name: d.name, x: d.pad[0], z: d.pad[1], col: d.col, home: 1 })),
@@ -145,7 +145,7 @@ async function sendFile(req: Request, full: string) {
 }
 
 // ------------------------------------------------------------------ sessions
-type Sess = { id: number; name: string; k: string; own?: number; st: any; ws: any; xp: number; outfit: any; lastHit?: number };
+type Sess = { id: number; name: string; k: string; own?: number; st: any; ws: any; xp: number; outfit: any; lastHit?: number; bucket?: number; bucketAt?: number };
 const sessions = new Map<number, Sess>();
 let nextId = 1;
 const pub = (s: Sess) => ({ id: s.id, name: s.name, own: s.own, xp: s.xp, outfit: s.outfit, st: s.st });
@@ -161,7 +161,7 @@ Bun.serve({
       const online = new Set([...sessions.values()].map(s => s.k));
       // rank by XP up to max level, then runes found, then raw XP
       return Response.json(Object.entries(accounts)
-        .sort((a, b) => Math.min(b[1].xp, MAXED) - Math.min(a[1].xp, MAXED) || runesOf(b[1]) - runesOf(a[1]) || b[1].xp - a[1].xp).slice(0, 15)
+        .sort((a, b) => b[1].xp - a[1].xp || runesOf(b[1]) - runesOf(a[1])).slice(0, 15)
         .map(([k, a]) => ({ name: a.name, own: isOwner(k) ? 1 : undefined, xp: a.xp, runes: runesOf(a), runeTotal: RUNE_IDS.size, on: online.has(k) })));
     }
     if (p === '/map' || p === '/map/') return new Response(MAP_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' } });
@@ -223,8 +223,11 @@ Bun.serve({
       if (m.t === 'st') {                                       // ~15 Hz skater state, relayed verbatim (small)
         s.st = m.s; broadcast({ t: 'st', id: s.id, s: m.s }, s.id);
       } else if (m.t === 'xp') {                                 // banked combo points
-        const add = Math.max(0, Math.min(250_000, Math.floor(+m.add || 0)));
-        s.xp = Math.min(MAX_XP, s.xp + add); accounts[s.k].xp = s.xp; dirty = true;
+        const now = Date.now();
+        s.bucket = Math.min(XP_PER_MIN, (s.bucket ?? XP_PER_MIN) + (now - (s.bucketAt || now)) / 60_000 * XP_PER_MIN); s.bucketAt = now;
+        const add = Math.max(0, Math.min(XP_PER_MSG, s.bucket, Math.floor(+m.add || 0)));
+        s.bucket -= add;
+        s.xp += add; accounts[s.k].xp = s.xp; dirty = true;
         broadcast({ t: 'xp', id: s.id, xp: s.xp }, s.id);
       } else if (m.t === 'outfit') {
         m.outfit = cleanOutfit(m.outfit, isOwner(s.k)); if (!m.outfit) return;
@@ -235,6 +238,10 @@ Bun.serve({
         const id = String(m.id || '').slice(0, 40), list = m.kind === 'spot' ? a.prog.done : m.kind === 'rune' ? a.prog.found : null;
         if (list === a.prog.found && !RUNE_IDS.has(id)) return;   // not a real rune
         if (list && id && !list.includes(id) && list.length < 500) { list.push(id); dirty = true; }
+        if (m.kind === 'kill' && /^[a-z]{1,20}$/.test(id)) {           // the bestiary: kills per monster kind
+          const kills = (a.prog as any).kills ||= {};
+          if (id in kills || Object.keys(kills).length < 60) { kills[id] = Math.min(1e7, (kills[id] || 0) + 1); dirty = true; }
+        }
       } else if (m.t === 'hit') {                                // owner's scimitar: knock another skater down
         if (!isOwner(s.k)) return;
         const now = Date.now(); if (now - (s.lastHit || 0) < 400) return; s.lastHit = now;

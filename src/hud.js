@@ -64,7 +64,7 @@ export async function loadHitsplat() {
   return c;
 }
 
-import { levelFor, levelProgress, MAX_LEVEL } from './levels.js';
+import { levelFor, levelProgress, xpToNext, MAX_LEVEL } from './levels.js';
 
 export class HUD {
   constructor(canvas, fonts, splat) {
@@ -125,7 +125,8 @@ export class HUD {
       const xp = this.me.xp, L = levelFor(xp), y0 = 14 + K * 24 + 4;
       const cx = this.me.own ? 16 + this.crown(16, y0, k1) + 3 * k1 : 16;
       this.text(`${this.me.own ? '[OWNER] ' : ''}${this.me.name}  LEVEL ${L}${L >= MAX_LEVEL ? ' (MAX)' : ''}`, cx, y0, this.me.own ? '#ffc933' : '#0f0', k1, 'l', 'p12');
-      this.text(`XP ${Math.floor(xp).toLocaleString()}`, 16, y0 + k1 * 11, '#fff', k1, 'l', 'p12', 0.85);
+      const nx = xpToNext(xp);
+      this.text(`XP ${Math.floor(xp).toLocaleString()}` + (L < MAX_LEVEL ? `   ${Math.ceil(nx).toLocaleString()} to level ${L + 1} (${Math.floor(levelProgress(xp) * 100)}%)` : ''), 16, y0 + k1 * 11, '#fff', k1, 'l', 'p12', 0.85);
       const bw = 120 * k1 / 1.5, by = y0 + k1 * 23;
       x.fillStyle = 'rgba(0,0,0,0.55)'; x.fillRect(16, by, bw, 5);
       x.fillStyle = '#0c0'; x.fillRect(16, by, bw * levelProgress(xp), 5);

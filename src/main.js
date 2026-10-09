@@ -350,18 +350,22 @@ async function main() {
   // in the air throws a trick. Double-length flicks do the double / 360 versions.
   let flick = null, gest = null;
   const gl = document.getElementById('gl');
-  gl.addEventListener('pointerdown', e => { if (e.button !== 0 || designer?.open) return; audio.start(); gest = { low: e.clientY, lowX: e.clientX, x0: e.clientX, y0: e.clientY }; });
-  addEventListener('pointermove', e => { if (gest && e.clientY > gest.low) { gest.low = e.clientY; gest.lowX = e.clientX; } });
+  gl.addEventListener('pointerdown', e => { if (e.button !== 0 || designer?.open) return; audio.start(); gest = { low: e.clientY, lowX: e.clientX, x0: e.clientX, y0: e.clientY, lowT: performance.now() }; });
+  addEventListener('pointermove', e => { if (gest && e.clientY > gest.low) { gest.low = e.clientY; gest.lowX = e.clientX; gest.lowT = performance.now(); } });
   addEventListener('pointerup', e => {
     if (!gest) return;
     const g = gest; gest = null;
     const s = Math.min(innerWidth, innerHeight) / 100;             // gesture units: % of the short screen side
     const up = (g.low - e.clientY) / s, dx = (e.clientX - g.lowX) / s, wind = (g.low - g.y0) / s;
-    const res = classifyFlick(up, dx, (e.clientX - g.x0) / s, wind);
+    const res = classifyFlick(up, dx, (e.clientX - g.x0) / s, wind, (performance.now() - g.lowT) / 1000);
     if (res) flick = res;
     else if (me.own && Math.hypot(e.clientX - g.x0, e.clientY - g.y0) < 8) swing();   // a plain click, not a flick
   });
-  function classifyFlick(up, dx, side, wind) {
+  /** Skate 3's flick strength: how FAST the up-stroke is, not how far. Its gesture matcher scores frames per
+   *  pattern point (60 Hz): <= 1.75 is a full-strength pop, >= 4.4 the weakest, linear between. An up-flick is
+   *  ~4 pattern points, so <= 0.12 s from the bottom of the wind-up to release pops full, >= 0.29 s pops weakest. */
+  const flickStrength = secs => { const ratio = secs * 60 / 4; return Math.max(0, Math.min(1, (4.4 - ratio) / (4.4 - 1.75))); };
+  function classifyFlick(up, dx, side, wind, secs = 0.1) {
     let trick = null;
     if (up < 6) {                                                  // no real upward flick: sideways = shove-it
       if (Math.abs(side) > 12) trick = Math.abs(side) > 30 ? 'shove360' : 'shove'; else return null;
@@ -370,7 +374,8 @@ async function main() {
       trick = dx < 0 ? (big ? 'double' : 'kickflip') : (big ? 'doubleheel' : 'heelflip');
       if (Math.abs(dx) > up * 1.6) trick = dx < 0 ? (big ? 'tre' : 'varial') : 'hardflip';
     }
-    return { power: Math.max(0.2, Math.min(1, (wind + up) / 40)), trick };
+    // a flick that barely travels is still a weak pop, whatever its speed
+    return { power: Math.max(0.2, flickStrength(secs) * Math.min(1, (wind + up) / 20)), trick };
   }
 
   // ---------------- gamepad (standard mapping): left stick steer, A push, B brake, X powerslide, Y walk/ride,
@@ -394,7 +399,8 @@ async function main() {
     else if (r) {
       r.t++;
       if (ry > r.low) { r.low = ry; r.lowX = rx; }
-      if (ry < -0.55) { const res = classifyFlick((r.low - ry) * 25, (rx - r.lowX) * 40, 0, r.low * 20); if (res) flick = res; pad.rs = null; }
+      if (ry > r.low - 0.05) r.lowF = r.t;                       // still at the bottom of the wind-up
+      if (ry < -0.55) { const res = classifyFlick((r.low - ry) * 25, (rx - r.lowX) * 40, 0, r.low * 20, (r.t - (r.lowF || 0)) / 60); if (res) flick = res; pad.rs = null; }
       else if (Math.hypot(rx, ry) < 0.25 || r.t > 60) pad.rs = null;
     }
     // in the air a sideways flick from centre throws a trick without the wind-up
@@ -515,7 +521,7 @@ async function main() {
   const runeList = await pRunes;
   const goals = new Goals({ scene, world, sk, hud, audio, reward: addXP, runeList, save: p => {
     if (me.name !== 'offline') net.prog(p);
-    try { localStorage.setItem('rs_prog', JSON.stringify({ who: me.name, found: [...goals.found], done: [...goals.done] })); } catch {}
+    try { localStorage.setItem('rs_prog', JSON.stringify({ who: me.name, found: [...goals.found], done: [...goals.done], kills: Object.fromEntries(goals.kills) })); } catch {}
   } });
   const offlineProg = localProg();
   window.RS.goals = goals;
@@ -807,16 +813,30 @@ async function main() {
     for (const sg of world.segsNear(nx, nz, 1)) { const t = Math.max(0, Math.min(1, ((nx - sg.ax) * sg.dx + (nz - sg.az) * sg.dz) / (sg.len * sg.len))); if (Math.hypot(nx - sg.ax - sg.dx * t, nz - sg.az - sg.dz * t) < Math.min(0.45, r)) return true; }
     return false;
   }
+  /** skate level needed to take a monster down: tougher monsters wait until you've earned them */
+  const npcReq = kind => Math.min(90, Math.max(1, Math.round((NPC_KIND[kind].hp - 8) * 0.6)));   // goblins/cows/chickens: anyone
+  window.RS.npcReq = npcReq;
+  function tooTough(n) {
+    const req = npcReq(n.kind); if (levelFor(me.xp) >= req) return false;
+    if ((n.warnT || 0) <= 0) { hud.pop(`LEVEL ${req} NEEDED FOR ${NPC_NAME[n.kind] || n.kind.toUpperCase()}`, '#f80'); n.warnT = 2; }
+    return true;
+  }
   function killNpc(n, how) {
     n.state = 'dead'; n.t = 0; n.m.play('death', false, true);
     const stomp = how === 'stomp';
-    const pts = Math.round(n.xp * (stomp ? 1.5 : 1));
+    // the same spawn knocked out again soon after pays less each time (a monster camp can't be farmed)
+    const now = performance.now() / 1000;
+    n.recent = (n.recent || []).filter(t => now - t < 300); n.recent.push(now);
+    const pts = Math.round(n.xp * (stomp ? 1.5 : 1) * Math.pow(0.5, n.recent.length - 1));
     hud.splats.push({ gob: n, t: 0, n: n.hp });
     const label = NPC_NAME[n.kind] || n.kind.toUpperCase();
     sk.addCombo(label + (stomp ? ' STOMP' : ' SMACK'), pts);
     shake = stomp ? 0.15 : 0.25; audio.event({ type: stomp ? 'stomp' : 'smack' });
     if (stomp) { sk.vy = Math.max(sk.vy, 6.5); sk.airTime = 0.2; }          // bounce off them
     goals.event({ type: 'kill', npc: n.kind, how });
+    // the bestiary: first kill of a kind and every milestone after it is banked straight to XP
+    const b = goals.killed(n.kind, n.xp);
+    if (b.xp) { hud.big(`${b.label}: ${label}`, '#f0f', `+${b.xp.toLocaleString()} XP`, 2.5); addXP(b.xp); audio.event({ type: 'levelup' }); }
   }
   function updateGoblins(dt) {
     for (const n of npcs) {
@@ -841,8 +861,13 @@ async function main() {
       const gy = world.height(n.x, n.z);
       if (sk.mode !== 'bail' && d2 < n.r + 0.3) {
         const above = sk.y - gy;
-        if (sk.mode === 'air' && sk.vy < 1 && above > n.h * 0.35 && above < n.h + 0.9) killNpc(n, 'stomp');
-        else if (sk.mode !== 'walk' && sk.speed > 2.4 && above < n.h) killNpc(n, 'ram');
+        n.warnT = (n.warnT || 0) - dt;
+        if (sk.mode === 'air' && sk.vy < 1 && above > n.h * 0.35 && above < n.h + 0.9) {
+          if (!tooTough(n)) killNpc(n, 'stomp'); else { sk.vy = Math.max(sk.vy, 5); }        // bounced off, no harm to it
+        }
+        else if (sk.mode !== 'walk' && sk.speed > 2.4 && above < n.h) {
+          if (!tooTough(n)) killNpc(n, 'ram'); else sk.bail('monster', { by: n.kind });
+        }
         else if (above < n.h) {                            // slow bump: shove them aside, no harm done
           const ux = (n.x - sk.x) / (d2 || 1), uz = (n.z - sk.z) / (d2 || 1);
           const nx = sk.x + ux * (n.r + 0.31), nz = sk.z + uz * (n.r + 0.31);
@@ -866,6 +891,7 @@ async function main() {
     slam: ['Oh dear, you are dead!', 'Hard slam'], balance: ['Oh dear, you are dead!', 'Fell off the rail'],
     goblin: ['Oh dear, you are dead!', 'Tripped over a goblin'],
     smacked: ['Oh dear, you are dead!', 'Smacked by the owner'],
+    monster: ['Oh dear, you are dead!', 'Too tough for you (yet)'],
   };
   function handleEvents() {
     for (const e of sk.events) {

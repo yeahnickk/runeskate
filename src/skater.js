@@ -1,14 +1,31 @@
 // RuneSkate skater physics. Pure JS (no three.js) so it can be unit-tested headless.
 // Units: tiles and seconds. x = east, z = north, y = up. heading = board nose angle (atan2(north, east)).
+//
+// The model follows Skate 3's skater as reverse-engineered by the Rust/Bevy rebuild (SK8-ENGINE/skate-3-rust-engine):
+// a push adds a speed GAIN capped by a speed-blended limit and a hard ceiling; rolling friction is a curve of speed
+// (plus extra drag once you stop giving input) and is ignored when a slope pulls harder, so you never stick on a
+// hill; the trucks ease to the stick's lean over 0.165 s and you turn less mid-push; the ollie pops to a target
+// HEIGHT (low/high by speed, picked by flick strength) at v = sqrt(2gh); air spins wind up and fade out; a landing
+// is resolved against the ground normal (the velocity's tangent part carries on, so landing down a bank keeps your
+// speed) and judged sketchy from spin rate and sideways speed; touching down with the board upside down mid-flip
+// is a bail. That project ships the model, not Skate 3's tuning tables, so the numbers here are tuned for this map.
+// Clean-room: written from a description of its behaviour (it is GPL-3.0; this file is MIT).
 import { railTop } from './world.js';
 
 export const P = {
   radius: 0.28,
   gravity: 21,
   slopeG: 11,            // how hard slopes pull you
-  rollFriction: 0.22,
-  pushAccel: 3.6,        // speed per push kick (one full leg stroke)
-  pushKick: 3.2,         // the first kick from (near) standstill is a big one
+  rollFriction: 0.18,    // rolling friction curve: rollFriction + rollFrictionV * speed (tiles/s^2)
+  rollFrictionV: 0.02,
+  idleFriction: 0.3,     // extra drag once you have given no input for idleAfter seconds
+  idleAfter: 2,
+  slopeMax: 9,           // most a slope can accelerate you (tiles/s^2)
+  brakeStop: 0.8,        // braking below this speed brings you to a dead stop
+  leanTime: 0.165,       // seconds for the trucks to ease to the stick's lean
+  pushTurn: 0.7,         // turn scale while a push is in progress
+  pushLow: 3.4,          // most speed one push adds from a standstill...
+  pushHigh: 1.5,         // ...blending down to this at pushMax (Skate 3: limit = mix(low, high, v / max push speed))
   pushEvery: 0.55,       // = rsanim PUSH_UNITS: one kick per stroke of the pushing leg
   pushMax: 8.2,
   maxSpeed: 13,
@@ -16,10 +33,16 @@ export const P = {
   gripLateral: 11,       // how fast sideways skid bleeds away (wheels grip)
   turnSlow: 3.4,         // rad/s when slow
   turnFast: 2.1,         // rad/s at speed
-  ollieMin: 5.4,
-  ollieMax: 8.1,         // ~0.8 tile pop at full charge
+  ollieMin: 5.4,         // (kept for callers that pop by velocity)
+  ollieMax: 8.1,
+  popAbsMin: 0.5,        // pop heights (tiles): the floor every ollie reaches...
+  popMin: 0.69,          // ...a weak pop at speed...
+  popMax: 1.56,          // ...a full pop at speed
+  popSpeed: 4,           // tiles/s where the pop reaches its full range (slower = lower, like Skate 3)
   chargeTime: 0.35,
   airSpin: 6.0,          // rad/s
+  airSpinAccel: 30,      // rad/s^2: spins wind up instead of starting at full speed
+  airSpinFade: 0.96,     // per 1/60 s once you let go of A/D (Skate 3's stick fade)
   spinAssist: 3.2,       // rad/s the board settles toward the nearest 180 when you let go of A/D
   flipTime: 0.42,
   walkSpeed: 1.9,        // tiles/s on foot (RS walk is ~1.67)
@@ -31,6 +54,8 @@ export const P = {
   hardLanding: 15.5,     // vertical impact that bails you
   landAngle: 0.95,       // clean landing window (rad) between board and travel
   landSketchy: 1.52,     // up to here you ride it out (speed wobble), past it you bail
+  landSlowBonus: 1.25,   // ...and slow landings (< 3 tiles/s) tolerate a wider angle
+  sketchyAt: 0.35,       // landing sketchiness (spin rate / side speed) from which you wobble
   grindCatch: 0.85,      // horizontal snap distance to a rail (generous: rails should be easy to land on)
   blockRadius: 0.17,     // trees/rocks/props: a smaller collider than walls, and you glance off them
   grindFriction: 0.55,
@@ -47,7 +72,16 @@ export const P = {
   manualMin: 1.5,        // tiles/s to hold a manual
   manualPts: 140,        // per second
   grabPts: 260,          // per second held
+  // combo scoring: bank = points x min(tricks, multCap). Repeats of the same trick in one combo halve each time,
+  // and anything you can hold forever (grinding a looping fence, an endless manual) pays full rate for holdFull
+  // seconds then fades out, so no spot farms a runaway score. Highscores themselves are uncapped.
+  multCap: 10,
+  repeatDecay: 0.5,
+  holdFull: 6,           // seconds of a grind/manual at full points...
+  holdFade: 4,           // ...then the rate decays with this time constant
 };
+/** points per second for something held t seconds (grind, manual): full rate, then a fade so it can't be farmed */
+const holdRate = (rate, t) => t < P.holdFull ? rate : rate * Math.exp(-(t - P.holdFull) / P.holdFade);
 
 const TRICKS = {
   kickflip: { name: 'Kickflip', pts: 200, roll: 1, yaw: 0 },
@@ -85,10 +119,11 @@ export class Skater {
     this.rail = null; this.railT = 0; this.railDir = 1; this.balance = 0; this.grindKind = '';
     this.bailT = 0; this.slide = 0;
     this.manual = 0; this.manBal = 0; this.manT = 0; this.grab = null; this.grabT = 0;
-    this.combo = []; this.comboPts = 0; this.score = this.score || 0;
+    this.combo = []; this.comboPts = 0; this.comboSeen = new Map(); this.score = this.score || 0;
     this.lastSafe = { x, z, heading }; this.safeT = 0;
     this.board = { x, z, y: this.y, vx: 0, vz: 0, vy: 0, yaw: heading, roll: 0, pitch: 0, spinR: 0, spinY: 0, free: false };
     this.ignoreRail = null; this.ignoreT = 0; this.railExitT = 0;
+    this.lean = 0; this.idleT = 0; this.spinRate = 0;
     this.stat = { bails: 0, bestCombo: 0 };
   }
 
@@ -164,7 +199,10 @@ export class Skater {
     const rate = spd < 3 ? P.turnSlow : P.turnSlow + (P.turnFast - P.turnSlow) * Math.min(1, (spd - 3) / 5);
     // no fakie inversion: the chase cam follows TRAVEL, and rotating the nose rotates travel the same way,
     // so A is always screen-left whichever end of the board leads
-    this.heading = wrap(this.heading + inp.steer * rate * dt);
+    // the trucks ease to the stick's lean (Skate 3: 0.165 s), and you turn less while a push is in progress
+    this.lean += (inp.steer - this.lean) * Math.min(1, dt / P.leanTime);
+    if (!inp.steer && Math.abs(this.lean) < 0.02) this.lean = 0;
+    this.heading = wrap(this.heading + this.lean * rate * (this.pushing > 0 ? P.pushTurn : 1) * dt);
     // forests: bend the line round the trees ahead instead of pinballing off them (velocity turns with the board)
     if (!this.slide && !this.noclip && spd > 1.2) {
       // what the board has steered itself: resets as you steer yourself, or slowly once it's had nothing to dodge
@@ -193,12 +231,18 @@ export class Skater {
           // always takes you toward the screen and you're never stuck steering a backwards board
           this.heading = wrap(this.heading + Math.PI); fx = -fx; fz = -fz; vf = -vf; vl = -vl; this.emit('revert');
         }
-        const kick = Math.abs(vf) < 1.5 ? P.pushKick : P.pushAccel;
-        vf += s * kick * (1 - Math.abs(vf) / (P.pushMax + 2.5));
+        // Skate 3's push: a speed gain, capped by a limit blended from pushLow (standstill) to pushHigh (at pushMax),
+        // and never past pushMax itself
+        const v = Math.abs(vf), lim = P.pushLow + (P.pushHigh - P.pushLow) * Math.min(1, v / P.pushMax);
+        vf += s * Math.max(0, Math.min(lim, P.pushMax - v));
         this.pushT = P.pushEvery; this.pushing = P.pushEvery + 0.08; this.emit('push');
       }
-      if (inp.brake && !this.manual) vf -= Math.sign(vf) * Math.min(Math.abs(vf), P.brake * dt);
-      vf -= Math.sign(vf) * Math.min(Math.abs(vf), P.rollFriction * dt);
+      if (inp.brake && !this.manual) { vf -= Math.sign(vf) * Math.min(Math.abs(vf), P.brake * dt); if (Math.abs(vf) < P.brakeStop) vf = 0; }
+      // rolling friction: a curve of speed, more once you stop giving input; a slope that pulls harder than
+      // friction overrides it (Skate 3), so you never stick on a hill
+      this.idleT = inp.push || inp.steer || inp.brake || inp.jump ? 0 : this.idleT + dt;
+      const fr = P.rollFriction + P.rollFrictionV * Math.abs(vf) + (this.idleT > P.idleAfter ? P.idleFriction : 0);
+      if (!(Math.abs(this.slopePull || 0) > fr && Math.sign(this.slopePull) === Math.sign(vf))) vf -= Math.sign(vf) * Math.min(Math.abs(vf), fr * dt);
       this.vx = vf * fx - vl * fz; this.vz = vf * fz + vl * fx;
     }
 
@@ -217,15 +261,18 @@ export class Skater {
     const e = 0.2, h0 = w.height(this.x, this.z);
     const gx = (w.height(this.x + e, this.z) - w.height(this.x - e, this.z)) / (2 * e);
     const gz = (w.height(this.x, this.z + e) - w.height(this.x, this.z - e)) / (2 * e);
-    this.vx -= gx * P.slopeG * dt; this.vz -= gz * P.slopeG * dt;
+    let ax = -gx * P.slopeG, az = -gz * P.slopeG; const am = Math.hypot(ax, az);
+    if (am > P.slopeMax) { ax *= P.slopeMax / am; az *= P.slopeMax / am; }
+    this.vx += ax * dt; this.vz += az * dt;
+    this.slopePull = ax * fx + az * fz;                  // downhill pull along the board (next step's friction check)
     this.clampSpeed();
 
     // ollie charge / pop (keyboard), or a flick-it gesture that pops immediately
-    if (inp.flickPop) { this.pop(P.ollieMin + (P.ollieMax - P.ollieMin) * inp.flickPop, 'ollie'); return; }
+    if (inp.flickPop) { this.pop(this.popVel(inp.flickPop), 'ollie'); return; }
     if (inp.jump && this.charge < 0) this.charge = 0;
     if (this.charge >= 0) {
       this.charge = Math.min(1, this.charge + dt / P.chargeTime);
-      if (!inp.jump) { this.pop(P.ollieMin + (P.ollieMax - P.ollieMin) * this.charge, 'ollie'); return; }
+      if (!inp.jump) { this.pop(this.popVel(this.charge), 'ollie'); return; }
     }
 
     const px = this.x, pz = this.z;
@@ -302,9 +349,18 @@ export class Skater {
     return v;
   }
 
+  /** Skate 3's ollie: a target HEIGHT between a low and a high pop (both grow with speed up to popSpeed), picked by
+   *  the pop strength (flick speed or SPACE charge, 0..1), turned into a launch speed v = sqrt(2 g h) */
+  popVel(strength) {
+    const c = Math.min(1, 0.6 + 0.4 * this.speed / P.popSpeed);
+    const lo = P.popAbsMin + c * (P.popMin - P.popAbsMin), hi = P.popAbsMin + c * (P.popMax - P.popAbsMin);
+    const h = lo + (hi - lo) * Math.max(0, Math.min(1, strength));
+    return Math.sqrt(2 * P.gravity * h);
+  }
+
   pop(vy, kind) {
     if (this.manual) this.endManual(false);
-    this.mode = 'air'; this.vy = vy; this.charge = -1; this.airTime = 0; this.spin = 0;
+    this.mode = 'air'; this.vy = vy; this.charge = -1; this.airTime = 0; this.spin = 0; this.spinRate = 0;
     this.body = this.heading; this.trick = null; this.airTricks = [];
     this.slide = 0;
     this.airTricks.push(kind === 'ollie' ? 'Ollie' : kind);
@@ -314,7 +370,9 @@ export class Skater {
   endManual(lost) {
     const t = this.manT, nose = this.manual < 0;
     this.manual = 0; this.manBal = 0;
-    if (t > 0.3) this.addCombo(nose ? 'Nose Manual' : 'Manual', Math.round(t * P.manualPts));
+    // integral of the held rate: full for holdFull seconds, then fading
+    const full = Math.min(t, P.holdFull), fade = t > P.holdFull ? P.holdFade * (1 - Math.exp(-(t - P.holdFull) / P.holdFade)) : 0;
+    if (t > 0.3) this.addCombo(nose ? 'Nose Manual' : 'Manual', Math.round((full + fade) * P.manualPts));
     if (lost) { this.comboTimer = Math.min(this.comboTimer || 0, 0.35); this.emit('wobble'); }   // touched down: combo banks soon
     this.emit('manualEnd');
   }
@@ -332,7 +390,10 @@ export class Skater {
     }
     this.vy -= P.gravity * dt;
     // spins (A/D in the air)
-    const sr = inp.steer * P.airSpin * dt;
+    // spins wind up toward the stick's rate and fade out when you let go (Skate 3's body spin)
+    if (inp.steer) { const want = inp.steer * P.airSpin, d = want - this.spinRate; this.spinRate += Math.sign(d) * Math.min(Math.abs(d), P.airSpinAccel * dt); }
+    else this.spinRate *= Math.pow(P.airSpinFade, dt * 60);
+    const sr = this.spinRate * dt;
     this.spin += sr; this.body = wrap(this.body + sr); this.heading = wrap(this.heading + sr);
     if (!inp.steer && this.speed > 1) {
       // let go of A/D and the board settles onto the nearest 180 of your travel line, so a half-held spin still lands
@@ -382,27 +443,57 @@ export class Skater {
     this.grab = null;
   }
 
+  /** how far the board is from wheels-down mid-flip (rad): roll off the nearest full turn, yaw off the nearest half */
+  flipError() {
+    if (!this.trick) return 0;
+    const r = Math.abs(wrap(this.boardRoll)), y = Math.abs(wrap(this.boardYaw)), yh = Math.min(y, Math.PI - y);
+    return Math.max(r, yh);
+  }
+
   land(impact) {
+    const w = this.w, e = 0.2;
+    // resolve the touchdown against the ground normal: the part of the velocity INTO the ground is the impact, the
+    // tangent part carries on (landing down a bank keeps your speed, landing into a rise eats it)
+    const gx = (w.height(this.x + e, this.z) - w.height(this.x - e, this.z)) / (2 * e);
+    const gz = (w.height(this.x, this.z + e) - w.height(this.x, this.z - e)) / (2 * e);
+    const nl = Math.hypot(gx, 1, gz), nx = -gx / nl, ny = 1 / nl, nz = -gz / nl;
+    const into = -(this.vx * nx + this.vy * ny + this.vz * nz);
+    if (into > 0) {
+      this.vx += into * nx; this.vz += into * nz;          // drop the normal part; what is left rolls on
+      this.clampSpeed();
+      impact = into;
+    }
     const spd = this.speed;
+    const sideV = Math.abs(-this.vx * Math.sin(this.heading) + this.vz * Math.cos(this.heading));
+    const spinRate = Math.abs(this.spinRate);
     if (this.grab) { const late = this.grabT; this.releaseGrab(); if (late > 0.25 && impact > 6) return this.bail('sketchy'); }
-    if (this.trick && this.trickT < 0.82) return this.bail('flip');
-    if (this.trick) { const T = TRICKS[this.trick]; this.airTricks.push(T.name); if (T.yaw % 2) this.heading = wrap(this.heading + Math.PI); this.trick = null; }
+    // mid-flip: wheels nearly down = you catch it late and ride it out; board upside down or across = bail
+    if (this.trick) {
+      const err = this.flipError();
+      if (err > Math.PI / 2) return this.bail('flip');
+      const T = TRICKS[this.trick]; this.airTricks.push(T.name); if (T.yaw % 2) this.heading = wrap(this.heading + Math.PI); this.trick = null;
+      if (err > 0.5) this.emit('wobble');
+    }
     this.boardRoll = 0; this.boardYaw = 0;
     const fromRail = this.railExitT > 0;
     if (impact > P.hardLanding * (fromRail ? 2 : 1)) return this.bail('slam');
     if (spd > 1.2) {
       const dir = Math.atan2(this.vz, this.vx);
       const a = Math.abs(wrap(this.heading - dir)), b = Math.abs(wrap(this.heading + Math.PI - dir));
-      const mis = Math.min(a, b);
-      if (mis > P.landSketchy && !fromRail) return this.bail('sketchy');
-      if (mis > P.landAngle && !fromRail) {         // rode it out: scrub speed, no bail
-        const k = 1 - 0.45 * (mis - P.landAngle) / (P.landSketchy - P.landAngle);
+      const mis = Math.min(a, b), wide = spd < 3 ? P.landSlowBonus : 1;
+      if (mis > P.landSketchy * wide && !fromRail) return this.bail('sketchy');
+      // sketchiness (Skate 3, from 2 tiles/s): spin rate over 0.1..7 rad/s, sideways speed over 0.1..10 tiles/s, and
+      // how far the board is off the travel line
+      const k01 = v => Math.max(0, Math.min(1, v));
+      const sk = spd < 2 ? 0 : Math.max(k01((spinRate - 0.1) / 6.9), k01((sideV - 0.1) / 9.9), k01((mis - P.landAngle * wide) / (P.landSketchy * wide - P.landAngle * wide)));
+      if (sk > P.sketchyAt && !fromRail) {               // rode it out: scrub speed, no bail
+        const k = 1 - 0.45 * sk;
         this.vx *= k; this.vz *= k; this.emit('wobble');
       }
       // snap the board to the travel line (regular or fakie)
       this.heading = a < b ? dir : wrap(dir + Math.PI);
     }
-    this.body = this.heading;
+    this.body = this.heading; this.spinRate = 0;
     this.mode = 'ground'; this.vy = 0;
     this.scoreAir();
     this.emit('land', { impact });
@@ -422,6 +513,11 @@ export class Skater {
   }
 
   addCombo(name, pts) {
+    // the same trick again in one combo is worth half as much each time (by its base name: 'FS 180 Kickflip' and
+    // 'Kickflip' are the same flip)
+    const base = name.replace(/^(FS|BS) \d+ /, '');
+    const k = this.comboSeen.get(base) || 0; this.comboSeen.set(base, k + 1);
+    pts = Math.round(pts * Math.pow(P.repeatDecay, k));
     this.combo.push(name); this.comboPts += pts;
     this.comboTimer = 1.6;
     this.emit('trick', { name, pts });
@@ -445,11 +541,13 @@ export class Skater {
     const { r, t, top } = best;
     const along = this.vx * r.dirx + this.vz * r.dirz;
     if (Math.abs(along) < 0.6 || Math.abs(along) < 0.2 * this.speed) return false;   // crossing it, not riding along it
+    const left = along >= 0 ? r.len - t : t;            // rail still ahead of you
+    if (left < 0.25) return false;                       // leaving its end already: nothing to lock onto
     const rdir = Math.atan2(r.dirz, r.dirx);
     const rel = Math.abs(wrap(this.heading - rdir));
     const relA = Math.min(rel, Math.PI - rel);           // 0 = board along rail, pi/2 = across
     this.releaseGrab();
-    if (this.trick && this.trickT < 0.7) { this.bail('flip'); return true; }
+    if (this.trick && this.flipError() > Math.PI / 2) return false;   // board still upside down/across mid-flip: it can't take the rail
     if (this.trick) { this.airTricks.push(TRICKS[this.trick].name); this.trick = null; }
     this.boardRoll = 0; this.boardYaw = 0;
     this.scoreAir();
@@ -464,6 +562,7 @@ export class Skater {
     if (this.grindKind === 'Crooked Grind') this.grindHeading += (wrap(this.heading - this.grindHeading) > 0 ? 0.5 : -0.5);
     this.heading = wrap(this.grindHeading); this.body = this.heading;
     this.balance = (Math.random() - 0.5) * 0.2; this.grindTime = 0;
+    this.grindHold = 0;
     this.y = top; this.vy = 0;
     this.x = r.horiz ? r.ax + this.railT : r.ax; this.z = r.horiz ? r.az : r.az + this.railT;
     this.emit('grind', { kind: this.grindKind });
@@ -498,7 +597,7 @@ export class Skater {
     this.z = r.horiz ? r.az : r.az + this.railT;
     this.y = top;
     this.vx = r.dirx * this.railDir * this.railSpeed; this.vz = r.dirz * this.railDir * this.railSpeed;
-    this.comboPts += Math.round(dt * 160); this.grindPts = (this.grindPts || 0) + dt * 160;
+    { const g = holdRate(160, this.grindHold = (this.grindHold || 0) + dt) * dt; this.comboPts += g; this.grindPts = (this.grindPts || 0) + g; }
     // hit something standing on the rail line (end posts, perpendicular walls)?
     for (const s of this.w.segsNear(this.x, this.z, 0.6)) {
       if (s.kind === 'rail' || s.kind === 'water' || s.kind === 'edge') continue;
@@ -577,7 +676,7 @@ export class Skater {
     this.x = b.x0 + (b.x1 - b.x0) * u; this.z = b.z0 + (b.z1 - b.z0) * u;
     this.y = b.y0 + (b.y1 - b.y0) * u + Math.sin(u * Math.PI) * Math.min(0.25, b.len * 0.15);
     this.vx = b.dx * this.railSpeed; this.vz = b.dz * this.railSpeed;
-    this.comboPts += Math.round(dt * 160); this.grindPts = (this.grindPts || 0) + dt * 160;
+    { const g = holdRate(160, this.grindHold = (this.grindHold || 0) + dt) * dt; this.comboPts += g; this.grindPts = (this.grindPts || 0) + g; }
     if (inp.jumpPressed) {                                // popping off mid-gap: same as popping off the rail
       this.bridge = null; this.popOffRail = true; this.leaveRail(P.ollieMin * 0.95);
       if (inp.steer) { const k = 2.6 * Math.sign(inp.steer); this.vx += -b.dz * k; this.vz += b.dx * k; }
@@ -799,7 +898,7 @@ export class Skater {
     this.mode = 'bail'; this.bailWhy = why; this.bailT = 0; this.slide = 0;
     this.rail = null; this.bridge = null; this.trick = null; this.boardRoll = 0; this.boardYaw = 0; this.manual = 0; this.grab = null; this.grabPts = 0;
     this.tumble = 0; this.tumbleAxis = Math.atan2(this.vz, this.vx);
-    this.lostCombo = this.comboPts; this.combo = []; this.comboPts = 0; this.comboTimer = 0;
+    this.lostCombo = this.comboPts; this.combo = []; this.comboPts = 0; this.comboTimer = 0; this.comboSeen.clear();
     this.inWater = why === 'water';
     this.emit('bail', { why, ...o });
   }
@@ -880,11 +979,11 @@ export class Skater {
     if (this.mode === 'ground' && this.combo.length && !this.manual) {
       this.comboTimer -= dt;
       if (this.comboTimer <= 0) {
-        const total = this.comboPts * this.combo.length;
+        const total = Math.round(this.comboPts * Math.min(this.combo.length, P.multCap));
         this.score += total;
         this.stat.bestCombo = Math.max(this.stat.bestCombo, total);
         this.emit('banked', { total, n: this.combo.length });
-        this.combo = []; this.comboPts = 0;
+        this.combo = []; this.comboPts = 0; this.comboSeen.clear();
       }
     }
   }

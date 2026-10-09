@@ -29,6 +29,29 @@ function runeTexture(r) {
   const t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter; return t;
 }
 
+/** the real rune item model (tools/export-runes.ts): grey rune stone + element symbol, flat-shaded from a fixed
+ *  light so it reads as a solid object. Stood on edge and scaled up so you can spot it from a board. */
+const RUNE_GEOS = {};
+function runeGeometry(kind) {
+  return RUNE_GEOS[kind] ||= fetch(`assets/rune_${kind}.json`).then(r => r.json()).then(d => {
+    const p = new Float32Array(d.pos), c = new Float32Array(d.col.length);
+    const L = new THREE.Vector3(0.4, 0.8, 0.45).normalize(), a = new THREE.Vector3(), b = new THREE.Vector3(), n = new THREE.Vector3();
+    for (let f = 0; f < p.length / 9; f++) {
+      a.set(p[f * 9 + 3] - p[f * 9], p[f * 9 + 4] - p[f * 9 + 1], p[f * 9 + 5] - p[f * 9 + 2]);
+      b.set(p[f * 9 + 6] - p[f * 9], p[f * 9 + 7] - p[f * 9 + 1], p[f * 9 + 8] - p[f * 9 + 2]);
+      n.crossVectors(a, b).normalize();
+      const k = 0.55 + 0.6 * Math.abs(n.dot(L));                   // two-sided: the stone has no back to hide
+      for (let i = 0; i < 9; i++) c[f * 9 + i] = Math.min(1, d.col[f * 9 + i] / 255 * k);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(p, 3)); g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+    g.translate(0, -0.0625, 0); g.rotateX(Math.PI / 2);                // stand the stone on edge, centred
+    return g;
+  });
+}
+const RUNE_MAT = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, fog: true });
+const RUNE_SCALE = 2.6;
+
 // big gold S-K-A-T-E letter, RS-style bold font with a black drop shadow
 function letterTexture(ch) {
   const c = document.createElement('canvas'); c.width = c.height = 64;
@@ -44,10 +67,16 @@ let LETTER_MATS = null;
 // deterministic PRNG so every player sees the runes in the same places
 function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
+// monsters: the first of each kind and every milestone after it pay out on top of the kill itself
+export const KILL_MILESTONES = [
+  { n: 1, x: 10, label: 'FIRST KILL' }, { n: 10, x: 20, label: '10 KILLS' }, { n: 50, x: 50, label: '50 KILLS' },
+  { n: 100, x: 100, label: '100 KILLS' }, { n: 500, x: 250, label: '500 KILLS' },
+];
+
 export class Goals {
   constructor({ scene, world, sk, hud, audio, reward, save, runeList }) {
     Object.assign(this, { scene, world, sk, hud, audio, reward, save });
-    this.found = new Set(); this.done = new Set();
+    this.found = new Set(); this.done = new Set(); this.kills = new Map();   // kills: npc kind -> how many, ever
     this.active = null; this.t = 0;
     this.runes = []; this.spots = [];
     const W = world;
@@ -57,7 +86,9 @@ export class Goals {
     const byKind = Object.fromEntries(RUNES.map((r, i) => [r.kind, i]));
     for (const q of runeList || []) {
       const k = byKind[q.kind] ?? 0, x = q.x - W.base[0] + 0.5, z = q.z - W.base[1] + 0.5;
-      const s = new THREE.Sprite(mats[k]); s.scale.set(0.7, 0.7, 1);
+      // the real rune stone model, with the old flat icon standing in until it has loaded
+      const s = new THREE.Group(), icon = new THREE.Sprite(mats[k]); icon.scale.set(0.7, 0.7, 1); s.add(icon);
+      runeGeometry(q.kind).then(g => { const m = new THREE.Mesh(g, RUNE_MAT); m.scale.setScalar(RUNE_SCALE); s.remove(icon); s.add(m); }).catch(() => {});
       scene.add(s);
       this.runes.push({ id: q.id, kind: q.kind, high: !!q.high, x, z, y: W.height(x, z) + (q.high ? 1.35 : 0.6), s,
         live: W.isLive ? W.isLive(Math.floor(x), Math.floor(z)) : true });
@@ -92,6 +123,7 @@ export class Goals {
     const valid = new Set(this.runes.map(r => r.id));
     for (const id of p?.found || []) if (valid.has(id)) this.found.add(id);
     for (const id of p?.done || []) this.done.add(id);
+    for (const [k, n] of Object.entries(p?.kills || {})) this.kills.set(k, Math.max(this.kills.get(k) || 0, n | 0));
   }
 
   /** called for every skater event (trick, banked, grind...) and NPC kills */
@@ -161,6 +193,14 @@ export class Goals {
     sp.cool = 8;
   }
 
+  /** a monster knocked out: counts toward the bestiary. Returns the bonus XP this kill earns (first kill, milestones) */
+  killed(kind, xp) {
+    const n = (this.kills.get(kind) || 0) + 1; this.kills.set(kind, n);
+    this.save({ kind: 'kill', id: kind });
+    const bonus = KILL_MILESTONES.find(m => m.n === n);
+    return bonus ? { n, xp: Math.round(xp * bonus.x), label: bonus.label } : { n, xp: 0 };
+  }
+
   update(dt, cam) {
     const sk = this.sk, now = performance.now() / 1000;
     // runes
@@ -169,7 +209,7 @@ export class Goals {
       r.s.visible = !got && d < 60 && r.live;
       if (!r.s.visible) continue;
       r.s.position.set(r.x, r.y + Math.sin(now * 2 + r.x) * 0.1, -r.z);
-      r.s.material.rotation = Math.sin(now * 1.5 + r.z) * 0.3;
+      r.s.rotation.y = now * 1.6 + r.x;                                // turns slowly, like a dropped item catching the light
       const feet = sk.y, body = sk.mode === 'walk' || sk.mode === 'ground' ? [feet, feet + 1.8] : [feet, feet + 1.9];
       if (d < 0.8 && r.y > body[0] - 0.2 && r.y < body[1] && (!r.high || sk.mode === 'air' || sk.mode === 'grind')) {
         this.found.add(r.id); this.save({ kind: 'rune', id: r.id });

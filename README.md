@@ -1,8 +1,9 @@
 # RuneSkate
 
 **A multiplayer skateboarding game set in 2004 RuneScape.** Push, ollie, kickflip and grind your way across
-the whole free-to-play world: Lumbridge, Draynor, Varrock, Falador, Port Sarim, Al Kharid and the Wilderness,
-rebuilt tile-for-tile from the game's own map data and running in the browser.
+the whole 2004 world, free-to-play AND members: Lumbridge, Varrock, Falador, the Wilderness, Ardougne, Camelot,
+Yanille, Karamja, Canifis, the Gnome Stronghold, the desert and more, rebuilt tile-for-tile from the game's own
+map data and running in the browser. Every door and gate stands open.
 
 ![Grinding the fence by the River Lum](docs/grind.png)
 
@@ -10,15 +11,29 @@ rebuilt tile-for-tile from the game's own map data and running in the browser.
 
 ## What's in it
 
-- **Skate physics built for flow.** Pushing, carving, powerslides, manuals, grabs, 360s and a flip-trick
-  set (kickflip, heelflip, shove-it, varial, 360 flip, hardflip...). Combos chain across grinds and manuals.
+- **Skate 3's physics model.** The skater follows the model reverse-engineered by the Rust/Bevy Skate 3 rebuild
+  ([SK8-ENGINE/skate-3-rust-engine](https://github.com/SK8-ENGINE/skate-3-rust-engine)): push gains capped by a
+  speed-blended limit, a rolling-friction curve that slopes override (no sticking on hills), trucks that ease into
+  a lean, flick-it pops whose strength is the flick's SPEED, pop height that grows with speed, spins that wind up,
+  landings resolved against the ground normal (land down a bank and keep your speed) and judged sketchy from spin
+  rate and sideways speed. Skate 3's own tuning tables are EA's game data (that project loads them from your ISO),
+  so the numbers here are tuned for this map; written clean-room from a description of its behaviour.
+- **Tricks.** Pushing, carving, powerslides, manuals, grabs, 360s and a flip-trick set (kickflip, heelflip,
+  shove-it, varial, 360 flip, hardflip...). Combos chain across grinds and manuals.
+- **Fair scoring.** A banked combo is its points x the number of tricks, capped at x10; the same trick repeated in
+  one combo is worth half each time, and anything you can hold forever (a looping grind, an endless manual) fades
+  out after 6 s. Highscores have no ceiling; the server rate-limits XP so a hacked client can't post billions.
+- **Monsters matter.** Each monster needs a skate level to knock out (goblins at 1, demons in the 40s, the King
+  Black Dragon at 90). First kills and kill milestones (10/50/100/500) pay big XP bonuses, and re-killing the same
+  spawn soon after pays less.
 - **Grind anything that looks grindable.** Bridge parapets, fences, low walls and hedges, measured from the
   real geometry. Grinds carry round corners and across small gaps.
 - **The real map.** Every wall, gate, tree and river comes from the server's own collision data. Trees
   collide at the trunk, not the tile, and flowers, stumps and fungus are ridden straight over.
 - **Multiplayer.** Everyone on one server, with chat, emotes, outfits and a leaderboard.
 - **Things to do.** 100 hidden runes and a set of challenge spots across the map, goblins to stomp, and
-  portals to every town. Collect all 100 runes to unlock `::noclip`.
+  portals to every town (stop on a portal's pad for a second to go; riding past never teleports you).
+  Collect all 100 runes (the real 2004 rune stones) to unlock `::noclip`.
 - **Live map** at `/map`: the whole world with runes, portals, challenges and everyone online.
 
 ![The world map](assets/map.png)
@@ -79,17 +94,18 @@ the map image).
 
 ```bash
 bun install                                                        # fflate, for the exporters
-bun --preload ./tools/preload.ts tools/export-world.ts 2880 3072 896   # terrain + objects -> tools/out
-bun --preload ./tools/preload.ts tools/small-locs.ts                   # tiny objects + tree tiles
+bun --preload ./tools/preload.ts tools/export-world.ts 2048 2816 1600  # terrain + objects (F2P + members) -> tools/out
+bun --preload ./tools/preload.ts tools/small-locs.ts                   # tiny objects, tree tiles, doors/gates to open
 python tools/build.py        # meshes, collision, rails, tree trunks -> assets/world.*
 python tools/lanes.py        # forest skate lanes, water vs rock
-python tools/fixrunes.py     # check every rune still sits on open ground (--write to move them)
 python tools/split.py        # cut into the core + streamed region packs
+python tools/fixrunes.py     # check every rune still sits on open ground (--write to move them)
 python tools/mapimg.py       # the world map image
 bun tools/compress.ts        # optional: .br/.gz for fast loading
 ```
 
-`tools/export-kit.ts` (outfits) and `tools/export-npcs.ts` (NPC models) run the same way. The game client
+`tools/export-kit.ts` (outfits), `tools/export-npcs.ts` (NPC models) and `tools/export-runes.ts` (rune stones) run
+the same way. The full members export needs ~8 GB of RAM and ~1 GB of disk in `tools/out`. The game client
 adds a little random shading jitter, so re-exported meshes differ from the committed ones by a shade or two;
 collision and gameplay data come out identical.
 

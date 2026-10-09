@@ -32,10 +32,10 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
   check('never inside a blocked tile while riding', bad === 0, `bad=${bad} ` + where(sk));
 }
 
-// 2. slam the castle wall (front of the castle is x=3217): west at speed
+// 2. slam the castle wall (front of the castle is x=3217; its doors at z 3218-3219 stand open): west at speed
 {
   const sk = new Skater(w);
-  const [x, z] = L(3221.5, 3219.5); sk.reset(x, z, Math.PI);
+  const [x, z] = L(3221.5, 3222.5); sk.reset(x, z, Math.PI);
   sk.vx = -13; sk.vz = 0;
   const log = run(sk, 1.2);
   check('fast into castle wall -> bail', log.some(e => e.type === 'bail' && e.why === 'wall'), where(sk));
@@ -296,7 +296,7 @@ const loneTrunk = (() => {
   const [x, z] = L(3236.5, 3210.5); sk.reset(x, z, 0); sk.vx = 5;
   const [rx, rz] = L(3246.5, 3207.5);
   let best = 99;
-  run(sk, 4, (t, s) => { best = Math.min(best, Math.hypot(s.x - rx, s.z - rz)); const want = Math.atan2(rz - s.z, rx - s.x); let d = want - s.heading; d = Math.atan2(Math.sin(d), Math.cos(d)); return { push: false, brake: best < 1, steer: s.x > x + 4 ? Math.max(-1, Math.min(1, d * 2)) : 0 }; });
+  run(sk, 6, (t, s) => { best = Math.min(best, Math.hypot(s.x - rx, s.z - rz)); const want = Math.atan2(rz - s.z, rx - s.x); let d = want - s.heading; d = Math.atan2(Math.sin(d), Math.cos(d)); return { push: false, brake: best < 1, steer: s.x > x + 4 ? Math.max(-1, Math.min(1, d * 2)) : 0 }; });
   check('church rune is reachable', best < 1.2, `closest ${best.toFixed(2)} ${where(sk)}`);
   const runes = JSON.parse(readFileSync(new URL('../assets/runes.json', import.meta.url))).runes;
   const wAll = new World(JSON.parse(readFileSync(new URL('../assets/world.json', import.meta.url))));
@@ -391,5 +391,55 @@ const loneTrunk = (() => {
   check('hop on foot', peak > 0.7 && sk.mode === 'walk' && !sk.footAir, `peak ${peak.toFixed(2)} ${where(sk)}`);
 }
 
+
+// ---- scoring can't be farmed: repeats halve, the multiplier caps, held grinds fade
+{
+  const sk = new Skater(w);
+  for (let i = 0; i < 4; i++) sk.addCombo('Kickflip', 200);
+  check('repeated trick halves each time', sk.comboPts === 200 + 100 + 50 + 25, 'pts=' + sk.comboPts);
+  for (let i = 0; i < 30; i++) sk.addCombo('Trick' + i, 100);
+  sk.mode = 'ground'; sk.comboTimer = 0; const ev = []; sk.tickCombo(0.01); ev.push(...sk.events);
+  const b = ev.find(e => e.type === 'banked');
+  check('combo multiplier caps at ' + P.multCap, b && b.total === Math.round((375 + 3000) * P.multCap), b && `total=${b.total} n=${b.n}`);
+}
+{
+  // grind a rail forever (rail links looping a pen): points per second fade out after holdFull
+  const r = w.rails.find(q => q.len > 4);
+  const sk = new Skater(w); sk.reset(r.ax, r.az, Math.atan2(r.dirz, r.dirx));
+  Object.assign(sk, { mode: 'grind', rail: r, railT: 1, railDir: 1, railSpeed: 0.6, railSide: 1, grindKind: '50-50', grindHeading: sk.heading, balance: 0, grindTime: 0, grindHold: 30, y: railTop(r, 1) });
+  const p0 = sk.comboPts; run(sk, 1, (t, s) => ({ steer: Math.max(-1, Math.min(1, (s.balance || 0) * 4)) }));
+  check('a 30 s grind pays almost nothing per second', sk.mode !== 'grind' || sk.comboPts - p0 < 160 * 0.02, `+${(sk.comboPts - p0).toFixed(1)}/s`);
+}
+// ---- pop height grows with speed (Skate 3), landing down a slope keeps the speed
+{
+  const sk = new Skater(w);
+  sk.vx = 0; sk.vz = 0; const slow = sk.popVel(1); sk.vx = 6; const fast = sk.popVel(1);
+  check('standing ollie pops lower than a rolling one', slow < fast && fast ** 2 / (2 * P.gravity) > 1.4, `slow h=${(slow ** 2 / 42).toFixed(2)} fast h=${(fast ** 2 / 42).toFixed(2)}`);
+}
+{
+  // touch down on a slope moving downhill: the tangent part of the fall carries on
+  let best = null;
+  for (let x = 30; x < w.N - 30 && !best; x += 3) for (let z = 30; z < w.N - 30; z += 3) {
+    if (!w.isLive(x, z) || w.tileKind(x + 0.5, z + 0.5) !== 0) continue;
+    const g = (w.height(x + 0.7, z + 0.5) - w.height(x + 0.3, z + 0.5)) / 0.4;
+    if (g < -0.35 && g > -0.8) { best = [x + 0.5, z + 0.5]; break; }
+  }
+  if (!best) check('a downhill slope to land on exists', false);
+  else {
+    const sk = new Skater(w); sk.reset(best[0], best[1], 0); sk.vx = 4; sk.vy = -6; sk.mode = 'air'; sk.y = w.height(best[0], best[1]) - 0.01;
+    sk.land(6);
+    check('landing down a slope keeps (gains) speed', sk.speed > 4.3 && sk.mode === 'ground', 'v=' + sk.speed.toFixed(2));
+  }
+}
+// ---- members' land streams in like the rest: Ardougne opens once loaded
+{
+  const aj = JSON.parse(readFileSync(new URL('../assets/world_ardougne.json', import.meta.url)));
+  const w4 = new World(JSON.parse(readFileSync(new URL('../assets/world.json', import.meta.url))));
+  const at = [2662 - w4.base[0], 3305 - w4.base[1]];
+  check('Ardougne closed before it streams in', !w4.isLive(at[0], at[1]));
+  w4.addRegion(aj);
+  check('Ardougne live once streamed in', w4.isLive(at[0], at[1]) && w4.rails.length > 0, `rails=${w4.rails.length}`);
+  check('no door segments anywhere in Ardougne', !aj.segs.some(s => s[4] === 'door'));
+}
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
 process.exit(fails ? 1 : 0);

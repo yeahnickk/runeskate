@@ -426,7 +426,7 @@ for (a, b), kind in edges.items():
             # railings / wooden fencing too tall to grind: capped at ~1 tile so a solid ollie clears it
             kind = 'fence'
             top = [round(float(min(t if t is not None else g + 1.0, g + 1.0)), 3) for t, g in tops]
-        if is_door: kind = 'door'
+        # (every door/gate itself is open - OPEN_EDGES - so what is left by a doorway is its frame: plain wall)
         # the server flags invisible walls along river beds (bank edges, between two water tiles). Nothing
         # stands there, so they must not stop a jump across the river: treat them as a water edge (solid on
         # the ground, open in the air, and you land in the drink if you come up short). Real structures on

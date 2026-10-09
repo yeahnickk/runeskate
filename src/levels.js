@@ -8,6 +8,10 @@ export function levelFor(xp) {
   let L = 1; while (L < MAX_LEVEL && xp >= XP_AT[L + 1]) L++;
   return L;
 }
+/** XP still needed for the next level (0 at the max level) */
+export function xpToNext(xp) {
+  const L = levelFor(xp); return L >= MAX_LEVEL ? 0 : XP_AT[L + 1] - xp;
+}
 /** 0..1 progress through the current level */
 export function levelProgress(xp) {
   const L = levelFor(xp); if (L >= MAX_LEVEL) return 1;
