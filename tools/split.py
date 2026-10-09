@@ -1,9 +1,9 @@
 """Split the built world into packs the client streams in.   python runeskate/tools/split.py   (after lanes.py)
 
 The export is one big square covering all of mainland F2P (tools/build.py docstring has the command). Only the
-regions below are playable. `core` is the first load; every other pack is fetched by the client only when a
+regions below are playable (all of F2P and members' land). `core` is the first load; every other pack is fetched by the client only when a
 skater gets near it (src/main.js streamRegions), so the first download never grows. Anything outside the
-regions (members land east of Varrock, the desert) is dropped. The client walls off whatever is not loaded
+regions (open sea, void) is dropped. The client walls off whatever is not loaded
 (World.frontier), so no map edge is baked in here.
 
 Each pack carries its own rectangle of collision (ground corners, tile kinds), its segments, lane tiles and mesh
@@ -27,6 +27,24 @@ REGIONS = [
     ('wild-se',    'the Wilderness',  3136, 3520, 3392, 3744),
     ('wild-nw',    'the deep Wilderness', 2880, 3744, 3136, 3968),
     ('wild-ne',    'the deep Wilderness', 3136, 3744, 3392, 3968),
+    # members' land (P2P), all of it streamed in on approach like the rest
+    ('isafdar',    'Tirannwn',        2048, 2944, 2304, 3200),
+    ('isafdar-n',  'Tirannwn',        2048, 3200, 2304, 3456),
+    ('feldip',     'the Feldip Hills', 2304, 2816, 2560, 3072),
+    ('castlewars', 'Castle Wars',     2304, 3072, 2560, 3328),   # + Tree Gnome Village
+    ('gnome',      'the Gnome Stronghold', 2304, 3328, 2560, 3584),
+    ('barbarian',  'the Barbarian Outpost', 2304, 3584, 2560, 3840),
+    ('shilo',      'Shilo Village',   2560, 2816, 2880, 3072),
+    ('yanille',    'Yanille',         2560, 3072, 2880, 3264),   # + Port Khazard, Brimhaven
+    ('ardougne',   'Ardougne',        2560, 3264, 2880, 3456),   # + Witchaven, Catherby
+    ('camelot',    'Camelot',         2560, 3456, 2880, 3648),   # + Seers' Village
+    ('rellekka',   'Rellekka',        2560, 3648, 2880, 3776),
+    ('karamja',    'Karamja',         2880, 2816, 3136, 3072),
+    ('desert',     'the Kharidian Desert', 3136, 2816, 3328, 3072),
+    ('desert-e',   'the Kharidian Desert', 3328, 2816, 3648, 3072),
+    ('morytania-s', 'Morytania',      3328, 3072, 3648, 3328),
+    ('canifis',    'Canifis',         3328, 3328, 3648, 3520),
+    ('morytania-n', 'Morytania',      3392, 3520, 3648, 3712),
 ]
 
 w = json.load(open(os.path.join(A, 'world.json')))

@@ -2,7 +2,7 @@
 
 Every terrain + loc triangle is binned by its centre into a 2 px/tile grid and the HIGHEST one wins (roofs over
 floors, canopies over grass), shaded a little by its slope so hills read. Water/walls come out in their own
-colours for free. Writes assets/map.png (north up, x east), world tile (x, z) -> pixel ((x-2880)*2, (3968-z)*2).
+colours for free. Writes assets/map.png (north up, x east), world tile (x, z) -> pixel ((x-2048)*2, (4032-z)*2).
 """
 import os, json
 import numpy as np
@@ -44,8 +44,8 @@ for _ in range(2):
     fill = (nb * nh[..., None]).sum(0) / np.maximum(nh.sum(0), 1)[..., None]
     img = np.where(hole[..., None], fill, img); hole = hole & (nh.sum(0) == 0)
 img = 255 * (np.clip(img, 0, 255) / 255) ** 0.7 * 1.08
-# only the playable map: x 2880-3392, z 3072-3968 (split.py's regions)
-X1 = (3392 - meta['baseX']) * PX
-img = np.clip(img[:, :X1], 0, 255).astype(np.uint8)
+# only the playable map: x 2048-3648, z 2816-4032 (split.py's regions, F2P + members)
+X1 = (3648 - meta['baseX']) * PX; Z0 = (meta['baseZ'] + N - 4032) * PX
+img = np.clip(img[Z0:, :X1], 0, 255).astype(np.uint8)
 Image.fromarray(img).save(os.path.join(ROOT, 'assets', 'map.png'), optimize=True)
 print('wrote assets/map.png', os.path.getsize(os.path.join(ROOT, 'assets', 'map.png')) // 1024, 'KB')

@@ -137,10 +137,10 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
   check('kick-start >4 tiles/s in 0.6s', sk.speed > 4, 'v=' + sk.speed.toFixed(2));
 }
 
-// 10. closed cow-pen gate stays shut: Gate at (3253,3266) blocks travel east->west across it
+// 10. every door and gate stands open (tools/doors.ts): nothing of kind 'door' is left in the collision
 {
-  const gates = w.segs.filter(s => s.kind === 'door').map(s => [s.ax + w.base[0], s.az + w.base[1], s.bx + w.base[0], s.bz + w.base[1]]);
-  check('gates/doors present as solid segments', gates.length > 0, gates.slice(0, 4).map(g => g.join(',')).join(' | '));
+  const doors = w.segs.filter(s => s.kind === 'door');
+  check('doors and gates all open', doors.length === 0, doors.slice(0, 4).map(s => [s.ax + w.base[0], s.az + w.base[1]].join(',')).join(' | '));
 }
 
 // 11. bail recovers onto the board
@@ -242,7 +242,7 @@ const loneTrunk = (() => {
   check('loose rail catch', log.some(e => e.type === 'grind'), log.map(e => e.type).join(','));
 }
 
-// 18. the cow pen gate (3253,3267) is hoppable like the fence it sits in: ollie east over it into the pen
+// 18. the cow pen gate (3253,3267): ollie east over it into the pen, or (it stands open) just ride through
 {
   const sk = new Skater(w);
   const [x, z] = L(3249.2, 3267.5); sk.reset(x, z, 0); sk.vx = 6;
@@ -250,7 +250,7 @@ const loneTrunk = (() => {
   check('ollie over the cow pen gate', sk.x + w.base[0] > 3253.3 && !log.some(e => e.type === 'bail'), where(sk) + ' ' + log.map(e => e.type).join(','));
   const sk2 = new Skater(w); sk2.reset(x, z, 0); sk2.vx = 6;
   run(sk2, 1.2);
-  check('...but it still stops you if you ride straight at it', sk2.x + w.base[0] < 3253, where(sk2));
+  check('...and it stands open: ride straight through it', sk2.x + w.base[0] > 3254, where(sk2));
 }
 
 // 19. a lone low obstacle (cactus/rock/crate: a 1-tile block with a measured top) can be ollied over

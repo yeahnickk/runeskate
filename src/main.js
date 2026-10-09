@@ -309,6 +309,8 @@ async function main() {
   addEventListener('keydown', e => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
     if (designer?.open) return;
+    // start menu up: the game ignores keys (Enter on the menu skates, like the SKATE button)
+    if (document.getElementById('start').style.display === 'flex') { if (e.key === 'Enter' && e.target?.tagName !== 'BUTTON') { e.preventDefault(); window.RS.autoLogin?.(); } return; }
     if (e.key === 'Enter' && net.online) { e.preventDefault(); openChat(); return; }
     if (e.key === 'Tab') { e.preventDefault(); if (!e.repeat) { hud.board = topNow(); refreshTop(); } }
     if (e.repeat) return;
@@ -461,9 +463,9 @@ async function main() {
     if (!offline) { store.set('rs_name', me.login || me.name); if (pass) store.set('rs_pass', pass); }
     await window.RS.onLogin?.(me);
   }
-  $('skate').onclick = () => login(false);
+  $('skate').onclick = () => autoLogin();
   $('solo').onclick = () => login(true);
-  for (const id of ['lname', 'lpass']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') login(false); });
+  for (const id of ['lname', 'lpass']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') autoLogin(); });
   // just visiting the URL logs you in: a random skater name is made up once and remembered in this browser
   const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
   const rnd = (n, abc) => Array.from(crypto.getRandomValues(new Uint32Array(n)), x => abc[x % abc.length]).join('');
@@ -472,17 +474,22 @@ async function main() {
     const name = (who + rnd(4, '0123456789')).slice(0, 12), pass = rnd(14, 'abcdefghjkmnpqrstuvwxyz23456789');
     store.set('rs_name', name); store.set('rs_pass', pass); return [name, pass];
   }
-  async function autoLogin() {
-    if (qs.get('name') && qs.get('password')) return login(false);
+  /** fill the start menu: a join link's name, else the one this browser remembers, else a made-up one */
+  function prefill() {
+    if (qs.get('name')) return;
     let name = store.get('rs_name'), pass = store.get('rs_pass');
     if (!name || !pass) [name, pass] = freshIdentity();
     $('lname').value = name; $('lpass').value = pass;
+  }
+  /** SKATE on the menu (or Enter): log in; a remembered made-up name somebody else has since taken rolls a new one */
+  async function autoLogin() {
+    const made = $('lname').value === store.get('rs_name') && !qs.get('name');
     await login(false);
-    if ($('start').style.display !== 'none' && /wrong password/.test($('lerr').textContent)) {   // name got taken: roll a new one
-      [name, pass] = freshIdentity(); $('lname').value = name; $('lpass').value = pass; await login(false);
+    if (made && $('start').style.display !== 'none' && /wrong password/.test($('lerr').textContent)) {
+      const [name, pass] = freshIdentity(); $('lname').value = name; $('lpass').value = pass; await login(false);
     }
   }
-  window.RS.autoLogin = autoLogin;
+  window.RS.autoLogin = autoLogin; window.RS.prefill = prefill;
 
   // ---------------- outfits: any armour from the game on your own skater (see designer.js / rsanim.js)
   window.RS.modelFor = o => (o && o.items) ? buildOutfitModel(o) : loadRSModel('nickai3');
@@ -887,8 +894,10 @@ async function main() {
   status('');
   document.getElementById('loading').style.display = 'none';
   if (!location.hash.includes('nostart')) {
+    // the start menu waits for the player: name + password are filled in, SKATE (or Enter) goes
     document.getElementById('start').style.display = 'flex';
-    window.RS.autoLogin();              // straight in; the panel only stays up if the server can't be reached
+    window.RS.prefill();
+    $('skate').focus();
   }
   let last = performance.now(), acc = 0, first = true;
   const DT = 1 / 240;

@@ -13,7 +13,7 @@ The player/goblin models, hitmarks and bitmap fonts in assets/ came from an earl
 they are (tools/export-kit.ts and tools/export-npcs.ts make the outfit kit and the NPCs).
 
 Full rebuild, from the repo root (see README):
-    bun --preload ./tools/preload.ts tools/export-world.ts 2880 3072 896
+    bun --preload ./tools/preload.ts tools/export-world.ts 2048 2816 1600
     bun --preload ./tools/preload.ts tools/small-locs.ts
     python tools/build.py && python tools/lanes.py && python tools/fixrunes.py && python tools/split.py
 """
@@ -71,18 +71,24 @@ if SMOOTH > 0:
 CH = 32
 import gzip
 blob = bytearray(); chunks = []
-def chunk_parts(raw, col, alpha, names):
+NC = (N + CH - 1) // CH
+def groups(raw, col, sel=None):
+    """triangles grouped by chunk (sorted once: the members map is tens of millions of triangles)"""
     t = raw.reshape(-1, 3, 3); c = col.reshape(-1, 3, 3)
-    cxs = np.floor(t[:, :, 0].mean(1) / 128 / CH).astype(int); czs = np.floor(t[:, :, 2].mean(1) / 128 / CH).astype(int)
-    return t, c, cxs, czs
-T = chunk_parts(traw, tc, ta, None); Lc = chunk_parts(lraw, lc, la, None)
-for cz in range((N + CH - 1) // CH):
-    for cx in range((N + CH - 1) // CH):
+    cxs = np.floor(t[:, :, 0].mean(1) / 128 / CH).astype(np.int64); czs = np.floor(t[:, :, 2].mean(1) / 128 / CH).astype(np.int64)
+    ok = (cxs >= 0) & (czs >= 0) & (cxs < NC) & (czs < NC)
+    if sel is not None: ok &= sel
+    idx = np.flatnonzero(ok); cid = (czs * NC + cxs)[idx]
+    o = np.argsort(cid, kind='stable'); idx, cid = idx[o], cid[o]
+    starts = np.flatnonzero(np.r_[True, cid[1:] != cid[:-1]]); ends = np.r_[starts[1:], len(cid)]
+    return t, c, {int(cid[a]): idx[a:b] for a, b in zip(starts, ends)}
+G = (('terrain', groups(traw, tc)), ('locs', groups(lraw, lc, la == 0)), ('locs_alpha', groups(lraw, lc, la != 0)))
+for cz in range(NC):
+    for cx in range(NC):
         ent = {'cx': cx, 'cz': cz}
-        for key, (t, c, cxs, czs), sel in (('terrain', T, None), ('locs', Lc, la == 0), ('locs_alpha', Lc, la != 0)):
-            m = (cxs == cx) & (czs == cz)
-            if sel is not None: m &= sel
-            if not m.any(): continue
+        for key, (t, c, by) in G:
+            m = by.get(cz * NC + cx)
+            if m is None: continue
             p = t[m].reshape(-1, 3).copy(); p[:, 0] -= cx * CH * 128; p[:, 2] -= cz * CH * 128
             p = np.clip(np.round(p), -32768, 32767).astype(np.int16)
             ent[key] = {'posOff': len(blob), 'n': int(len(p))}
@@ -92,8 +98,9 @@ for cz in range((N + CH - 1) // CH):
             blob += c[m].reshape(-1, 3).astype(np.uint8).tobytes()
             while len(blob) % 4: blob.append(0)
         chunks.append(ent)
+del G
 open(os.path.join(OUT, 'world.bin'), 'wb').write(blob)
-open(os.path.join(OUT, 'world.bin.gz'), 'wb').write(gzip.compress(bytes(blob), 6))
+if os.path.exists(os.path.join(OUT, 'world.bin.gz')): os.remove(os.path.join(OUT, 'world.bin.gz'))   # split.py cuts world.bin up anyway
 index = {'chunk': CH, 'chunks': chunks}
 print('world.bin', len(blob) // 1024, 'KB', 'chunks', len(chunks), 'tris', len(traw) // 3, len(lraw) // 3)
 
@@ -120,6 +127,7 @@ for lv, x, z, f in col['tiles']:
     if 0 <= lx < N and 0 <= lz < N and lv <= 1:
         flags[(lv, lx, lz)] = f & 0xffffffff
 doors = [(x - BX, z - BZ) for lv, x, z, *_ in col['doors'] if lv <= 1 and 0 <= x - BX < N and 0 <= z - BZ < N]
+door_walls = [(x - BX, z - BZ, sh, ang) for lv, x, z, sh, ang, *_ in col['doors'] if lv == 0 and 0 <= x - BX < N and 0 <= z - BZ < N]
 del col
 
 W_N, W_E, W_S, W_W = 0x2, 0x8, 0x20, 0x80
@@ -132,20 +140,23 @@ def f1(x, z): return flags.get((1, x, z), 0)
 # (the server already keeps bridge collision on level 0, so flags always come from level 0)
 ttri = tp.reshape(-1, 3, 3); tcol = tc.reshape(-1, 3, 3).astype(np.int32)
 t_e, t_u, t_n = ttri[..., 0], ttri[..., 1], -ttri[..., 2]
-surf = {}
-for i in range(len(ttri)):
-    cx, cz = int(math.floor(t_e[i].mean())), int(math.floor(t_n[i].mean()))
-    c = tcol[i].mean(0)
-    surf.setdefault((cx, cz), []).append((float(t_u[i].mean()), c[2] > c[0] + 25 and c[2] > c[1]))
+# per tile: the lowest terrain surface (and is it blue: a river bed?) and the highest. Vectorised: the map has
+# millions of terrain triangles.
+_cx = np.floor(t_e.mean(1)).astype(np.int64); _cz = np.floor(t_n.mean(1)).astype(np.int64)
+_u = t_u.mean(1); _c = tcol.mean(1); _blue = (_c[:, 2] > _c[:, 0] + 25) & (_c[:, 2] > _c[:, 1])
+_ok = (_cx >= 0) & (_cz >= 0) & (_cx < N) & (_cz < N)
+_key = (_cx * N + _cz)[_ok]; _u = _u[_ok]; _blue = _blue[_ok]
+_o = np.lexsort((_blue, _u, _key)); _key, _u, _blue = _key[_o], _u[_o], _blue[_o]
+_start = np.flatnonzero(np.r_[True, _key[1:] != _key[:-1]])
+lo_u = np.full(N * N, np.nan); lo_blue = np.zeros(N * N, bool); hi_u = np.full(N * N, np.nan)
+lo_u[_key[_start]] = _u[_start]; lo_blue[_key[_start]] = _blue[_start]; hi_u[_key[_start]] = np.maximum.reduceat(_u, _start)
+lo_u, lo_blue, hi_u = lo_u.reshape(N, N), lo_blue.reshape(N, N), hi_u.reshape(N, N)
+del _cx, _cz, _u, _c, _blue, _ok, _key, _o, _start
 bridge = np.zeros((N, N), bool)
-for x in range(N):
-    for z in range(N):
-        ss = surf.get((x, z), [])
-        if not ss: continue
-        lo = min(ss); hi = max(ss)
-        deck = -(HEIGHTS[1][x][z] + HEIGHTS[1][x + 1][z + 1]) / 256
-        if lo[1] and hi[0] - lo[0] > 0.8 and abs(hi[0] - deck) < 0.35 and not (f0(x, z) & FLOOR):
-            bridge[x, z] = True
+for x, z in np.argwhere(lo_blue & (hi_u - lo_u > 0.8)):
+    deck = -(HEIGHTS[1][x][z] + HEIGHTS[1][x + 1][z + 1]) / 256
+    if abs(hi_u[x, z] - deck) < 0.35 and not (f0(x, z) & FLOOR):
+        bridge[x, z] = True
 def wet(cx, cz):
     return any(0 <= tx_ < N and 0 <= tz_ < N and (f0(tx_, tz_) & FLOOR) for tx_ in (cx - 1, cx) for tz_ in (cz - 1, cz))
 def explicit(cx, cz):
@@ -187,11 +198,31 @@ tri = lp.reshape(-1, 3, 3)                                # three coords: x, y(u
 tx, ty, tn = tri[..., 0], tri[..., 1], -tri[..., 2]      # east, up, north
 bminx, bmaxx = tx.min(1), tx.max(1); bminn, bmaxn = tn.min(1), tn.max(1)
 ymin, ymax = ty.min(1), ty.max(1)
-cells = {}
-for i in range(len(tri)):
-    for cx in range(int(math.floor(bminx[i] - 0.3)), int(math.floor(bmaxx[i] + 0.3)) + 1):
-        for cz in range(int(math.floor(bminn[i] - 0.3)), int(math.floor(bmaxn[i] + 0.3)) + 1):
-            cells.setdefault((cx, cz), []).append(i)
+# spatial index: tile -> the loc triangles within 0.3 tiles of it. Only triangles that start near the ground
+# matter (walls, fences, trunks, low obstacles), so roofs, canopies and upper floors are left out.
+class Cells:
+    def __init__(self):
+        x0 = np.floor(bminx - 0.3).astype(np.int64); x1 = np.floor(bmaxx + 0.3).astype(np.int64)
+        z0 = np.floor(bminn - 0.3).astype(np.int64); z1 = np.floor(bmaxn + 0.3).astype(np.int64)
+        gx = np.clip(np.floor(tx.mean(1)).astype(np.int64), 0, N); gz = np.clip(np.floor(tn.mean(1)).astype(np.int64), 0, N)
+        g0 = -np.minimum(HEIGHTS[0][gx, gz], HEIGHTS[1][gx, gz]) / 128     # the higher of ground / bridge deck
+        keep = np.flatnonzero((ymin < g0 + 2.5) & (x1 - x0 < 12) & (z1 - z0 < 12) & (x1 >= -1) & (z1 >= -1) & (x0 <= N) & (z0 <= N))
+        nx = (x1 - x0 + 1)[keep]; nz = (z1 - z0 + 1)[keep]; cnt = nx * nz
+        tri_i = np.repeat(keep, cnt)
+        k = np.arange(cnt.sum()) - np.repeat(np.cumsum(cnt) - cnt, cnt)
+        nzr = np.repeat(nz, cnt)
+        cx = np.repeat(x0[keep], cnt) + k // nzr; cz = np.repeat(z0[keep], cnt) + k % nzr
+        ok = (cx >= 0) & (cz >= 0) & (cx < N) & (cz < N)
+        key = (cx * N + cz)[ok]; tri_i = tri_i[ok]
+        o = np.argsort(key, kind='stable'); self.key = key[o]; self.tri = tri_i[o]
+        print('loc triangles indexed', len(keep), 'of', len(tri), 'cell entries', len(self.key))
+    def get(self, c, default=()):
+        x, z = c
+        if not (0 <= x < N and 0 <= z < N): return default
+        k = x * N + z
+        a = np.searchsorted(self.key, k, 'left'); b = np.searchsorted(self.key, k, 'right')
+        return self.tri[a:b].tolist() if b > a else default
+cells = Cells()
 
 def seg_dist2d(px, pz, ax, az, bx, bz):
     dx, dz = bx - ax, bz - az; L = dx * dx + dz * dz
@@ -235,6 +266,10 @@ for x in range(N):
         if f & (LOC | FLOOR):
             blocked[x, z] = True
             if f & FLOOR: water[x, z] = True
+# no map at all here (open sea / the void between members' areas): not ground you can ride on
+void = np.isnan(lo_u)
+blocked |= void
+print('void tiles', int(void.sum()))
 def isblk(x, z): return not (0 <= x < N and 0 <= z < N) or blocked[x, z]
 block_tile = {}
 
@@ -269,6 +304,11 @@ for x in range(N):
         if (x, z) in TINY_TILES or (t is not None and t - float(min(ground[x, z])) < FLAT_OBSTACLE):
             blocked[x, z] = False; nflat += 1
 print('tiny/flat obstacles made rideable', nflat)
+DOOR_TILES = {tuple(t) for t in json.load(open(SMALL)).get('doorTiles', [])} if os.path.exists(SMALL) else set()
+nd = 0
+for (x, z) in DOOR_TILES:
+    if 0 <= x < N and 0 <= z < N and blocked[x, z] and not water[x, z]: blocked[x, z] = False; nd += 1
+print('door/gate tiles opened', nd)
 trunk_tile = np.zeros((N, N), bool)
 # trees: a tall blocked tile used to collide as the WHOLE tile (a 2x2 tree = a 2x2 box), so you hit it a metre
 # from the trunk. Measure the trunk instead: the loc geometry in the bottom ~0.7 tiles (the canopy is far above)
@@ -347,6 +387,19 @@ for i in range(1, N - 1):
         add_edge(a, b, 'edge')
 
 door_set = set(doors)
+# every door and gate stands open (tools/doors.ts): the edges they close and the tiles a gate fills are left open.
+# The server's own door list (col['doors']: level, x, z, shape, angle) adds any the loc names miss.
+OPEN_EDGES = set()
+def open_edge(x0, z0, x1, z1): OPEN_EDGES.add(((x0, z0), (x1, z1)) if (x0, z0) <= (x1, z1) else ((x1, z1), (x0, z0)))
+_EDGE = lambda x, z, r: [(x, z, x, z + 1), (x, z + 1, x + 1, z + 1), (x + 1, z, x + 1, z + 1), (x, z, x + 1, z)][r & 3]
+for x, z, sh, ang in door_walls:
+    if sh == 0: open_edge(*_EDGE(x, z, ang))
+    elif sh == 2: open_edge(*_EDGE(x, z, ang)); open_edge(*_EDGE(x, z, ang + 1))
+for e in (json.load(open(SMALL)).get('doorEdges', []) if os.path.exists(SMALL) else []): open_edge(*e)
+nopen = 0
+for k in OPEN_EDGES:
+    if edges.get(k) == 'wall': del edges[k]; nopen += 1
+print('doors and gates opened', nopen, 'edges')
 segs = []
 nr = 0; nlow = 0; ngate = 0
 for (a, b), kind in edges.items():

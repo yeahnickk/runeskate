@@ -23,6 +23,7 @@ import IdkType from '#/config/IdkType.js';
 import { unzipSync, gunzipSync } from 'fflate';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { opens } from './doors.ts';
 
 const BASE = 'https://rs-sdk-demo.fly.dev';
 const OUT = join(import.meta.dir, 'out');
@@ -69,6 +70,25 @@ const texCutout = (t: number) => {                          // texture has trans
   return TEX_CUT.get(t)!;
 };
 const hslRgb = (hsl: number) => Pix3D.colourTable[hsl & 0xffff];
+// a cut-out texture (hedge/bush/flower/fern leaves, grilles): how much of it is solid, and the average colour of
+// just the solid texels (the plain average mixes in the see-through black and comes out a dark slab)
+const TEX_SOLID = new Map<number, { cov: number; rgb: number }>();
+const texSolid = (t: number) => {
+  if (!TEX_SOLID.has(t)) {
+    const P: any = Pix3D, tex = P.textures?.[t], pal = P.texPal?.[t];
+    let r = 0, g = 0, b = 0, n = 0, all = 0;
+    if (tex && pal) for (let i = 0; i < tex.data.length; i++) {
+      const c = pal[tex.data[i]]; all++;
+      if ((c & 0xf8f8ff) === 0) continue;
+      r += (c >> 16) & 255; g += (c >> 8) & 255; b += c & 255; n++;
+    }
+    let rgb = n ? (((r / n) | 0) << 16) | (((g / n) | 0) << 8) | ((b / n) | 0) : 0x305020;
+    try { rgb = P.gammaCorrect(rgb, 1.4); } catch {}
+    TEX_SOLID.set(t, { cov: all ? n / all : 1, rgb });
+  }
+  return TEX_SOLID.get(t)!;
+};
+const FOLIAGE_ALPHA = 110;                                   // sparse cut-outs (grilles, thin cards) go see-through
 
 // see-through railings: every metal railing variant in the loc configs
 const RAILING = new Set<number>();
@@ -79,14 +99,26 @@ if (!RAILING.size) for (const id of [997, 998, 999]) RAILING.add(id);
 const locIdOf = (typecode: number) => (typecode >> 14) & 0x7fff;
 const HOPPABLE = new Set([...RAILING, 980, 981]);            // + wooden fencing / garden fencing (cow pens): ollie-able, stays opaque
 const SEE_THROUGH = 120;
-const OPEN_GATES = new Set([2882, 2883]);                   // the Al Kharid toll gate: no toll in RuneSkate, the gateway stands open                                    // face alpha tag -> build.py puts it in locs_alpha
+const OPEN_GATES = new Set([2882, 2883]);
+// every door and gate stands open (tools/doors.ts): their models are left out, build.py leaves their edges open
+for (let id = 0; id < LocType.numDefinitions; id++) { let t: any; try { t = LocType.list(id); } catch { continue; } if (opens(t, 0)) OPEN_GATES.add(id); }
+console.log('doors and gates left open:', OPEN_GATES.size, 'loc ids');                   // the Al Kharid toll gate: no toll in RuneSkate, the gateway stands open                                    // face alpha tag -> build.py puts it in locs_alpha
 
 class Soup {
-  pos: number[] = []; col: number[] = []; alpha: number[] = [];
+  // growable typed buffers: the whole members map is tens of millions of triangles, too many for JS arrays
+  n = 0; P = new Float32Array(9 << 16); C = new Uint8Array(9 << 16); A = new Uint8Array(1 << 16);
+  get alpha() { return { length: this.n }; }
   tri(ax: number, ay: number, az: number, bx: number, by: number, bz: number, cx: number, cy: number, cz: number, ca: number, cb: number, cc: number, a = 0) {
-    this.pos.push(ax, ay, az, bx, by, bz, cx, cy, cz);
-    for (const c of [ca, cb, cc]) this.col.push((c >> 16) & 255, (c >> 8) & 255, c & 255);
-    this.alpha.push(a);
+    if (this.n === this.A.length) {
+      const grow = <T extends Float32Array | Uint8Array>(o: T): T => { const b = new (o.constructor as any)(Math.floor(o.length * 1.5)) as T; b.set(o); return b; };
+      this.P = grow(this.P); this.C = grow(this.C); this.A = grow(this.A);
+    }
+    const i = this.n * 9, P = this.P, C = this.C;
+    P[i] = ax; P[i + 1] = ay; P[i + 2] = az; P[i + 3] = bx; P[i + 4] = by; P[i + 5] = bz; P[i + 6] = cx; P[i + 7] = cy; P[i + 8] = cz;
+    C[i] = (ca >> 16) & 255; C[i + 1] = (ca >> 8) & 255; C[i + 2] = ca & 255;
+    C[i + 3] = (cb >> 16) & 255; C[i + 4] = (cb >> 8) & 255; C[i + 5] = cb & 255;
+    C[i + 6] = (cc >> 16) & 255; C[i + 7] = (cc >> 8) & 255; C[i + 8] = cc & 255;
+    this.A[this.n++] = a;
   }
   // yaw: the rotation the client applies at draw time (Model.worldRender) � wall decorations (windows,
   // torches, banners) and sprites are stored unrotated and turned by their angle when drawn
@@ -99,14 +131,17 @@ class Soup {
       const type = m.faceRenderType ? m.faceRenderType[f] & 3 : 0;
       const A = m.faceColourA?.[f] ?? 0, Bc = m.faceColourB?.[f] ?? 0, C = m.faceColourC?.[f] ?? 0;
       if (C === -2) continue;
+      let cutAlpha = 0;
       let ca: number, cb: number, cc: number;
       if (type === 0) { ca = hslRgb(A); cb = hslRgb(Bc); cc = C === -1 ? ca : hslRgb(C); if (C === -1) cb = ca; }
       else if (type === 1) { ca = cb = cc = hslRgb(A); }
       else {
-        const t = m.faceColour?.[f] ?? 0, rgb = texRgb(t);
-        // cut-out foliage/grille cards: a flat average would be an opaque black slab, so drop them... except on
-        // see-through railings (forceAlpha), where the translucent average IS the railing (the Al Kharid border)
-        if (texCutout(t) && !forceAlpha) continue;
+        const t = m.faceColour?.[f] ?? 0;
+        let rgb = texRgb(t);
+        // cut-out foliage/grille cards (hedges, bushes, flowers, ferns...): coloured by their SOLID texels so they
+        // show instead of vanishing; mostly-solid ones (leafy hedges) stay opaque, sparse ones go see-through.
+        // See-through railings (forceAlpha) keep the translucent plain average: that IS the railing (Al Kharid border)
+        if (texCutout(t) && !forceAlpha) { const so = texSolid(t); rgb = so.rgb; if (so.cov < 0.45) cutAlpha = FOLIAGE_ALPHA; }
         const sh = (v: number) => { const k = Math.max(0, Math.min(1, (127 - v) / 100)); return (((rgb >> 16 & 255) * k) << 16) | (((rgb >> 8 & 255) * k) << 8) | ((rgb & 255) * k); };
         ca = sh(A); cb = sh(type === 3 ? A : Bc); cc = sh(type === 3 ? A : C);
       }
@@ -122,13 +157,13 @@ class Soup {
         if (Math.abs(ny) > 0.9 * Math.hypot(nx, ny, nz)) lift = 1 + (m.facePriority?.[f] ?? 0) * 0.5;
       }
       this.tri(rx(a) + ox, m.pointY[a] + oy - lift, rz(a) + oz, rx(b) + ox, m.pointY[b] + oy - lift, rz(b) + oz, rx(c) + ox, m.pointY[c] + oy - lift, rz(c) + oz, ca, cb, cc,
-        forceAlpha || (m.faceAlpha ? m.faceAlpha[f] : 0));
+        forceAlpha || cutAlpha || (m.faceAlpha ? m.faceAlpha[f] : 0));
     }
   }
   save(name: string) {
-    writeFileSync(join(OUT, `${name}.pos.bin`), new Float32Array(this.pos));
-    writeFileSync(join(OUT, `${name}.col.bin`), new Uint8Array(this.col));
-    writeFileSync(join(OUT, `${name}.alpha.bin`), new Uint8Array(this.alpha));
+    writeFileSync(join(OUT, `${name}.pos.bin`), this.P.subarray(0, this.n * 9));
+    writeFileSync(join(OUT, `${name}.col.bin`), this.C.subarray(0, this.n * 9));
+    writeFileSync(join(OUT, `${name}.alpha.bin`), this.A.subarray(0, this.n));
     console.log(`${name}: ${this.alpha.length} tris`);
   }
 }
