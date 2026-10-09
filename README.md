@@ -81,6 +81,7 @@ Optional environment variables:
 
 - `bun test/sim.js` runs the headless physics checks (collisions, grinds, rune placement, regions).
 - `bun tools/spot-check.ts` checks every challenge spot is reachable from spawn.
+- `bun tools/pocket-check.ts` (after split) checks spawn and every portal drop land in a big connected area, never a pocket you cannot skate out of.
 - `src/skater.js` is the physics, `src/world.js` the collision world, `src/main.js` the client,
   `serve.ts` the server (static files, accounts, multiplayer relay).
 
