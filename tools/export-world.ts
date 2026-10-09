@@ -82,8 +82,8 @@ const texSolid = (t: number) => {
       if ((c & 0xf8f8ff) === 0) continue;
       r += (c >> 16) & 255; g += (c >> 8) & 255; b += c & 255; n++;
     }
-    let rgb = n ? (((r / n) | 0) << 16) | (((g / n) | 0) << 8) | ((b / n) | 0) : 0x305020;
-    try { rgb = P.gammaCorrect(rgb, 1.4); } catch {}
+    // (the palette is already brightness-corrected: averaging it as-is keeps leaves their real green)
+    const rgb = n ? (((r / n) | 0) << 16) | (((g / n) | 0) << 8) | ((b / n) | 0) : 0x305020;
     TEX_SOLID.set(t, { cov: all ? n / all : 1, rgb });
   }
   return TEX_SOLID.get(t)!;

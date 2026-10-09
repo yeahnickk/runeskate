@@ -49,6 +49,15 @@ function runeGeometry(kind) {
     return g;
   });
 }
+const GLOWS = {};
+function runeGlow(col) {
+  if (GLOWS[col]) return GLOWS[col];
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 2, 32, 32, 31);
+  g.addColorStop(0, col); g.addColorStop(1, 'rgba(0,0,0,0)');
+  x.globalAlpha = 0.55; x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+  return GLOWS[col] = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: true });
+}
 const RUNE_MAT = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, fog: true });
 const RUNE_SCALE = 2.6;
 
@@ -88,7 +97,11 @@ export class Goals {
       const k = byKind[q.kind] ?? 0, x = q.x - W.base[0] + 0.5, z = q.z - W.base[1] + 0.5;
       // the real rune stone model, with the old flat icon standing in until it has loaded
       const s = new THREE.Group(), icon = new THREE.Sprite(mats[k]); icon.scale.set(0.7, 0.7, 1); s.add(icon);
-      runeGeometry(q.kind).then(g => { const m = new THREE.Mesh(g, RUNE_MAT); m.scale.setScalar(RUNE_SCALE); s.remove(icon); s.add(m); }).catch(() => {});
+      runeGeometry(q.kind).then(g => {
+        const m = new THREE.Mesh(g, RUNE_MAT); m.scale.setScalar(RUNE_SCALE); s.remove(icon); s.add(m);
+        // a soft glow in the element's colour behind the stone, so it reads from a distance
+        const glow = new THREE.Sprite(runeGlow(RUNES[k].sym)); glow.scale.set(1.5, 1.5, 1); glow.renderOrder = 2; s.add(glow);
+      }).catch(() => {});
       scene.add(s);
       this.runes.push({ id: q.id, kind: q.kind, high: !!q.high, x, z, y: W.height(x, z) + (q.high ? 1.35 : 0.6), s,
         live: W.isLive ? W.isLive(Math.floor(x), Math.floor(z)) : true });

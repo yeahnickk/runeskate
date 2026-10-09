@@ -10,6 +10,11 @@ export const PORTAL_DESTS = [
   { name: 'Edgeville', pad: [3218, 3226], at: [3094, 3496], back: [3092, 3498], col: '#fd4' },
   { name: 'Al Kharid', pad: [3226, 3214], at: [3292, 3176], back: [3291, 3179], col: '#fc6' },
   { name: 'King Black Dragon', pad: [3226, 3226], sub: 'deep Wilderness!', at: [2965, 3856], back: [2964, 3853], col: '#f33' },
+  // members' land: the inner corners of the courtyard, clear of the spawn-to-gate line
+  { name: 'Ardougne', pad: [3220, 3224], sub: 'members', at: [2662, 3305], back: [2662, 3303], col: '#c6f', inner: true },
+  { name: 'Camelot', pad: [3224, 3224], sub: 'members', at: [2733, 3474], back: [2733, 3472], col: '#ccf', inner: true },
+  { name: 'Brimhaven', pad: [3220, 3213], sub: 'members · Karamja', at: [2764, 3174], back: [2764, 3172], col: '#6f9', inner: true },
+  { name: 'Canifis', pad: [3224, 3213], sub: 'members · Morytania', at: [3494, 3488], back: [3494, 3486], col: '#9a8', inner: true },
 ];
 
 // NPC spawns in the Lumbridge core (world tiles); the rest of F2P is in npc-spawns.js (tools/place.py)

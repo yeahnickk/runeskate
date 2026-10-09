@@ -71,7 +71,7 @@ export class Portals {
       g.visible = false; scene.add(g);
       this.list.push({ x, z, to, label, g, ring, disc, fill, col, fixed: !!face, ch: 0 });
     };
-    for (const d of DESTS) add(d.pad, d, d.name, d.sub, d.col, COURT);
+    for (const d of DESTS) add(d.pad, d, d.name, d.sub, d.col, d.inner ? null : COURT);   // inner (members) portals turn slowly
     for (const d of DESTS) add(d.back, HOME, 'Lumbridge', null, HOME.col);
     // one big header over the Lumbridge cluster so it reads as "teleports" from the courtyard
     const hx = 3222 - B[0] + 0.5, hz = 3219 - B[1] + 0.5;
