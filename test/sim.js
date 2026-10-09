@@ -441,5 +441,31 @@ const loneTrunk = (() => {
   check('Ardougne live once streamed in', w4.isLive(at[0], at[1]) && w4.rails.length > 0, `rails=${w4.rails.length}`);
   check('no door segments anywhere in Ardougne', !aj.segs.some(s => s[4] === 'door'));
 }
+// ---- bails are a ragdoll: the rider falls, lies down, comes to rest, gets up; knees only bend forward
+{
+  const sk = new Skater(w);
+  sk.reset(w.spawn[0], w.spawn[1], Math.PI / 2); sk.vx = 0; sk.vz = 7; sk.bail('sketchy');
+  const r = sk.rag; let t = 0, low = Infinity, kneeBack = 0;
+  while (sk.mode === 'bail' && t < 8) {
+    sk.step(1 / 60, {}); t += 1 / 60;
+    if (!sk.rag) break;
+    const p = sk.rag.p; low = Math.min(low, p[0][1] - w.height(p[0][0], p[0][2]));
+    // chest forward (game space, see ragdoll.js) vs the knee's bend
+    const up = [p[1][0] - p[2][0], p[1][1] - p[2][1], p[1][2] - p[2][2]], rt = [p[6][0] - p[3][0], p[6][1] - p[3][1], p[6][2] - p[3][2]];
+    const f = [up[1] * rt[2] - up[2] * rt[1], up[2] * rt[0] - up[0] * rt[2], up[0] * rt[1] - up[1] * rt[0]], fl = Math.hypot(...f) || 1;
+    for (const [a, m, c] of [[9, 10, 11], [12, 13, 14]]) {
+      const off = [0, 1, 2].reduce((s, k) => s + (p[m][k] - (p[a][k] + p[c][k]) / 2) * f[k] / fl, 0);
+      kneeBack = Math.min(kneeBack, off);
+    }
+  }
+  check('a bail ragdoll ends up lying on the ground', low < 0.3, `head ${low.toFixed(2)} above ground`);
+  check('the rider gets up on their own once still', sk.mode !== 'bail' && t < 4, `${t.toFixed(2)} s`);
+  check('knees never bend backwards', kneeBack > -0.05, `worst ${kneeBack.toFixed(3)}`);
+  check('a plain fall breaks no bones', r.broken.size === 0, [...r.broken].join(','));
+  const s2 = new Skater(w);
+  s2.reset(w.spawn[0], w.spawn[1], Math.PI / 2); s2.mode = 'air'; s2.y += 6; s2.vy = -8; s2.vz = 4; s2.bail('flip');                 // thrown off high up
+  for (let i = 0; i < 120 && s2.rag; i++) s2.step(1 / 60, {});
+  check('a big drop breaks bones (Hall of Meat)', s2.rag && s2.rag.broken.size > 0, s2.rag && [...s2.rag.broken].join(','));
+}
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
 process.exit(fails ? 1 : 0);

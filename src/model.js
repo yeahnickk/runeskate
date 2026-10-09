@@ -47,6 +47,15 @@ export class RSModel {
     this.geo.computeBoundingSphere();
   }
 
+  /** write a free pose (per-vertex xyz, e.g. the bail ragdoll); the next setFrame overwrites it */
+  setVerts(vs) {
+    this.cur = -1;
+    const F = this.faces, p = this.pos;
+    for (let i = 0; i < F.length; i++) { const v = F[i] * 3; p[i * 3] = vs[v]; p[i * 3 + 1] = vs[v + 1]; p[i * 3 + 2] = vs[v + 2]; }
+    this.geo.attributes.position.needsUpdate = true;
+    this.geo.computeBoundingSphere();
+  }
+
   /** centroid (x, z) of the lowest vertices of a frame = where the feet are */
   footOffset(fi) {
     if (!this.feet.has(fi)) {

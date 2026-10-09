@@ -11,6 +11,7 @@
 // is a bail. That project ships the model, not Skate 3's tuning tables, so the numbers here are tuned for this map.
 // Clean-room: written from a description of its behaviour (it is GPL-3.0; this file is MIT).
 import { railTop } from './world.js';
+import { Ragdoll, RD, defaultSkeleton } from './ragdoll.js';
 
 export const P = {
   radius: 0.28,
@@ -894,6 +895,15 @@ export class Skater {
     b.vx = this.vx * 1.15 + (Math.random() - 0.5) * 2; b.vz = this.vz * 1.15 + (Math.random() - 0.5) * 2;
     b.vy = 2.5 + Math.random() * 2.5; b.yaw = this.heading; b.roll = this.boardRoll; b.pitch = 0;
     b.spinR = (Math.random() - 0.5) * 22; b.spinY = (Math.random() - 0.5) * 12;
+    // the rider goes limp: a ragdoll built from the body's pose on this frame, carrying its speed (the renderer
+    // hands over the real model's skeleton and where it stands; headless, a standard one side-on to the board)
+    if (why !== 'water') {
+      // model-local -> three.js (a yaw about y) -> game (z mirrored)
+      const xf = this.ragXf || { yaw: -this.heading, gx: this.x, gy: this.y + 0.09, gz3: -this.z };
+      const c = Math.cos(xf.yaw), sn = Math.sin(xf.yaw);
+      const place = l => [xf.gx + l[0] * c + l[2] * sn, xf.gy + l[1], -(xf.gz3 - l[0] * sn + l[2] * c)];
+      this.rag = new Ragdoll(this.ragSkel || defaultSkeleton(), place, [this.vx, this.mode === 'air' ? this.vy : Math.min(0, this.vy), this.vz], why);
+    } else this.rag = null;
     if (why === 'wall') { b.vx *= -0.35; b.vz *= -0.35; this.vx *= -0.25; this.vz *= -0.25; }
     this.mode = 'bail'; this.bailWhy = why; this.bailT = 0; this.slide = 0;
     this.rail = null; this.bridge = null; this.trick = null; this.boardRoll = 0; this.boardYaw = 0; this.manual = 0; this.grab = null; this.grabPts = 0;
@@ -906,8 +916,19 @@ export class Skater {
   stepBail(dt, inp) {
     this.bailT += dt;
     const w = this.w;
-    // body: skids along the floor and tumbles to a stop
-    if (!this.inWater) {
+    const rag = this.rag;
+    if (rag && !this.inWater) {
+      // the ragdoll: falls, tumbles, slides and comes to rest; the stick still steers it (Skate 3)
+      const hits = rag.hits.length;
+      rag.step(dt, w, inp, this.heading);
+      this.thudT = (this.thudT || 0) - dt;
+      if (this.thudT <= 0) for (let i = hits; i < rag.hits.length; i++) if (rag.hits[i].dv > 5) { this.emit('bump', { impact: rag.hits[i].dv }); this.thudT = 0.15; break; }
+      if (rag.newBreak) { this.emit('broke', { region: rag.newBreak }); rag.newBreak = null; }
+      if (rag.splash) { rag.splash = false; this.inWater = true; this.emit('splash'); }
+      const p = rag.pelvis, v = rag.vel(2, Math.min(dt, 1 / 15) / Math.max(RD.substeps, Math.ceil(Math.min(dt, 1 / 15) * 120 - 1e-6)));
+      this.x = p[0]; this.z = p[2]; this.y = Math.max(w.height(p[0], p[2]), p[1] - 0.5); this.vx = v[0]; this.vz = v[2]; this.vy = v[1];
+    } else if (!this.inWater) {
+      // body: skids along the floor and tumbles to a stop
       this.vy -= P.gravity * dt;
       this.x += this.vx * dt; this.z += this.vz * dt; this.y += this.vy * dt;
       const g = w.height(this.x, this.z);
@@ -942,7 +963,14 @@ export class Skater {
         const vn = b.vx * nx + b.vz * nz; if (vn < 0) { b.vx -= 1.6 * vn * nx; b.vz -= 1.6 * vn * nz; this.emit('clack'); }
       }
     }
-    if (this.bailT > 2.4 && (inp.anyKey || this.bailT > 3.6)) this.recover();
+    if (rag && !this.inWater) {
+      // over: lying still. Get up with any key once over (or after manualAfter), on your own a moment after
+      // settling, and never later than maxTime
+      if ((inp.anyKey && (rag.over || this.bailT > RD.manualAfter)) || rag.settled > RD.settleReset || this.bailT > RD.maxTime) {
+        if (rag.meat > 0) this.emit('meat', { score: rag.meat, broken: [...rag.broken], peak: rag.peak });
+        this.recover();
+      }
+    } else if (this.bailT > 2.4 && (inp.anyKey || this.bailT > 3.6)) this.recover();
   }
 
   collideBody() {
@@ -965,7 +993,7 @@ export class Skater {
     if (this.inWater || this.w.tileKind(x, z) !== 0 || this.nearWall(x, z)) { x = this.lastSafe.x; z = this.lastSafe.z; h = this.lastSafe.heading; }
     const score = this.score, stat = this.stat;
     this.reset(x, z, h);
-    this.score = score; this.stat = stat;
+    this.score = score; this.stat = stat; this.rag = null;
     this.emit('recover');
   }
 

@@ -15,6 +15,7 @@ import { Goals } from './goals.js';
 import { EXTRA_SPAWNS } from './npc-spawns.js';
 import { CORE_SPAWNS } from './mapdata.js';
 import { Portals } from './portals.js';
+import { buildRagSkin, poseRagSkin } from './ragskin.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
@@ -629,7 +630,7 @@ async function main() {
 
   // ---------------- camera rig
   const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
-  let camDir = new THREE.Vector2(0, 1), filmer = null, shake = 0; const lastCam = [0, 0];
+  let camDir = new THREE.Vector2(0, 1), filmer = null, shake = 0, meatBest = 0; const lastCam = [0, 0];
   const ray = new THREE.Raycaster(); ray.firstHitOnly = true;
   function unblock(from, to, pad = 0.35) {
     const d = to.clone().sub(from), L = d.length();
@@ -798,7 +799,14 @@ async function main() {
     const ox = fx * c + fz * s, oz = -fx * s + fz * c;       // rotate the foot offset by the model yaw
     g.position.set(sk.x - ox, py, -sk.z - oz);
     g.scale.set(1, 1 - crouch * 0.9, 1);
-    if (sk.mode === 'bail' && !sk.inWater) {
+    // the bail ragdoll needs this model's skeleton and where it stands, handed over every riding frame
+    if (m._skin === undefined) m._skin = buildRagSkin(m);
+    if (sk.mode !== 'bail') { sk.ragSkel = m._skin?.skel; sk.ragXf = { yaw, gx: g.position.x, gy: g.position.y, gz3: g.position.z }; }
+    if (sk.mode === 'bail' && sk.rag && m._skin && !sk.inWater) {
+      // limp: every body part follows its ragdoll bones (game z is three.js -z)
+      g.position.set(0, 0, 0); g.rotation.set(0, 0, 0); g.quaternion.identity(); g.scale.set(1, 1, 1);
+      m.setVerts(poseRagSkin(m._skin, sk.rag.p.map(p => [p[0], p[1], -p[2]])));
+    } else if (sk.mode === 'bail' && !sk.inWater) {
       // tumble: tip over along the travel direction
       const ax = new THREE.Vector3(Math.sin(sk.tumbleAxis), 0, Math.cos(sk.tumbleAxis));
       g.quaternion.setFromAxisAngle(ax, -sk.tumble * Math.PI / 2 * 0.95).multiply(new THREE.Quaternion().setFromAxisAngle(up, yaw));
@@ -906,6 +914,12 @@ async function main() {
         const [a, b] = BAIL_TEXT[e.why] || BAIL_TEXT.wall;
         hud.big(a, '#ff0000', b + (sk.lostCombo ? `  (lost ${Math.round(sk.lostCombo)})` : ''), 2.6);
         shake = e.why === 'water' ? 0.1 : 0.35;
+      }
+      // Hall of Meat: bones that go on the way down, and the bill once you've stopped (bragging rights, no XP)
+      if (e.type === 'broke') { hud.pop(`BROKEN ${e.region}!`, '#f44'); shake = Math.max(shake, 0.2); audio.event({ type: 'smack' }); }
+      if (e.type === 'meat') {
+        meatBest = Math.max(meatBest, e.score);
+        hud.big('HALL OF MEAT', '#f44', `${e.score.toLocaleString()} pts${e.broken.length ? ` · ${e.broken.length} broken` : ''}${e.score >= meatBest ? ' · NEW BEST' : ''}`, 2.2);
       }
       if (e.type === 'banked' && e.total > 0) {
         hud.big(`+${e.total.toLocaleString()}`, '#ffff00', `${e.n} trick combo`, 1.5);
