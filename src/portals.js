@@ -75,7 +75,7 @@ export class Portals {
     for (const d of DESTS) add(d.back, HOME, 'Lumbridge', null, HOME.col);
     // one big header over the Lumbridge cluster so it reads as "teleports" from the courtyard
     const hx = 3222 - B[0] + 0.5, hz = 3219 - B[1] + 0.5;
-    this.header = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture('Teleports', 'roll into a portal', '#c4f'), depthTest: false, transparent: true }));
+    this.header = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture('Teleports', 'stop on a portal to travel', '#c4f'), depthTest: false, transparent: true }));
     this.header.scale.set(6, 1.5, 1); this.header.renderOrder = 5;
     this.header.position.set(hx, W.height(hx, hz) + 5.2, -hz); this.header.userData.at = [hx, hz];
     scene.add(this.header);
@@ -98,6 +98,12 @@ export class Portals {
       // channel: stand (or roll slowly) on the pad and it fills; ride off or speed up and it drains
       const on = !this.busy && this.cool <= 0 && d < 0.95 && sk.mode !== 'bail' && sk.speed < SLOW && sk.y < p.g.position.y + 2;
       p.ch = on ? p.ch + dt : Math.max(0, p.ch - dt * 3);
+      // a pad holds a rider who has stopped on it (pads stand on gentle slopes): no drifting off mid-channel.
+      // A push is an instant kick past SLOW, so it still rolls you straight off
+      if (on && sk.pushing <= 0 && sk.mode === 'ground') {
+        const k = Math.exp(-6 * dt), pull = Math.min(1, dt * 1.5);
+        sk.vx *= k; sk.vz *= k; sk.x += (p.x - sk.x) * pull; sk.z += (p.z - sk.z) * pull;
+      }
       if (on && p.ch === dt) this.hud.pop(`HOLD STILL: ${p.label.toUpperCase()}`, p.col);
       p.fill.visible = p.ch > 0;
       if (p.ch > 0) { p.fill.geometry.dispose(); p.fill.geometry = new THREE.RingGeometry(0.6, 0.76, 48, 1, Math.PI / 2, -Math.PI * 2 * Math.min(1, p.ch / CHANNEL)); }
