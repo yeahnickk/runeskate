@@ -24,6 +24,7 @@ import { unzipSync, gunzipSync } from 'fflate';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { opens } from './doors.ts';
+import { thinnedTrees } from './thin-trees.ts';
 
 const BASE = 'https://rs-sdk-demo.fly.dev';
 const OUT = join(import.meta.dir, 'out');
@@ -103,6 +104,8 @@ const OPEN_GATES = new Set([2882, 2883]);
 // every door and gate stands open (tools/doors.ts): their models are left out, build.py leaves their edges open
 for (let id = 0; id < LocType.numDefinitions; id++) { let t: any; try { t = LocType.list(id); } catch { continue; } if (opens(t, 0)) OPEN_GATES.add(id); }
 console.log('doors and gates left open:', OPEN_GATES.size, 'loc ids');                   // the Al Kharid toll gate: no toll in RuneSkate, the gateway stands open                                    // face alpha tag -> build.py puts it in locs_alpha
+const THIN = thinnedTrees(LocType);
+console.log('trees thinned out of dense clumps:', THIN.size);
 
 class Soup {
   // growable typed buffers: the whole members map is tens of millions of triangles, too many for JS arrays
@@ -209,6 +212,7 @@ for (let cz = 0; cz < SIZE; cz += CORE) for (let cx = 0; cx < SIZE; cx += CORE) 
   const spriteModel = (sp: any, level: number) => {
     if (!inCore(sp.minTileX, sp.minTileZ)) return;                   // anchored in another block
     if (OPEN_GATES.has(locIdOf(sp.typecode))) return;
+    if (level === 0 && THIN.has(`${ox + sp.minTileX},${oz + sp.minTileZ},${locIdOf(sp.typecode)}`)) return;   // thinned out of a clump
     const see = RAILING.has(locIdOf(sp.typecode)) ? SEE_THROUGH : 0;
     if (HOPPABLE.has(locIdOf(sp.typecode)) && level === 0) for (let x = sp.minTileX; x <= sp.maxTileX; x++) for (let z = sp.minTileZ; z <= sp.maxTileZ; z++) fences.push([gx(x), gz(z), locIdOf(sp.typecode)]);
     locs.model(modelOf(sp.model), sp.x + dx, sp.y, sp.z + dz, see, sp.yaw || 0);

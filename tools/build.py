@@ -304,11 +304,12 @@ for x in range(N):
         if (x, z) in TINY_TILES or (t is not None and t - float(min(ground[x, z])) < FLAT_OBSTACLE):
             blocked[x, z] = False; nflat += 1
 print('tiny/flat obstacles made rideable', nflat)
-DOOR_TILES = {tuple(t) for t in json.load(open(SMALL)).get('doorTiles', [])} if os.path.exists(SMALL) else set()
+# doors/gates left open, and trees thinned out of dense clumps (tools/thin-trees.ts)
+DOOR_TILES = {tuple(t) for k in ('doorTiles', 'clearTiles') for t in json.load(open(SMALL)).get(k, [])} if os.path.exists(SMALL) else set()
 nd = 0
 for (x, z) in DOOR_TILES:
     if 0 <= x < N and 0 <= z < N and blocked[x, z] and not water[x, z]: blocked[x, z] = False; nd += 1
-print('door/gate tiles opened', nd)
+print('door/gate/thinned-tree tiles opened', nd)
 trunk_tile = np.zeros((N, N), bool)
 # trees: a tall blocked tile used to collide as the WHOLE tile (a 2x2 tree = a 2x2 box), so you hit it a metre
 # from the trunk. Measure the trunk instead: the loc geometry in the bottom ~0.7 tiles (the canopy is far above)

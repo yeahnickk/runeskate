@@ -8,6 +8,7 @@ import JagFile from '#/io/JagFile.js';
 import LocType from '#/config/LocType.js';
 import { gunzipSync } from 'fflate';
 import { opens } from './doors.ts';
+import { thinnedTrees } from './thin-trees.ts';
 const CACHE = path.join(import.meta.dir, 'cache');
 const crcPkt = new Packet(new Uint8Array(fs.readFileSync(path.join(CACHE, 'crc'))));
 const crc: number[] = []; for (let i = 0; i < 9; i++) crc[i] = crcPkt.g4();
@@ -22,6 +23,8 @@ const names = new Map<string, number>(), tiles: number[][] = [], hit = new Map<s
 // trees: build.py shrinks their collision to the measured trunk (only for these, never fences/walls/statues)
 export const TREE = /tree|^oak$|willow|^yew$|maple|^magic|evergreen|palm|jungle|dead tree|^achey|^hollow/i;
 const trees: number[][] = [], treeNames = new Map<string, number>();
+// trees thinned out of dense clumps (tools/thin-trees.ts): their tiles are open ground
+const THIN = thinnedTrees(LocType), clearTiles: number[][] = [];
 // doors and gates (tools/doors.ts): the tile edges they close [x0, z0, x1, z1] and the tiles a shape-10 gate fills
 const doorEdges: number[][] = [], doorTiles: number[][] = [];
 // a straight wall on rotation 0..3 closes the tile's W, N, E, S edge; an L wall (shape 2) that edge and the next
@@ -47,6 +50,7 @@ for (const [level, x, z, id, shape, rot] of raw.locs as number[][]) {
   if (!t || !t.blockwalk) continue;
   const nm = t.name || `#${id}`; names.set(nm, (names.get(nm) || 0) + 1);
   const w0 = (rot & 1) ? t.length : t.width, l0 = (rot & 1) ? t.width : t.length;
+  if (THIN.has(`${x},${z},${id}`)) { for (let a = 0; a < w0; a++) for (let b = 0; b < l0; b++) clearTiles.push([x + a - X0, z + b - Z0]); continue; }
   if (TREE.test(nm) && !/stump|fallen|log|plant|flower/i.test(nm)) { treeNames.set(nm, (treeNames.get(nm) || 0) + 1); for (let a = 0; a < w0; a++) for (let b = 0; b < l0; b++) trees.push([x + a - X0, z + b - Z0]); }
   if (!TINY.test(nm) || /^dead tree$|^huge/i.test(nm)) continue;   // dead trees and huge mushrooms are full height
   hit.set(nm, (hit.get(nm) || 0) + 1);
@@ -55,6 +59,6 @@ for (const [level, x, z, id, shape, rot] of raw.locs as number[][]) {
 }
 if (process.argv.includes('--stats')) console.log([...names].sort((a, b) => b[1] - a[1]).map(([n, c]) => `${c} ${n}`).join('\n'));
 console.log('tiny:', [...hit].sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n} ${c}`).join(', '));
-fs.writeFileSync(path.join(import.meta.dir, 'out', 'small-locs.json'), JSON.stringify({ tiles, names: [...hit.keys()], trees, doorEdges, doorTiles }));
-console.log('open doors/gates:', doorEdges.length, 'edges', doorTiles.length, 'tiles');
+fs.writeFileSync(path.join(import.meta.dir, 'out', 'small-locs.json'), JSON.stringify({ tiles, names: [...hit.keys()], trees, doorEdges, doorTiles, clearTiles }));
+console.log('open doors/gates:', doorEdges.length, 'edges', doorTiles.length, 'tiles; trees thinned:', THIN.size, 'clearing', clearTiles.length, 'tiles');
 console.log(tiles.length, 'tiles;', trees.length, 'tree tiles:', [...treeNames].sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n} ${c}`).join(', '));
