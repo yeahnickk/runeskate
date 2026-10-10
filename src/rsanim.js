@@ -115,7 +115,24 @@ export async function buildOutfitModel(outfit) {
     const per = PUSH_UNITS / walk.length;
     anims.push = { frames: fi, delay: fi.map(() => per), foot: anims.ready.frames[0] };
   }
-  return new RSModel({ verts: nv, nframes: nf, anims }, new Float32Array(all), Uint32Array.from(faces), Uint8Array.from(cols));
+  // labels: the RS bone group of every vertex (src/ragskin.js builds the skate body from them); bodyRef: where
+  // each label sits on the plain body, so the skeleton is the same whatever is worn
+  return new RSModel({ verts: nv, nframes: nf, anims, labels: Uint8Array.from(L), bodyRef: bodyRef(kit) }, new Float32Array(all), Uint32Array.from(faces), Uint8Array.from(cols));
+}
+
+/** per label on the default (unarmoured) body: [cx, cy, cz, minY, maxY] in model space, and the sole height */
+function bodyRef(kit) {
+  if (kit._ref) return kit._ref;
+  const acc = {}; let sole = Infinity;
+  for (const i of Object.values(kit.defaults)) {
+    const p = kit.parts[i];
+    for (let v = 0; v < p.nv; v++) {
+      const x = p.pos[v * 3] / 128, y = -p.pos[v * 3 + 1] / 128, z = -p.pos[v * 3 + 2] / 128, a = acc[p.lab[v]] ||= [0, 0, 0, 0, Infinity, -Infinity];
+      a[0] += x; a[1] += y; a[2] += z; a[3]++; a[4] = Math.min(a[4], y); a[5] = Math.max(a[5], y); sole = Math.min(sole, y);
+    }
+  }
+  const labels = {}; for (const [l, a] of Object.entries(acc)) labels[l] = [a[0] / a[3], a[1] / a[3], a[2] / a[3], a[4], a[5]];
+  return (kit._ref = { labels, sole });
 }
 
 // the right leg's vertex labels (hip 24, thigh/knee 26-27, shin 12, foot 8-9) and everything else

@@ -16,7 +16,7 @@ import { EXTRA_SPAWNS } from './npc-spawns.js';
 import { CORE_SPAWNS } from './mapdata.js';
 import { Portals } from './portals.js';
 import { Lighting } from './lighting.js';
-import { buildRagSkin, poseRagSkin } from './ragskin.js';
+import { buildRagSkin, poseRagSkin, skinFrame } from './ragskin.js';
 import { poseRider, rigDims } from './rig.js';
 import { Replay } from './replay.js';
 import { Parks } from './park.js';
@@ -541,7 +541,9 @@ async function main() {
   window.RS.autoLogin = autoLogin; window.RS.prefill = prefill;
 
   // ---------------- outfits: any armour from the game on your own skater (see designer.js / rsanim.js)
-  window.RS.modelFor = o => (o && o.items) ? buildOutfitModel(o) : loadRSModel('nickai3');
+  // no outfit saved yet = the plain RS body (an outfit model carries the bone labels the skate body is built from)
+  window.RS.modelFor = o => buildOutfitModel(o && o.items ? o : { g: 0, items: {}, kits: {} });
+  window.RS.player = () => player;                          // test hook
   let wearing = 0;
   async function wearOutfit(o) {
     const n = ++wearing, m = await window.RS.modelFor(o);
@@ -871,6 +873,8 @@ async function main() {
     g.scale.set(1, 1 - crouch * 0.9, 1);
     // the bail ragdoll needs this model's skeleton and where it stands, handed over every riding frame
     if (m._skin === undefined) m._skin = buildRagSkin(m);
+    // RS clips (walking, emotes) play on the same human body as the skate rig
+    if (m._skin?.labelled && m.cur >= 0) m.setVerts(skinFrame(m._skin, m, m.cur));
     if (sk.mode !== 'bail') { sk.ragSkel = m._skin?.skel; sk.ragXf = { yaw, gx: g.position.x, gy: g.position.y, gz3: g.position.z }; sk.ragPose = null; }
     // riding: the skate rig poses the body, feet locked to the deck (src/rig.js); walking and emotes keep the
     // RuneScape clips
@@ -879,9 +883,10 @@ async function main() {
       const dp = (x, y = TOP_Z) => board.mesh.localToWorld(_v.set(x, y, 0)).toArray();
       const front = dp(0.2), back = dp(-0.24), mid = dp(0), upP = dp(0, TOP_Z + 1);
       const ryaw = byaw - (sk.mode === 'air' ? (sk.boardYaw || 0) : 0);
-      const b = { front, back, up: [upP[0] - mid[0], upP[1] - mid[1], upP[2] - mid[2]], ryaw,
+      const ul = Math.hypot(upP[0] - mid[0], upP[1] - mid[1], upP[2] - mid[2]) || 1;
+      const b = { front, back, up: [(upP[0] - mid[0]) / ul, (upP[1] - mid[1]) / ul, (upP[2] - mid[2]) / ul], ryaw,
         ground: sk.mode === 'ground' ? sk.y : world.height(sk.x, sk.z) };
-      m._rigDims ||= rigDims(m._skin.skel); m._rigSt ||= {};
+      m._rigDims ||= rigDims(m._skin.skel, m._skin); m._rigSt ||= {};
       const P = poseRider(sk, b, m._rigDims, m._rigSt, Math.min(dt, 0.1));
       g.position.set(0, 0, 0); g.rotation.set(0, 0, 0); g.quaternion.identity(); g.scale.set(1, 1, 1);
       m.setVerts(poseRagSkin(m._skin, P));

@@ -28,17 +28,21 @@ export function ik2(a, t, l1, l2, pole) {
   return { mid: add(add(a, mul(dir, x)), mul(p, h)), end: add(a, mul(dir, dl)) };
 }
 
-/** bone lengths of a skeleton */
-export function rigDims(skel) {
+/** bone lengths of a skeleton (skin: src/ragskin.js's, for the spine, the feet and the ankle height) */
+export function rigDims(skel, skin) {
   const d = (a, b) => len(sub(skel[a], skel[b]));
-  return {
+  const F = skin?.full, ext = F ? {
+    abd: len(sub(F[19], F[J.pelvis])), chest: len(sub(F[J.neck], F[19])), ankleH: skin.ankleH,
+    toeF: Math.hypot(F[16][0] - F[J.rFt][0], F[16][2] - F[J.rFt][2]), toeY: F[16][1] - F[J.rFt][1],
+  } : {};
+  return { ...ext,
     thigh: (d(J.lHip, J.lKn) + d(J.rHip, J.rKn)) / 2, shin: (d(J.lKn, J.lFt) + d(J.rKn, J.rFt)) / 2,
     upper: (d(J.lSh, J.lEl) + d(J.rSh, J.rEl)) / 2, fore: (d(J.lEl, J.lHa) + d(J.rEl, J.rHa)) / 2,
     torso: d(J.pelvis, J.neck), neck: d(J.neck, J.head),
     // the head sits forward of the neck in the model's rest pose; keep that lean or the chin tips up
     headLean: Math.atan2(Math.hypot(skel[J.head][0] - skel[J.neck][0], skel[J.head][2] - skel[J.neck][2]), skel[J.head][1] - skel[J.neck][1]), sh: d(J.lSh, J.rSh) / 2, hip: d(J.lHip, J.rHip) / 2,
     shDrop: skel[J.neck][1] - (skel[J.lSh][1] + skel[J.rSh][1]) / 2, hipDrop: skel[J.pelvis][1] - (skel[J.lHip][1] + skel[J.rHip][1]) / 2,
-    ankle: Math.max(0.03, (skel[J.lFt][1] + skel[J.rFt][1]) / 2 - Math.min(skel[J.lFt][1], skel[J.rFt][1]) + 0.05),
+    ankle: ext.ankleH ?? Math.max(0.03, (skel[J.lFt][1] + skel[J.rFt][1]) / 2 - Math.min(skel[J.lFt][1], skel[J.rFt][1]) + 0.05),
   };
 }
 
@@ -114,7 +118,12 @@ export function poseRider(s, b, dims, st, dt) {
   let tdir = rot(up, nose, 0.1 + c * 0.55 + lean * 0.15 + (grind ? bal * 0.3 : 0));   // fold forward, lean into the carve
   tdir = rot(tdir, face, man * 0.28);                                        // manual: back over the tail
   tdir = norm(tdir);
-  const neck = add(pelvis, mul(tdir, D.torso));
+  // a real back curves: the lower spine takes less of the lean than the chest
+  let spine = null, neck;
+  if (D.abd) {
+    const ldir = norm(lerp(up, tdir, 0.45));
+    spine = add(pelvis, mul(ldir, D.abd)); neck = add(spine, mul(tdir, D.chest));
+  } else neck = add(pelvis, mul(tdir, D.torso));
   // head: held up (people keep their eyes level, whatever the back does) and turned to look down the board
   // toward where they're going, over the front shoulder
   st.look = st.look === undefined ? 0.8 : st.look + ((pushing ? 1.25 : air ? 0.55 : grind ? 0.75 : 0.85) - st.look) * Math.min(1, dt * 6);
@@ -159,10 +168,19 @@ export function poseRider(s, b, dims, st, dt) {
   // bones point down, so their turns are negative.
   st.ffoot = st.ffoot === undefined ? 0.5 : st.ffoot + ((pushing ? 1.35 : st.off > 0.5 ? 0.2 : 0.5) - st.ffoot) * Math.min(1, dt * 10);
   const turnRef = (o, ref, axis, a) => add(o, rot(sub(ref, o), norm(axis), a));
-  P.refs = {
-    head: add(neck, mul(rot(nose, up, st.look), D.sh)),
-    rThigh: turnRef(rHip, lHip, sub(rLeg.mid, rHip), -st.ffoot * 0.5), rShin: turnRef(rLeg.mid, lHip, sub(rLeg.end, rLeg.mid), -st.ffoot),
-    lShin: turnRef(lLeg.mid, rHip, sub(lLeg.end, lLeg.mid), -0.12),
-  };
+  P.refs = { head: add(neck, mul(rot(nose, up, st.look), D.sh)) };
+  if (spine) {
+    // feet of their own (src/ragskin.js): flat on whatever they stand on, toes where the stance points them.
+    // The front foot angles up the board; the back foot sits across the tail, or points ahead to push
+    const flat = (dir, n) => norm(sub(dir, mul(n, dot(dir, n))));
+    const deckN = st.off > 0.5 ? up : b.up;
+    const foot = (ankle, dir, n) => { const f = flat(dir, n); return [add(add(ankle, mul(f, D.toeF)), mul(n, D.toeY)), add(ankle, mul(n, 0.1))]; };
+    const [rToe, rUp] = foot(P[J.rFt], rot(face, up, st.ffoot), deckN);
+    const [lToe, lUp] = foot(P[J.lFt], rot(face, up, pushing ? 1.2 : 0.12), pushing ? up : deckN);
+    P[15] = lToe; P[16] = rToe; P[17] = lUp; P[18] = rUp; P[19] = spine;
+  } else {
+    P.refs.rThigh = turnRef(rHip, lHip, sub(rLeg.mid, rHip), -st.ffoot * 0.5); P.refs.rShin = turnRef(rLeg.mid, lHip, sub(rLeg.end, rLeg.mid), -st.ffoot);
+    P.refs.lShin = turnRef(lLeg.mid, rHip, sub(lLeg.end, lLeg.mid), -0.12);
+  }
   return P;
 }

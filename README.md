@@ -18,6 +18,10 @@ map data and running in the browser. Every door and gate stands open.
   landings resolved against the ground normal (land down a bank and keep your speed) and judged sketchy from spin
   rate and sideways speed. Skate 3's own tuning tables are EA's game data (that project loads them from your ISO),
   so the numbers here are tuned for this map; written clean-room from a description of its behaviour.
+- **A human body in RS style.** Your RS player, same low-poly parts, colours and outfit items, skinned to a
+  human skeleton built from RS's own bone labels: realistic proportions (longer legs, a smaller head, a deck the
+  right size underneath), knees, elbows, hips and shoulders that bend smoothly instead of cracking, feet of their
+  own and a back that curves. Walking and emotes are retargeted onto the same body.
 - **A real skater on the board.** The body is posed by two-bone IK with the feet locked to the deck: crouch for
   the pop, the front foot slides up the nose, knees tuck in the air, the back foot plants and drags to push, arms
   balance on a grind. The board tips to the ground under its four wheels (slopes, kerbs).

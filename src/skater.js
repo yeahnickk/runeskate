@@ -98,12 +98,12 @@ const TRICKS = {
 export const TRICK_KEYS = { j: 'kickflip', k: 'heelflip', l: 'shove', i: 'varial', u: 'tre', n: 'hardflip', m: 'shove360', y: 'double', b: 'doubleheel' };
 
 /**
- * four-wheel contact: the ground under each wheel (trucks 0.285 either side of the middle, wheels 0.095 out)
+ * four-wheel contact: the ground under each wheel (trucks 0.245 either side of the middle, wheels 0.082 out)
  * tips the board to the slope and over kerbs. Returns the contact height and the pitch (nose up +) and roll
  * (right side down +) the board sits at.
  */
 export function wheelContact(w, x, z, yaw) {
-  const nx = Math.cos(yaw), nz = Math.sin(yaw), rx = nz, rz = -nx, T = 0.285, S = 0.095;
+  const nx = Math.cos(yaw), nz = Math.sin(yaw), rx = nz, rz = -nx, T = 0.245, S = 0.082;     // (the drawn deck, model.js BOARD_SCALE)
   const h = (a, b) => w.height(x + nx * a + rx * b, z + nz * a + rz * b);
   const fl = h(T, -S), fr = h(T, S), bl = h(-T, -S), br = h(-T, S);
   const f = Math.max(fl, fr), b = Math.max(bl, br), l = Math.max(fl, bl), r = Math.max(fr, br);
@@ -917,7 +917,7 @@ export class Skater {
       const xf = this.ragXf || { yaw: -this.heading, gx: this.x, gy: this.y + 0.09, gz3: -this.z };
       const c = Math.cos(xf.yaw), sn = Math.sin(xf.yaw);
       // riding with the skate rig: start from the pose on screen (src/rig.js), else the standing skeleton
-      const pose = this.ragPose && this.ragPose.length === 15 ? this.ragPose : null;
+      const pose = this.ragPose && this.ragPose.length >= 15 ? this.ragPose : null;   // (the rig adds toes and a spine after the 15)
       const place = pose ? (l, i) => pose[i].slice() : l => [xf.gx + l[0] * c + l[2] * sn, xf.gy + l[1], -(xf.gz3 - l[0] * sn + l[2] * c)];
       this.rag = new Ragdoll(this.ragSkel || defaultSkeleton(), place, [this.vx, this.mode === 'air' ? this.vy : Math.min(0, this.vy), this.vz], why);
     } else this.rag = null;

@@ -98,6 +98,8 @@ export class RSModel {
 
 // ---------------------------------------------------------------- skateboard (RS-style low poly)
 const LIGHT = new THREE.Vector3(-0.35, 0.82, 0.45).normalize();
+// the deck is drawn at BOARD_SCALE: next to the human-proportioned rider (src/ragskin.js) that's a real deck's size
+export const BOARD_SCALE = 0.86;
 export const L_BOARD = 0.92, W_BOARD = 0.24, DECK_Z = 0.075, DECK_T = 0.014, TOP_Z = DECK_Z + DECK_T;
 
 export function buildBoard(gold = false) {                // gold: the owner's board
@@ -157,6 +159,7 @@ export function buildBoard(gold = false) {                // gold: the owner's b
   const yaw = new THREE.Group(), pitch = new THREE.Group(), roll = new THREE.Group();
   roll.position.y = DECK_Z; mesh.position.y = -DECK_Z;
   yaw.add(pitch); pitch.add(roll); roll.add(mesh);
+  yaw.scale.setScalar(BOARD_SCALE);
   modelHooks.created?.(mesh);
   return { root: yaw, pitch, roll, mesh };
 }
