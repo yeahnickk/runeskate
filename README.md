@@ -43,7 +43,9 @@ map data and running in the browser. Every door and gate stands open.
 - **Grind anything that looks grindable.** Bridge parapets, fences, low walls and hedges, measured from the
   real geometry. Grinds carry round corners, past gates and missing posts, and run smooth over lumpy fence
   tops and posts instead of stopping.
-- **The real map.** Every wall, gate, tree and river comes from the server's own collision data. Trees
+- **The real map, made roomy.** The world is the RS map stretched 1.5x wide (`WORLD_SCALE` in `src/mapdata.js`):
+  streets, gates and gaps are wider to skate through, while rails, ledges and walls keep their real heights.
+  Every wall, gate, tree and river comes from the server's own collision data. Trees
   collide at the trunk, not the tile, and flowers, stumps and fungus are ridden straight over.
 - **Multiplayer.** Everyone on one server, with chat, emotes, outfits and a leaderboard.
 - **Replay editor.** X opens the last 30 seconds: scrub, slow-mo down to 1/8x, four cameras (follow, tripod,
@@ -57,6 +59,8 @@ map data and running in the browser. Every door and gate stands open.
 - **Things to do.** 100 hidden runes and a set of challenge spots across the map, goblins to stomp, and
   teleports to every town: press TAB (or the TELEPORT button) anywhere and pick one.
   Collect all 100 runes (the real 2004 rune stones) to unlock `::noclip`.
+- **A calm screen.** Trick names live in the combo line at the bottom; only a banked combo, a level-up or
+  something rare gets a short popup, at most two at a time. Bones and Hall of Meat scores go to the chat log.
 - **Phones and tablets.** Full touch controls (a thumbstick that appears under your thumb, OLLIE, GRAB /
   MANUAL, SLIDE, swipe-to-flick tricks, replay buttons) and lighter graphics. Works on iPhone Safari; add it to
   the home screen for full screen. Play it sideways.

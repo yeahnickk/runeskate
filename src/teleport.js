@@ -97,9 +97,9 @@ export class Teleports {
   }
   mark() { this.cards.forEach((c, i) => c.classList.toggle('sel', i === this.sel)); }
   nearest() {
-    const B = this.world.base, sk = this.sk;
-    let best = -1, bd = 40;
-    PLACES.forEach((p, i) => { const d = Math.hypot(p.at[0] - B[0] + 0.5 - sk.x, p.at[1] - B[1] + 0.5 - sk.z); if (d < bd) { bd = d; best = i; } });
+    const W = this.world, sk = this.sk;
+    let best = -1, bd = 40 * W.S;
+    PLACES.forEach((p, i) => { const [px, pz] = W.fromTile(p.at[0], p.at[1]), d = Math.hypot(px - sk.x, pz - sk.z); if (d < bd) { bd = d; best = i; } });
     return best;
   }
   drawTop() {
@@ -140,18 +140,18 @@ export class Teleports {
   }
 
   async go(to) {
-    const sk = this.sk, B = this.world.base;
-    const x = to.at[0] - B[0] + 0.5, z = to.at[1] - B[1] + 0.5;
+    const sk = this.sk, W = this.world;
+    const [x, z] = W.fromTile(to.at[0], to.at[1]);
     this.busy = true; this.audio.event({ type: 'levelup' }); this.fade.style.opacity = '1';
     const wait = ms => new Promise(r => setTimeout(r, ms));
     await wait(360);
-    try { await this.ensureAt(Math.floor(x), Math.floor(z)); }
+    try { await this.ensureAt(...W.tileOf(x, z)); }
     catch { this.fade.style.opacity = '0'; this.hud.big('TELEPORT FAILED', '#f00', 'try again in a moment', 2); this.busy = false; this.cool = 3; return; }
     // face away from where the old home portal stood (the open side of every arrival point)
-    const back = to.back ? [to.back[0] - B[0] + 0.5, to.back[1] - B[1] + 0.5] : null;
+    const back = to.back ? W.fromTile(to.back[0], to.back[1]) : null;
     const heading = back ? Math.atan2(z - back[1], x - back[0]) : Math.PI / 2;
     sk.reset(x, z, heading); await wait(120); this.fade.style.opacity = '0';
-    this.hud.big(to.name.toUpperCase(), to.col, to.sub || 'TAB to teleport again', 2.2, true);
+    this.hud.big(to.name.toUpperCase(), to.col, '', 1.6, true);
     this.busy = false; this.cool = COOL;
   }
 }

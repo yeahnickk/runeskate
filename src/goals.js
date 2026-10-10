@@ -94,7 +94,7 @@ export class Goals {
     // change can't move them or let anyone collect the same rune twice. Air runes float high: ollie or grind.
     const byKind = Object.fromEntries(RUNES.map((r, i) => [r.kind, i]));
     for (const q of runeList || []) {
-      const k = byKind[q.kind] ?? 0, x = q.x - W.base[0] + 0.5, z = q.z - W.base[1] + 0.5;
+      const k = byKind[q.kind] ?? 0, [x, z] = W.fromTile ? W.fromTile(q.x, q.z) : [q.x - W.base[0] + 0.5, q.z - W.base[1] + 0.5];
       // the real rune stone model, with the old flat icon standing in until it has loaded
       const s = new THREE.Group(), icon = new THREE.Sprite(mats[k]); icon.scale.set(0.7, 0.7, 1); s.add(icon);
       runeGeometry(q.kind).then(g => {
@@ -104,13 +104,13 @@ export class Goals {
       }).catch(() => {});
       scene.add(s);
       this.runes.push({ id: q.id, kind: q.kind, high: !!q.high, x, z, y: W.height(x, z) + (q.high ? 1.35 : 0.6), s,
-        live: W.isLive ? W.isLive(Math.floor(x), Math.floor(z)) : true });
+        live: W.isLive ? W.isLive(...W.tileOf(x, z)) : true });
     }
     // spot beams
     const beamMat = new THREE.MeshBasicMaterial({ color: 0xffcc33, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide });
     const ringMat = new THREE.MeshBasicMaterial({ color: 0xffee66, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide });
     for (const sp of SPOTS) {
-      let [x, z] = [sp.at[0] - W.base[0] + 0.5, sp.at[1] - W.base[1] + 0.5];
+      let [x, z] = W.fromTile(sp.at[0], sp.at[1]);
       for (let r = 0; r < 8 && (W.tileKind(x, z) !== 0 || this.nearWall(x, z)); r++) {       // snap onto open ground
         let best = null;
         for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) if (W.tileKind(x + dx, z + dz) === 0 && !this.nearWall(x + dx, z + dz)) { best = [x + dx, z + dz]; break; }
@@ -126,7 +126,7 @@ export class Goals {
 
   /** a streamed region arrived: runes standing in it now have real ground under them */
   regionLoaded() {
-    for (const r of this.runes) if (!r.live && this.world.isLive(Math.floor(r.x), Math.floor(r.z))) { r.live = true; r.y = this.world.height(r.x, r.z) + (r.high ? 1.35 : 0.6); }
+    for (const r of this.runes) if (!r.live && this.world.isLive(...this.world.tileOf(r.x, r.z))) { r.live = true; r.y = this.world.height(r.x, r.z) + (r.high ? 1.35 : 0.6); }
   }
 
   nearWall(x, z) { for (const s of this.world.segsNear(x, z, 1)) if (s.kind !== 'water') { const L2 = s.dx * s.dx + s.dz * s.dz, t = Math.max(0, Math.min(1, ((x - s.ax) * s.dx + (z - s.az) * s.dz) / L2)); if (Math.hypot(x - s.ax - s.dx * t, z - s.az - s.dz * t) < 0.8) return true; } return false; }

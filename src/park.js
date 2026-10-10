@@ -10,13 +10,14 @@ const COL = { rail: 0x9aa2ad, ledge: 0xb9b3a6, kicker: 0x9c6b3c };
 
 /** world pieces for an object: rails + walls, or a ramp. bx, bz = the world's base tile (game = world - base) */
 export function parkPieces(o, w) {
-  const K = PARK_KINDS[o.kind], [dx, dz] = DIRS[o.dir], bx = w.base[0], bz = w.base[1];
+  const K = PARK_KINDS[o.kind], [dx, dz] = DIRS[o.dir], bx = w.base[0], bz = w.base[1], S = w.S || 1;
+  // (worked out in local tiles, handed to the World in game units = tiles * S)
   // the run along the object's axis in game coords: from the start tile's edge to the far end
   const x0 = o.x - bx + (dx < 0 ? 1 : 0), z0 = o.z - bz + (dz < 0 ? 1 : 0);
   if (o.kind === 'kicker') {
     // the ramp rises from the start edge to the lip, across both tiles of its width
     const tiles = footprint(o).map(([x, z]) => [x - bx, z - bz]);
-    return { ramp: { tiles, x0, z0, dx, dz, len: o.len, rise: K.h } };
+    return { ramp: { tiles, x0: x0 * S, z0: z0 * S, dx, dz, len: o.len * S, rise: K.h } };   // (tiles stay tile indices)
   }
   const horiz = dz === 0, a0 = horiz ? Math.min(x0, x0 + dx * o.len) : Math.min(z0, z0 + dz * o.len), a1 = a0 + o.len;
   const sx = -dz, sz = dx;                               // across the object
@@ -28,19 +29,19 @@ export function parkPieces(o, w) {
     const prof = [];
     for (let a = a0; a < a1; a++) for (const f of [0.15, 0.5, 0.85]) {
       const gx = horiz ? a + f : c, gz = horiz ? c : a + f;
-      prof.push([a + f, w.height(gx, gz) + K.h]);
+      prof.push([(a + f) * S, w.height(gx * S, gz * S) + K.h]);
     }
-    const r = horiz ? { ax: a0, az: c, bx: a1, bz: c } : { ax: c, az: a0, bx: c, bz: a1 };
-    Object.assign(r, { horiz, len: o.len, a0, prof, dirx: horiz ? 1 : 0, dirz: horiz ? 0 : 1, minLen: 1, mat: o.kind === 'rail' ? 'metal' : 'stone' });
+    const r = horiz ? { ax: a0 * S, az: c * S, bx: a1 * S, bz: c * S } : { ax: c * S, az: a0 * S, bx: c * S, bz: a1 * S };
+    Object.assign(r, { horiz, len: o.len * S, a0: a0 * S, prof, dirx: horiz ? 1 : 0, dirz: horiz ? 0 : 1, minLen: 1, mat: o.kind === 'rail' ? 'metal' : 'stone' });
     rails.push(r);
     for (let a = a0; a < a1; a++) {
-      const top = [0.15, 0.5, 0.85].map(f => w.height(horiz ? a + f : c, horiz ? c : a + f) + K.h);
-      segs.push(horiz ? { ax: a, az: c, bx: a + 1, bz: c, kind: o.kind === 'rail' ? 'rail' : 'block', top } : { ax: c, az: a, bx: c, bz: a + 1, kind: o.kind === 'rail' ? 'rail' : 'block', top });
+      const top = [0.15, 0.5, 0.85].map(f => w.height((horiz ? a + f : c) * S, (horiz ? c : a + f) * S) + K.h);
+      segs.push(horiz ? { ax: a * S, az: c * S, bx: (a + 1) * S, bz: c * S, kind: o.kind === 'rail' ? 'rail' : 'block', top } : { ax: c * S, az: a * S, bx: c * S, bz: (a + 1) * S, kind: o.kind === 'rail' ? 'rail' : 'block', top });
     }
   }
   if (o.kind === 'ledge') {                              // the two short ends
     const c0 = horiz ? Math.min(...rails.map(r => r.az)) : Math.min(...rails.map(r => r.ax)), c1 = horiz ? Math.max(...rails.map(r => r.az)) : Math.max(...rails.map(r => r.ax));
-    for (const a of [a0, a1]) {
+    for (const a of [a0 * S, a1 * S]) {
       const top = [0.15, 0.5, 0.85].map(() => w.height(horiz ? a : (c0 + c1) / 2, horiz ? (c0 + c1) / 2 : a) + K.h);
       segs.push(horiz ? { ax: a, az: c0, bx: a, bz: c1, kind: 'block', top } : { ax: c0, az: a, bx: c1, bz: a, kind: 'block', top });
     }
@@ -50,13 +51,13 @@ export function parkPieces(o, w) {
 
 /** a mesh for an object (three.js coords: x, y, -z) */
 export function parkMesh(o, w, ghost = false) {
-  const K = PARK_KINDS[o.kind], [dx, dz] = DIRS[o.dir], bx = w.base[0], bz = w.base[1];
+  const K = PARK_KINDS[o.kind], [dx, dz] = DIRS[o.dir], bx = w.base[0], bz = w.base[1], S = w.S || 1;
   const mat = ghost ? new THREE.MeshBasicMaterial({ color: 0x33ffaa, transparent: true, opacity: 0.45, depthWrite: false })
     : new THREE.MeshLambertMaterial({ color: COL[o.kind], flatShading: true, side: THREE.DoubleSide });
   const g = new THREE.Group();
   const tiles = footprint(o);
-  const cx = tiles.reduce((s, t) => s + t[0], 0) / tiles.length + 0.5 - bx, cz = tiles.reduce((s, t) => s + t[1], 0) / tiles.length + 0.5 - bz;
-  const gy = w.height(cx, cz), along = o.len, wide = K.wide, yaw = Math.atan2(dz, dx);
+  const cx = (tiles.reduce((s, t) => s + t[0], 0) / tiles.length + 0.5 - bx) * S, cz = (tiles.reduce((s, t) => s + t[1], 0) / tiles.length + 0.5 - bz) * S;
+  const gy = w.height(cx, cz), along = o.len * S, wide = K.wide * S, yaw = Math.atan2(dz, dx);
   const box = (lx, ly, lz, px, py, pz) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(lx, ly, lz), mat); m.position.set(px, py, pz); g.add(m); return m;
   };
@@ -115,16 +116,16 @@ export class Parks {
     const fx = Math.cos(sk.heading), fz = Math.sin(sk.heading);
     const len = Math.max(K.min, Math.min(K.max, this.len));
     // start 2 tiles ahead; kickers face you (rise away from you), rails and ledges run along your line
-    const sx = Math.floor(sk.x + fx * 2.5 + w.base[0]), sz = Math.floor(sk.z + fz * 2.5 + w.base[1]);
+    const [tx, tz] = w.tileOf(sk.x + fx * 2.5 * w.S, sk.z + fz * 2.5 * w.S), sx = tx + w.base[0], sz = tz + w.base[1];
     return { kind: this.kind, x: sx, z: sz, dir, len };
   }
   /** why this piece can't go here, or null */
   blocked(o) {
-    const c = cleanPark(o); if (!c) return 'too close to a portal';
+    const c = cleanPark(o); if (!c) return 'too close to spawn or a teleport';
     const w = this.world, taken = new Set([...this.objs.values()].flatMap(e => footprint(e.o).map(t => t.join(','))));
     for (const [tx, tz] of footprint(c)) {
       const gx = tx - w.base[0], gz = tz - w.base[1];
-      if (!w.isLive(gx, gz) || w.tileKind(gx + 0.5, gz + 0.5) !== 0) return 'needs open ground';
+      if (!w.isLive(gx, gz) || w.tileKind((gx + 0.5) * w.S, (gz + 0.5) * w.S) !== 0) return 'needs open ground';
       if (taken.has(tx + ',' + tz)) return 'something is already built there';
     }
     return null;
@@ -151,7 +152,7 @@ export class Parks {
     const w = this.world; let best = null, bd = 6;
     for (const e of this.objs.values()) {
       if (e.o.by !== this.me.name && !this.me.own) continue;
-      for (const [tx, tz] of footprint(e.o)) { const d = Math.hypot(tx + 0.5 - w.base[0] - sk.x, tz + 0.5 - w.base[1] - sk.z); if (d < bd) { bd = d; best = e; } }
+      for (const [tx, tz] of footprint(e.o)) { const [px, pz] = w.fromTile(tx, tz), d = Math.hypot(px - sk.x, pz - sk.z); if (d < bd) { bd = d; best = e; } }
     }
     if (!best) { this.hud.pop('NONE OF YOUR PIECES NEARBY', '#f80'); return; }
     this.net.send({ t: 'park', op: 'del', id: best.o.id });

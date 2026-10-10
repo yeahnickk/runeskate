@@ -165,7 +165,7 @@ export class Skater {
       case 'walk': this.stepWalk(dt, input); break;
     }
     // the exported map ends: a soft invisible edge, so nobody rides off the world
-    const lo = 0.6, hi = this.w.N - 0.6;
+    const lo = 0.6, hi = this.w.W - 0.6;
     if (this.x < lo) { this.x = lo; this.vx = Math.max(0, this.vx); } else if (this.x > hi) { this.x = hi; this.vx = Math.min(0, this.vx); }
     if (this.z < lo) { this.z = lo; this.vz = Math.max(0, this.vz); } else if (this.z > hi) { this.z = hi; this.vz = Math.min(0, this.vz); }
     if (this.mode === 'ground' || this.mode === 'walk' || this.mode === 'air') this.unstick(dt);
@@ -346,7 +346,7 @@ export class Skater {
         const qx = px + lx * o, qz = pz + lz * o, k = w.tileKind(qx, qz);
         if (w.trunkAt(qx, qz, 0.05)) return { d, tree: true };
         if (k === 0 || k === 4) continue;
-        const tree = k === 1 && this.tallBlock(Math.floor(qx), Math.floor(qz));
+        const tree = k === 1 && this.tallBlock(qx, qz);
         if (tree || k !== 1) return { d, tree };
       }
       // walls/fences (anything you can't just roll through) end a feeler too, so it never dodges a tree into a wall
@@ -355,14 +355,15 @@ export class Skater {
     return { d: look, tree: false };
   }
 
-  tallBlock(tx, tz) {
-    const w = this.w;
-    if (w.tileKind(tx + 0.5, tz + 0.5) !== 1) return false;
+  /** is the blocked tile under game position (x, z) something tall (a tree, a house), not a low block you hop? */
+  tallBlock(x, z) {
+    const w = this.w, S = w.S || 1, tx = Math.floor(x / S), tz = Math.floor(z / S), cx = (tx + 0.5) * S, cz = (tz + 0.5) * S;
+    if (w.tileKind(cx, cz) !== 1) return false;
     const c = w._tall || (w._tall = new Map()), k = tx * 4096 + tz;
     let v = c.get(k);
     if (v === undefined) {
       v = true;
-      for (const s of w.segsNear(tx + 0.5, tz + 0.5, 0.6)) if (s.kind === 'block' && s.top && segDist(tx + 0.5, tz + 0.5, s) < 0.55) { v = false; break; }
+      for (const s of w.segsNear(cx, cz, 0.6 * S)) if (s.kind === 'block' && s.top && segDist(cx, cz, s) < 0.55 * S) { v = false; break; }
       c.set(k, v);
     }
     return v;
@@ -441,7 +442,7 @@ export class Skater {
     if (this.vy < 3 && this.tryGrind()) return;
     // flying through a tree: hold the board just over it until you're out the other side, so you never land in one
     if (!this.noclip && this.speed > 1.5 && (this.w.trunkAt(this.x, this.z, P.trunkPad + 0.1)
-        || (this.w.tileKind(this.x, this.z) === 1 && this.tallBlock(Math.floor(this.x), Math.floor(this.z))))) {
+        || (this.w.tileKind(this.x, this.z) === 1 && this.tallBlock(this.x, this.z)))) {
       const gt = this.w.height(this.x, this.z) + P.treeClear + 0.01;
       if (this.y < gt && this.y > gt - 0.5) { this.y = gt; this.vy = Math.max(this.vy, -1.5); }
     }
@@ -656,12 +657,13 @@ export class Skater {
       for (const [qt, qdir] of [[0, 1], [q.len, -1]]) {
         const qx = q.horiz ? q.ax + qt : q.ax, qz = q.horiz ? q.az : q.az + qt;
         const gap = Math.hypot(qx - ex, qz - ez);
-        if (gap > P.grindGapStraight) continue;
+        const S = this.w.S || 1;                                           // (gaps are measured in tiles)
+        if (gap > P.grindGapStraight * S) continue;
         const ox = q.dirx * qdir, oz = q.dirz * qdir, dot = fx * ox + fz * oz;
         if (dot < -0.1) continue;                                           // no hairpins
         // the same fence line carrying on past a gate / a missing post: a longer gap is fine, straight on
         const inLine = dot > 0.99 && Math.abs((qx - ex) * fz - (qz - ez) * fx) < 0.05;
-        if (gap > P.grindGap && !inLine) continue;
+        if (gap > P.grindGap * S && !inLine) continue;
         if (gap > 0.05 && (qx - ex) * fx + (qz - ez) * fz < -0.3) continue;   // never hop back to a rail behind you
         const qy = railTop(q, qt);
         if (qy - ey > P.grindStepUp || ey - qy > 2) continue;

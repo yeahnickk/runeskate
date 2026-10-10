@@ -13,7 +13,7 @@ import { buildOutfitModel, loadKit } from './rsanim.js';
 import { Designer } from './designer.js';
 import { Goals } from './goals.js';
 import { EXTRA_SPAWNS } from './npc-spawns.js';
-import { CORE_SPAWNS } from './mapdata.js';
+import { CORE_SPAWNS, WORLD_SCALE as S } from './mapdata.js';
 import { Teleports } from './teleport.js';
 import { Touch } from './touch.js';
 import { nearFarPlan } from './nearfirst.js';
@@ -55,7 +55,7 @@ async function main() {
   const pHit = loadHitsplat();
   loadKit(0).catch(() => {});
   const wjson = await pJson;
-  const world = new World(wjson);
+  const world = new World(wjson, { scale: S });
   let bin = await pNear, farPlan = null;
   if (bin) { const plan = nearFarPlan(wjson.index, wjson.spawn); if (plan.files[0].size === bin.byteLength) farPlan = plan; else bin = null; }
   if (!bin) bin = await fetch('assets/world.bin').then(r => r.arrayBuffer());
@@ -68,8 +68,8 @@ async function main() {
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;     // RS colours are baked, show them 1:1
   renderer.setClearColor(0x000000, 0);
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(FOG, 24, 62);
-  const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 110);
+  scene.fog = new THREE.Fog(FOG, 30, 76);                  // (the world is WORLD_SCALE wide: see further down the wider streets)
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 130);
 
   // the world comes in CH x CH tile chunks (int16 RS units relative to the chunk corner); far chunks are
   // hidden each frame so a 256x256-tile map costs about what the old 104x104 one did
@@ -131,9 +131,9 @@ async function main() {
       g.setAttribute('color', new THREE.BufferAttribute(new Uint8Array(bin, part.colOff, part.n * 3), 3, true));
       const alpha = k === 'locs_alpha';
       const m = new THREE.Mesh(g, alpha ? mats.alpha : mats.opaque);
-      m.position.set(ch.cx * CH, 0, -ch.cz * CH); m.scale.set(1 / 128, -1 / 128, -1 / 128);
+      m.position.set(ch.cx * CH * S, 0, -ch.cz * CH * S); m.scale.set(S / 128, -1 / 128, -S / 128);   // the map stretched S wide, same height
       m.updateMatrix(); m.matrixAutoUpdate = false;
-      m.userData.c = [(ch.cx + 0.5) * CH, (ch.cz + 0.5) * CH]; m.userData.kind = k; lighting.add(m, k);
+      m.userData.c = [(ch.cx + 0.5) * CH * S, (ch.cz + 0.5) * CH * S]; m.userData.kind = k; lighting.add(m, k);
       if (alpha) m.renderOrder = 1;
       scene.add(m); chunkMeshes.push(m);
       if (!alpha) occluders.push(m);             // BVH built lazily, only for chunks the camera gets near
@@ -155,14 +155,14 @@ async function main() {
   function cullChunks(x, z) {
     nearOccluders.length = 0;
     for (const m of chunkMeshes) {
-      const d = Math.max(Math.abs(m.userData.c[0] - x), Math.abs(m.userData.c[1] - z)) - CH / 2;
+      const d = Math.max(Math.abs(m.userData.c[0] - x), Math.abs(m.userData.c[1] - z)) - CH * S / 2;
       // round, not square: anything past the fog is invisible anyway (the camera trails the skater ~5 tiles)
-      const ex = Math.max(0, Math.abs(m.userData.c[0] - x) - CH / 2), ez = Math.max(0, Math.abs(m.userData.c[1] - z) - CH / 2);
+      const ex = Math.max(0, Math.abs(m.userData.c[0] - x) - CH * S / 2), ez = Math.max(0, Math.abs(m.userData.c[1] - z) - CH * S / 2);
       m.visible = Math.hypot(ex, ez) < scene.fog.far + 6;
-      if (d < 12 && m.material === mats.opaque) {
+      if (d < 12 * S && m.material === mats.opaque) {
         if (!m.geometry.boundsTree) m.geometry.computeBoundsTree();
         nearOccluders.push(m);
-      } else if (d < 24 && m.material === mats.opaque && !m.geometry.boundsTree && !bvhQueue.includes(m)) bvhQueue.push(m);
+      } else if (d < 24 * S && m.material === mats.opaque && !m.geometry.boundsTree && !bvhQueue.includes(m)) bvhQueue.push(m);
     }
     // warm the next ring of chunks one per frame so crossing into them never hitches
     if (bvhQueue.length) { const m = bvhQueue.shift(); if (!m.geometry.boundsTree) m.geometry.computeBoundsTree(); }
@@ -171,14 +171,14 @@ async function main() {
   // ---------------- minimap: each region rendered ONCE from straight above (north up), 2 px per tile, into
   // one canvas the size of the whole grid (land not loaded yet stays black)
   status('drawing the map...');
-  const miniMap = (() => { const c = document.createElement('canvas'); c.width = c.height = world.N * 2; return { canvas: c, PX: 2, N: world.N }; })();
+  const miniMap = (() => { const c = document.createElement('canvas'); c.width = c.height = world.N * 2; return { canvas: c, PX: 2, N: world.N, S }; })();
   const renderMini = ({ x0, z0, w, h }) => {
     const N = world.N, PX = miniMap.PX, SW = w * PX, SH = h * PX;
     const rtm = new THREE.WebGLRenderTarget(SW, SH);
     const cam = new THREE.OrthographicCamera(0, 1, 1, 0, 1, 600);
     cam.position.set(0, 400, 0); cam.up.set(0, 0, -1); cam.lookAt(0, 0, 0);
     // after lookAt the view's +x is east and +y is north (-z): frame x x0..x0+w, z z0..z0+h
-    cam.left = x0; cam.right = x0 + w; cam.top = z0 + h; cam.bottom = z0; cam.updateProjectionMatrix();
+    cam.left = x0 * S; cam.right = (x0 + w) * S; cam.top = (z0 + h) * S; cam.bottom = z0 * S; cam.updateProjectionMatrix();
     const fog = scene.fog; scene.fog = null;
     const vis = chunkMeshes.map(m => m.visible);
     for (const m of chunkMeshes) m.visible = true;
@@ -197,12 +197,12 @@ async function main() {
   // running world: meshes, collision, rails, minimap. Until then its edge is a wall, like the old map edge.
   const STREAM_AT = 48, regionState = new Map();          // name -> 'loading' | 'ready' | 'failed'
   let loadNoteT = 0;
-  function streamRegions(x, z, dt) {
+  function streamRegions(gx, gz, dt) {
+    const x = gx / S, z = gz / S;                           // (regions are in tiles)
     for (const r of world.regions) {
       if (world.loaded.has(r.name)) continue;
       const d = Math.hypot(Math.max(r.x0 - x, 0, x - (r.x0 + r.w)), Math.max(r.z0 - z, 0, z - (r.z0 + r.h)));
       const title = r.title || r.name;
-      if (d < 8 && (loadNoteT -= dt) <= 0) { loadNoteT = 4; hud.pop(`loading ${title}...`, '#ff981f'); }
       if (d > STREAM_AT) continue;
       loadRegion(r).catch(() => {});
     }
@@ -221,13 +221,12 @@ async function main() {
         regionState.set(r.name, 'ready');
         spawnNpcs(pack);
         goals.regionLoaded();
-        hud.pop(`${title.toUpperCase()} IS OPEN`, '#0f0');
       })
       .catch(e => { regionState.set(r.name, 'failed'); setTimeout(() => { regionState.delete(r.name); regionLoads.delete(r.name); }, 10000); throw e; });   // try again shortly
     regionLoads.set(r.name, p);
     return p;
   }
-  /** make sure the region holding local tile (x,z) is loaded */
+  /** make sure the region holding local TILE (x,z) is loaded */
   const ensureAt = (x, z) => { const r = world.regions.find(q => x >= q.x0 && x < q.x0 + q.w && z >= q.z0 && z < q.z0 + q.h); return r ? loadRegion(r) : Promise.resolve(); };
   status('loading skaters...');
   await pModels;
@@ -264,9 +263,9 @@ async function main() {
   for (const [kind, spots] of Object.entries(EXTRA_SPAWNS)) (NPC_SPAWNS[kind] ||= []).push(...spots);
   const npcs = [], pendingNpcs = [];
   for (const [kind, spots] of Object.entries(NPC_SPAWNS)) for (const [gx, gz] of spots)
-    pendingNpcs.push({ kind, x: gx - world.base[0] + 0.5, z: gz - world.base[1] + 0.5 });
+    pendingNpcs.push({ kind, ...(([x, z]) => ({ x, z }))(world.fromTile(gx, gz)) });
   async function spawnNpcs({ x0, z0, w, h }) {
-    const mine = pendingNpcs.filter(p => p.x >= x0 && p.x < x0 + w && p.z >= z0 && p.z < z0 + h);
+    const mine = pendingNpcs.filter(p => p.x >= x0 * S && p.x < (x0 + w) * S && p.z >= z0 * S && p.z < (z0 + h) * S);
     for (const p of mine) pendingNpcs.splice(pendingNpcs.indexOf(p), 1);
     for (const { kind, x, z } of mine) {
       let m; try { m = await loadRSModel('npc_' + kind); } catch { continue; }    // cached after the first of a kind
@@ -383,7 +382,7 @@ async function main() {
     const tricks = TRICK_KEYS;
     if (tricks[k]) { pendingTrick = tricks[k]; trickTimer = 0.18; }
     if (EMOTE_KEYS[k]) startEmote(+k);
-    if (k === 'c') { cfg.cam = (cfg.cam + 1) % 3; cfg.camName = CAMS[cfg.cam]; filmer = null; }
+    if (k === 'c') { cfg.cam = (cfg.cam + 1) % 3; cfg.camName = CAMS[cfg.cam]; filmer = null; hud.pop('CAMERA: ' + cfg.camName, '#fff'); }
     if (k === 'g') hud.pop('GRAPHICS: ' + lighting.toggle().toUpperCase(), '#0ff');
     if (k === 'x') openReplay();
     if (k === 'p' && parks) hud.pop(parks.toggle() ? 'BUILD MODE' : 'BUILD MODE OFF', '#3fa');
@@ -1043,27 +1042,24 @@ async function main() {
       window.RS.eventsLog.push(e.type + (e.why ? ':' + e.why : '') + (e.name ? ':' + e.name : '') + (e.kind ? ':' + e.kind : ''));
       if (window.RS.eventsLog.length > 200) window.RS.eventsLog.shift();
       audio.event(e); goals.event(e);
-      if (e.type === 'trick') hud.pop(e.name + '  ' + e.pts, '#fff');
-      if (e.type === 'grind') hud.pop(e.kind, '#ff981f');
-      if (e.type === 'grab') hud.pop(e.kind + ' Grab', '#0ff');
-      if (e.type === 'manual') hud.pop(sk.manual < 0 ? 'Nose Manual' : 'Manual', '#0ff');
+      // (trick, grind, grab and manual names show in the combo line at the bottom, not as popups: calm screen)
       if (e.type === 'bail') {
         const [a, b] = BAIL_TEXT[e.why] || BAIL_TEXT.wall;
-        hud.big(a, '#ff0000', b + (sk.lostCombo ? `  (lost ${Math.round(sk.lostCombo)})` : ''), 2.6);
+        hud.big(a, '#ff0000', b, 1.6);
         shake = e.why === 'water' ? 0.1 : 0.35;
       }
       // Hall of Meat: bones that go on the way down, and the bill once you've stopped (bragging rights, no XP)
-      if (e.type === 'broke') { hud.pop(`BROKEN ${e.region}!`, '#f44'); shake = Math.max(shake, 0.2); audio.event({ type: 'smack' }); }
+      if (e.type === 'broke') { shake = Math.max(shake, 0.2); audio.event({ type: 'smack' }); }
       if (e.type === 'meat') {
         meatBest = Math.max(meatBest, e.score);
-        hud.big('HALL OF MEAT', '#f44', `${e.score.toLocaleString()} pts${e.broken.length ? ` · ${e.broken.length} broken` : ''}${e.score >= meatBest ? ' · NEW BEST' : ''}`, 2.2);
+        chatLog.push({ text: `Hall of Meat: ${e.score.toLocaleString()} pts${e.broken.length ? ` (${e.broken.join(', ').toLowerCase()} broken)` : ''}${e.score >= meatBest ? ', new best' : ''}`, col: '#f88', t: 0 });
       }
       if (e.type === 'land') skLanded = true;
       if (e.type === 'trick') { if (skLanded && !skTrick) skTrick = e.name; skLanded = false; }
       if (e.type === 'bail') { if (skMyTurn()) net.send({ t: 'skate', op: 'miss' }); skTrick = null; skLanded = false; }
       if (e.type === 'banked') { if (skMyTurn() && skTrick) net.send({ t: 'skate', op: 'land', trick: skTrick }); skTrick = null; }
       if (e.type === 'banked' && e.total > 0) {
-        hud.big(`+${e.total.toLocaleString()}`, '#ffff00', `${e.n} trick combo`, 1.5);
+        hud.pop(`+${e.total.toLocaleString()}`, '#ffff00');
         addXP(e.total);
         // own-the-spot: banked at a challenge spot and better than its owner's
         const sp = nearSpot(sk.x, sk.z, SPOT_R);
@@ -1108,7 +1104,7 @@ async function main() {
   const SPOT_BY_ID = new Map(SPOTS_ALL.map(s => [s.id, s])), SPOT_R = 12;
   function nearSpot(x, z, r) {
     let best = null, bd = r;
-    for (const s of SPOTS_ALL) { const d = Math.hypot(s.at[0] - world.base[0] + 0.5 - x, s.at[1] - world.base[1] + 0.5 - z); if (d < bd) { bd = d; best = s; } }
+    for (const s of SPOTS_ALL) { const [sx, sz] = world.fromTile(s.at[0], s.at[1]), d = Math.hypot(sx - x, sz - z); if (d < bd) { bd = d; best = s; } }
     return best;
   }
 
@@ -1202,10 +1198,10 @@ async function main() {
       else tag(r.s.x, r.s.y + 2.35, r.s.z, `${r.name} (level-${levelFor(r.xp)})`, '#fff', said ? said.text : null);
     }
     for (const sp of SPOTS_ALL) {                         // own-the-spot: who holds the spots near you
-      const gx = sp.at[0] - world.base[0] + 0.5, gz = sp.at[1] - world.base[1] + 0.5;
-      if (Math.hypot(gx - sk.x, gz - sk.z) > 22) continue;
+      const [gx, gz] = world.fromTile(sp.at[0], sp.at[1]);
+      const d = Math.hypot(gx - sk.x, gz - sk.z); if (d > 12) continue;          // only the spot you're at, and only up close
       const o = spotOwn[sp.id];
-      tag(gx, world.height(gx, gz) + 2.2, gz, sp.name, '#ff0', o ? `${o.name} owns it · ${o.score.toLocaleString()}` : 'unclaimed: bank a combo here', !!o);
+      tag(gx, world.height(gx, gz) + 2.2, gz, sp.name, '#ff0', d < 6 ? (o ? `${o.name} · ${o.score.toLocaleString()}` : 'unclaimed') : null, !!o);
     }
     for (const [id, m] of say) { m.t += dt; if (m.t > 5) say.delete(id); }
     const mine = net.me && say.get(net.me.id);
@@ -1265,7 +1261,7 @@ async function main() {
     }
     keys.clear();
     const s = sk;
-    return { x: +(s.x + world.base[0]).toFixed(2), z: +(s.z + world.base[1]).toFixed(2), y: +s.y.toFixed(2), mode: s.mode, speed: +s.speed.toFixed(2), score: s.score, combo: s.combo.slice(), modes: [...new Set(log)] };
+    return { x: +(s.x / S + world.base[0]).toFixed(2), z: +(s.z / S + world.base[1]).toFixed(2), y: +s.y.toFixed(2), mode: s.mode, speed: +s.speed.toFixed(2), score: s.score, combo: s.combo.slice(), modes: [...new Set(log)] };
   };
   // test hook: composite the GL frame + HUD right after a tick and POST it to serve.ts (test/shots/<name>.png)
   window.RS.shot = async (name) => {

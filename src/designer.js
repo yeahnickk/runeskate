@@ -73,7 +73,7 @@ const css = `
 #designer .ttl { text-align: center; font: 900 40px Impact, 'Arial Black', sans-serif; color: #ff981f; letter-spacing: 3px; text-shadow: 3px 3px 0 #000; }
 #designer .sub { text-align: center; color: #ff0; margin: 2px 0 12px; text-shadow: 1px 1px 0 #000; }
 #designer .row { display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; margin: 6px 0; }
-#designer .arr { height: 34px; cursor: pointer; background: #2b251d; border: 2px solid #1e1a13; color: #ff0; font: bold 18px monospace;
+#designer .arr { height: 34px; cursor: pointer; touch-action: manipulation; background: #2b251d; border: 2px solid #1e1a13; color: #ff0; font: bold 18px monospace;
   display: flex; align-items: center; justify-content: center; }
 #designer .arr:hover { background: #5d5242; }
 #designer .mid { text-align: center; line-height: 1.2; }
@@ -85,7 +85,19 @@ const css = `
 #designer .btn:hover { filter: brightness(1.25); }
 #designer .hint { color: #a99; font-size: 11px; text-align: center; margin-top: 8px; }
 @media (max-width: 600px) { #designer { align-items: flex-end; background: linear-gradient(0deg, rgba(0,0,0,.8), rgba(0,0,0,0) 70%); }
-  #designer .card { margin: 0 auto 12px; } #designer .ttl { font-size: 28px; } }`;
+  #designer .card { margin: 0 auto 12px; } #designer .ttl { font-size: 28px; } }
+/* phones on their side (and other short screens): two columns, the buttons up top, scrolls if it still doesn't fit */
+@media (max-height: 620px) {
+  #designer { align-items: center; background: linear-gradient(90deg, rgba(0,0,0,.78) 0%, rgba(0,0,0,.5) 45%, rgba(0,0,0,0) 65%); }
+  #designer .card { margin: 0 0 0 max(8px, env(safe-area-inset-left)); width: min(520px, 58vw); max-height: calc(100% - 16px); overflow-y: auto;
+    -webkit-overflow-scrolling: touch; padding: 8px 10px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 10px; align-content: start; }
+  #designer .ttl { grid-column: 1 / -1; order: -2; font-size: 22px; letter-spacing: 2px; }
+  #designer .sub, #designer .hint { display: none; }
+  #designer .btns { grid-column: 1 / -1; order: -1; margin: 4px 0 4px; }
+  #designer .btn { padding: 8px 0; } #designer .btn.go { font-size: 15px; }
+  #designer .row { margin: 3px 0; grid-template-columns: 30px 1fr 30px; } #designer .arr { height: 30px; }
+  #designer .mid span { font-size: 12px; }
+}`;
 
 export class Designer {
   constructor({ onPreview, onSave }) {

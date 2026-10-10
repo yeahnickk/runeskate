@@ -507,5 +507,43 @@ const loneTrunk = (() => {
   const wc = wheelContact(slope, 0, 0, 0), wc2 = wheelContact(slope, 0, 0, Math.PI / 2);
   check('four-wheel contact tips the board to the slope', Math.abs(wc.pitch - Math.atan(0.25)) < 0.01 && Math.abs(wc2.roll + Math.atan(0.25)) < 0.01, `pitch ${wc.pitch.toFixed(3)} roll ${wc2.roll.toFixed(3)}`);
 }
+// ---- the game's world is the RS map stretched WORLD_SCALE wide (src/mapdata.js): same collision, scaled
+{
+  const { WORLD_SCALE: S } = await import('../src/mapdata.js');
+  const ws = new World(JSON.parse(readFileSync(new URL('../assets/world.json', import.meta.url))), { scale: S });
+  const [sx, sz] = w.spawn;
+  check(`scaled world (x${S}): same heights and tiles at the scaled spot`, Math.abs(ws.height(sx * S + 0.3, sz * S - 0.7) - w.height(sx + 0.3 / S, sz - 0.7 / S)) < 1e-4
+    && ws.tileKind(ws.spawn[0], ws.spawn[1]) === w.tileKind(sx, sz) && ws.segs.length === w.segs.length);
+  check('scaled world: rails keep their heights and grow S long', Math.abs(ws.rails.reduce((a, r) => a + r.len, 0) / w.rails.reduce((a, r) => a + r.len, 0) - S) < 0.02,
+    `${ws.rails.length} vs ${w.rails.length} rails`);
+  const sk = new Skater(ws); sk.reset(ws.spawn[0], ws.spawn[1], Math.PI / 2);
+  const log = run(sk, 2.5, t => ({ push: t < 1.5 }));
+  check('scaled world: push off from spawn, no bail', !log.some(e => e.type === 'bail') && sk.speed > 2, where(sk));
+  // a long lumpy fence end to end, and straight on past a 2-tile gap (3 game units)
+  const end = (r, t) => [r.horiz ? r.ax + t : r.ax, r.horiz ? r.az : r.az + t];
+  const ride = (r, dir, t0, secs) => {
+    const k = new Skater(ws), [x, z] = end(r, t0); k.reset(x, z, Math.atan2(r.dirz * dir, r.dirx * dir));
+    Object.assign(k, { mode: 'grind', rail: r, railT: t0, railDir: dir, railSpeed: 5, railSide: 1, grindKind: '50-50', grindHeading: k.heading, balance: 0, grindTime: 0, y: railTop(r, t0) });
+    const rails = new Set([r]); let off = null;
+    run(k, secs, (t, q) => { if (q.mode === 'grind') rails.add(q.rail); else if (off === null) off = t; return { steer: Math.max(-1, Math.min(1, (q.balance || 0) * 4)) }; });
+    return { rails, off, k };
+  };
+  const long = ws.rails.filter(r => r.len >= 12 * S).sort((a, b) => b.len - a.len)[3];
+  const L = ride(long, 1, 0.3, (long.len - 1) / 5);
+  check('scaled world: a long fence grinds end to end', L.off === null, `off at ${L.off} len ${long.len} ` + where(L.k));
+  let wide = null;
+  for (const r of ws.rails) for (const dir of [1, -1]) {
+    if (wide || r.len < 4 * S) continue;
+    const [ex, ez] = end(r, dir > 0 ? r.len : 0), fx = r.dirx * dir, fz = r.dirz * dir;
+    for (const q of ws.railsNear(ex, ez, 4)) for (const u of [0, q.len]) {
+      if (wide || q === r || q.horiz !== r.horiz || q.len < 3 * S) continue;
+      const [qx, qz] = end(q, u), ahead = (qx - ex) * fx + (qz - ez) * fz;
+      if (Math.abs(ahead - 2 * S) < 0.01 && Math.abs((qx - ex) * fz - (qz - ez) * fx) < 0.01 && Math.abs(railTop(q, u) - railTop(r, dir > 0 ? r.len : 0)) < 0.3
+          && !new Skater(ws).gapBlocked(ex, ez, qx, qz, railTop(r, dir > 0 ? r.len : 0))) wide = [r, dir, q];
+    }
+  }
+  if (wide) { const g = ride(wide[0], wide[1], wide[1] > 0 ? wide[0].len - 3 : 3, 1.8); check('scaled world: grind carries past a 2-tile gate', g.rails.has(wide[2]), `rails ${g.rails.size} ` + where(g.k)); }
+  else check('scaled world: a 2-tile fence gap exists to test', false);
+}
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
 process.exit(fails ? 1 : 0);

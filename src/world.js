@@ -1,18 +1,21 @@
 // Collision world built from the server's own tile flags (tools/build.py -> assets/world.json).
-// Coordinates: x = east, z = north, in tiles, local to the exported square. Heights in tiles (+up).
+// Coordinates: x = east, z = north, in game units = tiles * S (the world scale, src/mapdata.js WORLD_SCALE), local
+// to the exported square. Heights in tiles (+up), never scaled. The tile grids (ground, blocked, live, regions,
+// rects) stay in tiles; everything handed out (segments, rails, trunks, spawn, height(), tileKind()) is in game units.
 
 export class World {
   /** json = the core pack (tools/split.py): the full grid size, plus the rectangle it carries. Other packs
    *  (json.regions, e.g. Varrock) start as solid ground-level walls and are added with addRegion() once the
    *  client has streamed them in. An unsplit world.json (tests, old builds) is one region covering it all. */
-  constructor(json) {
+  constructor(json, { scale = 1 } = {}) {
     this.N = json.size;
+    this.S = scale; this.W = json.size * scale;           // W: the grid's extent in game units
     this.base = [json.baseX, json.baseZ];
     const N = this.N;
     this.ground = new Float32Array(N * N * 4);
     this.blocked = new Uint8Array(N * N).fill(1);          // [z*N+x] 0 open, 1 blocked, 2 water, 3 rock (tools/lanes.py), 4 a tree stands here (its trunk collides, see trunks)
     this.live = new Uint8Array(N * N);                     // [z*N+x] 1 = inside a loaded region
-    this.spawn = json.spawn;
+    this.spawn = [json.spawn[0] * scale, json.spawn[1] * scale];
     this.segs = [];
     this.grid = new Map();
     this.rails = [];
@@ -35,16 +38,18 @@ export class World {
       this.blocked.set(p.blocked.slice(j * w, (j + 1) * w), (z0 + j) * N + x0);
       this.live.fill(1, (z0 + j) * N + x0, (z0 + j) * N + x0 + w);
     }
-    for (const [x, z, r] of p.trunks || []) {
+    const S = this.S;
+    for (const [tx, tz, tr] of p.trunks || []) {
+      const x = tx * S, z = tz * S, r = tr * S;
       const k = Math.floor(x) + ',' + Math.floor(z);
       if (!this.trunkGrid.has(k)) this.trunkGrid.set(k, []);
       this.trunkGrid.get(k).push({ x, z, r });
     }
     const added = [];
-    for (const [ax, az, bx, bz, kind, top] of p.segs) { const s = { ax, az, bx, bz, kind, top }; this.addSeg(s); added.push(s); }
+    for (const [ax, az, bx, bz, kind, top] of p.segs) { const s = { ax: ax * S, az: az * S, bx: bx * S, bz: bz * S, kind, top }; this.addSeg(s); added.push(s); }
     // grindable: rails, fences/gates, and low obstacles with a measured top (hedges); a lone low block
     // (a cactus, a rock) is only jumpable, see buildRails' length filter
-    for (const r of buildRails(added.filter(s => s.top && (s.kind === 'rail' || s.kind === 'fence' || s.kind === 'block')))) {
+    for (const r of buildRails(S, added.filter(s => s.top && (s.kind === 'rail' || s.kind === 'fence' || s.kind === 'block')))) {
       this.rails.push(r);
       for (const cell of cellsAlong(r.ax, r.az, r.bx, r.bz, 1)) {
         if (!this.railGrid.has(cell)) this.railGrid.set(cell, []);
@@ -57,6 +62,11 @@ export class World {
     this.weldGround(x0 - 1, z0 - 1, x0 + w + 1, z0 + h + 1);
   }
 
+  /** world tile (RS coords) -> the game position of its centre */
+  fromTile(wx, wz) { return [(wx - this.base[0] + 0.5) * this.S, (wz - this.base[1] + 0.5) * this.S]; }
+  /** game position -> the local tile index it is on */
+  tileOf(x, z) { return [Math.floor(x / this.S), Math.floor(z / this.S)]; }
+
   /** is tile (tx,tz) inside a region the client has loaded? */
   isLive(tx, tz) { return tx >= 0 && tz >= 0 && tx < this.N && tz < this.N && this.live[tz * this.N + tx] === 1; }
 
@@ -64,7 +74,7 @@ export class World {
    *  nobody skates onto land that has no collision; rebuilt each time a region arrives */
   frontier() {
     this.removeSegs(s => s.frontier);
-    const N = this.N, edge = (ax, az, bx, bz) => this.addSeg({ ax, az, bx, bz, kind: 'edge', top: null, frontier: true });
+    const N = this.N, S = this.S, edge = (ax, az, bx, bz) => this.addSeg({ ax: ax * S, az: az * S, bx: bx * S, bz: bz * S, kind: 'edge', top: null, frontier: true });
     for (const { x0, z0, w, h } of this.rects) {
       for (let x = x0; x < x0 + w; x++) {
         if (z0 > 0 && !this.isLive(x, z0 - 1)) edge(x, z0, x + 1, z0);
@@ -94,7 +104,9 @@ export class World {
     rx0 = Math.max(0, rx0); rz0 = Math.max(0, rz0); rx1 = Math.min(N, rx1); rz1 = Math.min(N, rz1);
     const RW = rx1 - rx0, RH = rz1 - rz0;
     const edges = new Set();                              // tile edges that have a segment on them
-    for (const s of this.segs) {
+    const S = this.S;
+    for (const g0 of this.segs) {
+      const s = { ax: g0.ax / S, az: g0.az / S, bx: g0.bx / S, bz: g0.bz / S };
       if (Math.max(s.ax, s.bx) < rx0 || Math.min(s.ax, s.bx) > rx1 || Math.max(s.az, s.bz) < rz0 || Math.min(s.az, s.bz) > rz1) continue;
       if (s.ax === s.bx && Math.abs(s.bz - s.az) === 1) edges.add('v' + s.ax + ',' + Math.min(s.az, s.bz));
       else if (s.az === s.bz && Math.abs(s.bx - s.ax) === 1) edges.add('h' + Math.min(s.ax, s.bx) + ',' + s.az);
@@ -141,8 +153,8 @@ export class World {
   }
 
   /** ground height (tiles) at a point: bilinear over the tile's four corners */
-  height(x, z) {
-    const N = this.N;
+  height(gx, gz) {
+    const N = this.N, x = gx / this.S, z = gz / this.S;
     let tx = Math.floor(x), tz = Math.floor(z);
     tx = Math.max(0, Math.min(N - 1, tx)); tz = Math.max(0, Math.min(N - 1, tz));
     const u = Math.min(1, Math.max(0, x - tx)), v = Math.min(1, Math.max(0, z - tz));
@@ -150,7 +162,7 @@ export class World {
     const h = (g[o] * (1 - u) + g[o + 1] * u) * (1 - v) + (g[o + 3] * (1 - u) + g[o + 2] * u) * v;
     if (!this.ramps.size) return h;
     const r = this.ramps.get(tz * N + tx);
-    return r ? h + r.rise * Math.max(0, Math.min(1, ((x - r.x0) * r.dx + (z - r.z0) * r.dz) / r.len)) : h;
+    return r ? h + r.rise * Math.max(0, Math.min(1, ((gx - r.x0) * r.dx + (gz - r.z0) * r.dz) / r.len)) : h;   // (a ramp is in game units)
   }
 
   /** Create-a-Park: a rail/ledge (rails + collision walls) or a kicker (a ramp on the ground). Undo with removePark */
@@ -172,7 +184,7 @@ export class World {
   }
 
   tileKind(x, z) {
-    const tx = Math.floor(x), tz = Math.floor(z);
+    const tx = Math.floor(x / this.S), tz = Math.floor(z / this.S);
     if (tx < 0 || tz < 0 || tx >= this.N || tz >= this.N) return 1;
     return this.blocked[tz * this.N + tx];
   }
@@ -245,8 +257,8 @@ function smoothProfile(prof) {
   for (let i = 0; i < n; i++) prof[i][1] = i === 0 || i === n - 1 ? med[i] : med[i - 1] * 0.25 + med[i] * 0.5 + med[i + 1] * 0.25;
 }
 
-/** merge collinear, touching 1-tile rail segments into long grindable rails with a height profile */
-function buildRails(rs) {
+/** merge collinear, touching 1-tile rail segments into long grindable rails with a height profile (S = world scale) */
+function buildRails(S, rs) {
   const lines = new Map();
   for (const s of rs) {
     const horiz = s.az === s.bz;
@@ -271,13 +283,13 @@ function buildRails(rs) {
         const lo = horiz ? Math.min(s.ax, s.bx) : Math.min(s.az, s.bz);
         const flip = horiz ? s.ax > s.bx : s.az > s.bz;
         const t = flip ? [...s.top].reverse() : s.top;
-        prof.push([lo + 0.15, t[0]], [lo + 0.5, t[1]], [lo + 0.85, t[2]]);
+        prof.push([lo + 0.15 * S, t[0]], [lo + 0.5 * S, t[1]], [lo + 0.85 * S, t[2]]);
       }
       smoothProfile(prof);
       const r = horiz ? { ax: a0, az: c, bx: a1, bz: c } : { ax: c, az: a0, bx: c, bz: a1 };
       r.horiz = horiz; r.len = a1 - a0; r.a0 = a0; r.prof = prof; r.id = rails.length;
       r.dirx = horiz ? 1 : 0; r.dirz = horiz ? 0 : 1;
-      r.minLen = run.every(s => s.kind === 'block') ? 2 : 1;   // hedges: a row, not a single bush
+      r.minLen = (run.every(s => s.kind === 'block') ? 2 : 1) * S;   // hedges: a row, not a single bush
       // what it's made of, for the grind sound: railings are metal, fences wood, walls and hedges stone/brush
       const nk = k => run.filter(s => s.kind === k).length;
       r.mat = nk('rail') >= nk('fence') && nk('rail') >= nk('block') ? 'metal' : nk('fence') >= nk('block') ? 'wood' : 'stone';

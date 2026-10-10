@@ -1,4 +1,8 @@
 // Pure data shared by the game client and serve.ts (the /map page): no three.js, no DOM.
+
+// The game world is the RS map stretched this much east-west and north-south (heights stay as they are): wider
+// streets, gates and gaps to skate through, same rail and wall heights. 1 RS tile = WORLD_SCALE game units.
+export const WORLD_SCALE = 1.5;
 // Teleports (TAB in the game): world tiles. `at` = where it drops you, `back` = a spot behind the arrival (you
 // face away from it), `pad` = the old courtyard portal spot, still kept clear of building. Arrivals sit on flat ground.
 export const PORTAL_HOME = { name: 'Lumbridge', at: [3222, 3218], col: '#3cf' };

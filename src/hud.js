@@ -127,7 +127,6 @@ export class HUD {
     this.text('BEST COMBO ' + sk.stat.bestCombo.toLocaleString(), 16, 14 + K * 12, '#ff981f', Math.max(2, K - 1), 'l', 'p12');
     const k1 = Math.max(1, K - 1);
     this.text(`SPEED ${(sk.speed * 3.6 * 1.1).toFixed(0)} KM/H`, W - 16, 14, '#0f0', k1, 'r', 'p12');
-    this.text(`CAM: ${cfg.camName}  [C]`, W - 16, 14 + k1 * 11, '#fff', k1, 'r', 'p12', 0.8);
     if (this.mini && cfg.map !== false) this.drawMini(W - 16, 14 + k1 * 24, K, sk);
     // the one standing challenge, small, under the minimap: all runes unlock ::noclip (the owner has it anyway)
     if (this.goal && this.me && !this.me.own && !this.touch) {   // (a phone has its buttons there)
@@ -145,7 +144,8 @@ export class HUD {
       const cx = this.me.own ? 16 + this.crown(16, y0, k1) + 3 * k1 : 16;
       this.text(`${this.me.own ? '[OWNER] ' : ''}${this.me.name}  LEVEL ${L}${L >= MAX_LEVEL ? ' (MAX)' : ''}`, cx, y0, this.me.own ? '#ffc933' : '#0f0', k1, 'l', 'p12');
       const nx = xpToNext(xp);
-      this.text(`XP ${Math.floor(xp).toLocaleString()}` + (L < MAX_LEVEL ? `   ${Math.ceil(nx).toLocaleString()} to level ${L + 1} (${Math.floor(levelProgress(xp) * 100)}%)` : ''), 16, y0 + k1 * 11, '#fff', k1, 'l', 'p12', 0.85);
+      this.text(`XP ${Math.floor(xp).toLocaleString()}`, 16, y0 + k1 * 11, '#fff', k1, 'l', 'p12', 0.85);   // (the bar under it shows the way to the next level)
+      void nx;
       const bw = 120 * k1 / 1.5, by = y0 + k1 * 23;
       x.fillStyle = 'rgba(0,0,0,0.55)'; x.fillRect(16, by, bw, 5);
       x.fillStyle = '#0c0'; x.fillRect(16, by, bw * levelProgress(xp), 5);
@@ -218,7 +218,7 @@ export class HUD {
       x.fillStyle = '#ff0'; x.fillRect(W / 2 - 40, H * 0.3 + 2, 80 * sk.charge, 4);
     }
     // floating trick pops: a few slots under the top bar, each line glides to its slot as older ones leave
-    const POP_LIFE = 1.5, POP_MAX = 3;
+    const POP_LIFE = 1.3, POP_MAX = 2;
     for (const p of this.pops) p.t += dt;
     this.pops = this.pops.filter(p => p.t < POP_LIFE);
     if ((this.popGap -= dt) <= 0 && this.popQ.length && this.pops.length < POP_MAX) {
@@ -248,7 +248,7 @@ export class HUD {
       const a = Math.min(1, (m.dur - m.t) / 0.3);
       if (m.t > m.dur) this.msg = this.msgQ.shift() || null;
       else {
-        const k = K * 2 * (m.t < 0.12 ? 1.6 - m.t * 5 : 1);
+        const k = K * 1.5 * (m.t < 0.12 ? 1.4 - m.t * 3.3 : 1);
         this.text(m.text, W / 2, H * 0.38, m.color, Math.max(K, Math.round(k)), 'c', 'b12', a);
         if (m.sub) this.text(m.sub, W / 2, H * 0.38 + K * 30, '#fff', K, 'c', 'p12', a);
       }
@@ -261,12 +261,12 @@ export class HUD {
   /** RS-style round minimap, north up, centred on the skater */
   drawMini(right, top, K, sk) {
     const x = this.x, m = this.mini, R = Math.round(34 * Math.max(2, K)), span = 40;   // span = tiles from centre to rim
-    const cx = right - R - 4, cy = top + R + 4, sc = R / span;
+    const S = m.S || 1, cx = right - R - 4, cy = top + R + 4, sc = R / span / S;   // (the map canvas is in tiles, positions in game units)
     x.save();
     x.beginPath(); x.arc(cx, cy, R, 0, Math.PI * 2); x.clip();
     x.fillStyle = '#000'; x.fillRect(cx - R, cy - R, R * 2, R * 2);
     x.imageSmoothingEnabled = true;
-    const sx = (sk.x - span) * m.PX, sy = (m.N - sk.z - span) * m.PX;
+    const sx = (sk.x / S - span) * m.PX, sy = (m.N - sk.z / S - span) * m.PX;
     x.drawImage(m.canvas, sx, sy, span * 2 * m.PX, span * 2 * m.PX, cx - R, cy - R, R * 2, R * 2);
     x.imageSmoothingEnabled = false;
     for (const d of this.miniDots) {

@@ -6,7 +6,7 @@
 import { join, normalize } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync } from 'fs';
 import { cleanChat } from './profanity.ts';
-import { PORTAL_HOME, PORTAL_DESTS, CORE_SPAWNS } from './src/mapdata.js';
+import { PORTAL_HOME, PORTAL_DESTS, CORE_SPAWNS, WORLD_SCALE } from './src/mapdata.js';
 import { EXTRA_SPAWNS } from './src/npc-spawns.js';
 import { SPOTS_ALL } from './src/spots.js';
 import { cleanPark, footprint, PARK_PER, PARK_MAX } from './src/park-shape.js';
@@ -267,7 +267,7 @@ Bun.serve({
     if (p === '/api/live') {                                         // who is where right now (world tiles)
       return Response.json([...sessions.values()].filter(s => s.st && typeof s.st.x === 'number').map(s => {
         const a = accounts[s.k];
-        return { name: s.name, own: s.own ? 1 : undefined, x: Math.round((s.st.x + BASE[0]) * 10) / 10, z: Math.round((s.st.z + BASE[1]) * 10) / 10,
+        return { name: s.name, own: s.own ? 1 : undefined, x: Math.round((s.st.x / WORLD_SCALE + BASE[0]) * 10) / 10, z: Math.round((s.st.z / WORLD_SCALE + BASE[1]) * 10) / 10,
           mode: s.st.mode, runes: a ? runesOf(a) : 0 };
       }), { headers: { 'Cache-Control': 'no-cache' } });
     }
