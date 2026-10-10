@@ -76,7 +76,8 @@ export function buildRagSkin(model) {
 
 /** pose the mesh from the ragdoll: P = particle positions in three.js world space; returns per-vertex xyz */
 export function poseRagSkin(skin, P) {
-  const frames = skin.names.map(n => Ragdoll.frame(P, PARTS[n])), { part, local, out } = skin;
+  // P.refs (optional, from src/rig.js): a part's side reference point, to turn it about its own bone
+  const R = P.refs, frames = skin.names.map(n => R?.[n] ? Ragdoll.frame([...P, R[n]], [PARTS[n][0], PARTS[n][1], P.length]) : Ragdoll.frame(P, PARTS[n])), { part, local, out } = skin;
   for (let i = 0; i < part.length; i++) {
     const [o, x, y, z] = frames[part[i]], a = local[i * 3], b = local[i * 3 + 1], c = local[i * 3 + 2];
     out[i * 3] = o[0] + x[0] * a + y[0] * b + z[0] * c;

@@ -34,7 +34,9 @@ export function rigDims(skel) {
   return {
     thigh: (d(J.lHip, J.lKn) + d(J.rHip, J.rKn)) / 2, shin: (d(J.lKn, J.lFt) + d(J.rKn, J.rFt)) / 2,
     upper: (d(J.lSh, J.lEl) + d(J.rSh, J.rEl)) / 2, fore: (d(J.lEl, J.lHa) + d(J.rEl, J.rHa)) / 2,
-    torso: d(J.pelvis, J.neck), neck: d(J.neck, J.head), sh: d(J.lSh, J.rSh) / 2, hip: d(J.lHip, J.rHip) / 2,
+    torso: d(J.pelvis, J.neck), neck: d(J.neck, J.head),
+    // the head sits forward of the neck in the model's rest pose; keep that lean or the chin tips up
+    headLean: Math.atan2(Math.hypot(skel[J.head][0] - skel[J.neck][0], skel[J.head][2] - skel[J.neck][2]), skel[J.head][1] - skel[J.neck][1]), sh: d(J.lSh, J.rSh) / 2, hip: d(J.lHip, J.rHip) / 2,
     shDrop: skel[J.neck][1] - (skel[J.lSh][1] + skel[J.rSh][1]) / 2, hipDrop: skel[J.pelvis][1] - (skel[J.lHip][1] + skel[J.rHip][1]) / 2,
     ankle: Math.max(0.03, (skel[J.lFt][1] + skel[J.rFt][1]) / 2 - Math.min(skel[J.lFt][1], skel[J.rFt][1]) + 0.05),
   };
@@ -113,7 +115,12 @@ export function poseRider(s, b, dims, st, dt) {
   tdir = rot(tdir, face, man * 0.28);                                        // manual: back over the tail
   tdir = norm(tdir);
   const neck = add(pelvis, mul(tdir, D.torso));
-  const head = add(neck, mul(norm(add(tdir, add(mul(nose, 0.22), mul(face, 0.18)))), D.neck));
+  // head: held up (people keep their eyes level, whatever the back does) and turned to look down the board
+  // toward where they're going, over the front shoulder
+  st.look = st.look === undefined ? 0.8 : st.look + ((pushing ? 1.25 : air ? 0.55 : grind ? 0.75 : 0.85) - st.look) * Math.min(1, dt * 6);
+  const gaze = rot(face, up, st.look);                                  // where the eyes point (toward the nose)
+  const hl = (D.headLean || 0) + 0.06;
+  const head = add(neck, mul(norm(add(mul(norm(lerp(up, tdir, 0.2)), Math.cos(hl)), mul(gaze, Math.sin(hl)))), D.neck));
   // shoulders: open toward the nose; square to it when pushing
   st.twist = st.twist === undefined ? 0 : st.twist + (((pushing ? 1.0 : 0.25) + (air ? (s.spinRate || 0) * 0.04 : 0)) - st.twist) * Math.min(1, dt * 8);
   const shR = norm(rot(nose, tdir, st.twist)), shC = sub(neck, mul(tdir, D.shDrop));
@@ -136,11 +143,26 @@ export function poseRider(s, b, dims, st, dt) {
     const spot = /Nose/.test(g) ? b.front : /Tail/.test(g) ? b.back : add(deckMid, mul(face, 0.11 * edge));
     if (/Melon|Method|Nose/.test(g)) rHaT = lerp(rHaT, spot, k); else lHaT = lerp(lHaT, spot, k);
   }
+  // relaxed arms: elbows soft (a hand never reaches its full length), the front hand a little ahead
+  const grabR = !!s.grab && /Melon|Method|Nose/.test(s.grab), grabL = !!s.grab && !grabR;
+  if (!grabR) rHaT = lerp(rSh, add(rHaT, mul(nose, 0.06)), 0.94);
+  if (!grabL) lHaT = lerp(lSh, lHaT, 0.94);
   const armPole = side => norm(add(mul(face, -0.6), add(mul(shR, side * 0.5), mul(up, -0.2))));
   const rArm = ik2(rSh, rHaT, D.upper, D.fore, armPole(1)), lArm = ik2(lSh, lHaT, D.upper, D.fore, armPole(-1));
   const P = [];
   P[J.head] = head; P[J.neck] = neck; P[J.pelvis] = pelvis;
   P[J.lSh] = lSh; P[J.lEl] = lArm.mid; P[J.lHa] = lArm.end; P[J.rSh] = rSh; P[J.rEl] = rArm.mid; P[J.rHa] = rArm.end;
   P[J.lHip] = lHip; P[J.lKn] = lLeg.mid; P[J.lFt] = lLeg.end; P[J.rHip] = rHip; P[J.rKn] = rLeg.mid; P[J.rFt] = rLeg.end;
+  // turns the skeleton alone can't say (src/ragskin.js poseRagSkin): the head looks toward the nose, the front
+  // foot angles up the board (and points straight ahead to push), the back foot sits across the tail.
+  // Each is the part's side reference turned about its own bone; toward the nose is + about up, and the leg
+  // bones point down, so their turns are negative.
+  st.ffoot = st.ffoot === undefined ? 0.5 : st.ffoot + ((pushing ? 1.35 : st.off > 0.5 ? 0.2 : 0.5) - st.ffoot) * Math.min(1, dt * 10);
+  const turnRef = (o, ref, axis, a) => add(o, rot(sub(ref, o), norm(axis), a));
+  P.refs = {
+    head: add(neck, mul(rot(nose, up, st.look), D.sh)),
+    rThigh: turnRef(rHip, lHip, sub(rLeg.mid, rHip), -st.ffoot * 0.5), rShin: turnRef(rLeg.mid, lHip, sub(rLeg.end, rLeg.mid), -st.ffoot),
+    lShin: turnRef(lLeg.mid, rHip, sub(lLeg.end, lLeg.mid), -0.12),
+  };
   return P;
 }
