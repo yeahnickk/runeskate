@@ -6,6 +6,8 @@
 //  - ground contact: friction 0.9, no bounce; one frame can't add more than 5 to vertical speed
 //  - the stick still steers the body: in the air it spins it toward 8.4 rad/s ((target - w) * 2.4 * dt, max
 //    0.5 a frame), on the ground it shoves it
+//  - powered for a moment: muscles hold the pose the rider bailed in and fade to limp over ~0.7 s, and the
+//    arms reach out to break the fall while the body is still in the air (a reflex, not an animation)
 //  - the body is "over" once the pelvis and neck both drop below a speed; drag ramps up the longer it lies
 //    there (0.05 + 0.15 * settled, max 0.5), then the screen fades and you're back on the board
 // The body is a verlet particle skeleton: rigid torso, hinge elbows and knees that only bend the right way.
@@ -47,7 +49,11 @@ export const RD = {
   spinTarget: 8.4, spinGain: 2.4, spinMax: 0.5, groundShove: 1.5,
   overSpeed: 0.4, overFor: 0.5, overMin: 1.0, manualAfter: 1.6, settleReset: 1.0, maxTime: 6,
   breakDv: 11, hurtDv: 4,
+  powerFor: 0.7, power: 0.18, brace: 0.035, braceFor: 1.4,
 };
+// muscles: spans across the joints that the powered phase holds at their bail-frame length
+const MUSCLES = [['lSh', 'lHa'], ['rSh', 'rHa'], ['lHip', 'lFt'], ['rHip', 'rFt'], ['lHa', 'pelvis'], ['rHa', 'pelvis'],
+  ['lFt', 'neck'], ['rFt', 'neck'], ['lEl', 'lHip'], ['rEl', 'rHip'], ['lKn', 'rSh'], ['rKn', 'lSh']].map(([a, b]) => [J[a], J[b]]);
 
 /** a standing skeleton (model-local: y up from the feet, x across the shoulders, z forward), H tall */
 export function defaultSkeleton(H = 1.55) {
@@ -71,6 +77,7 @@ export class Ragdoll {
     this.n = skel.length;
     this.p = skel.map(place);
     this.rest = LINKS.map(([a, b]) => len(sub(skel[a], skel[b])));
+    this.muscles = MUSCLES.map(([a, b]) => [a, b, len(sub(this.p[a], this.p[b]))]);
     this.mins = MINS.map(([a, b, f]) => [a, b, f < 0 ? -f : f * len(sub(skel[a], skel[b]))]);
     // how fast each part is going on the frame of the bail
     let [vx, vy, vz] = v; const sp = Math.hypot(vx, vy, vz);
@@ -155,6 +162,17 @@ export class Ragdoll {
       q[0] = p[0]; q[1] = p[1]; q[2] = p[2];
       p[0] += vx; p[1] += vy - (this.inWater ? 0 : g * h * h); p[2] += vz;
     }
+    // powered: the muscles fade out, and the hands reach ahead and down to break the fall
+    const pw = this.inWater ? 0 : Math.max(0, 1 - this.t / RD.powerFor) ** 1.5 * RD.power;
+    if (pw > 0) for (const [a, b, d] of this.muscles) this.link(a, b, d, 2, pw);
+    if (air && !this.inWater && this.t < RD.braceFor) {
+      const vx = (P[J.pelvis][0] - Q[J.pelvis][0]) / h, vy = (P[J.pelvis][1] - Q[J.pelvis][1]) / h, vz = (P[J.pelvis][2] - Q[J.pelvis][2]) / h;
+      if (vy < 0) {
+        const hs = Math.hypot(vx, vz) || 1, ch = P[J.neck], k = RD.brace * Math.min(1, -vy / 4) * (1 - this.t / RD.braceFor);
+        const tgt = [ch[0] + vx / hs * 0.35, ch[1] - 0.45, ch[2] + vz / hs * 0.35];
+        for (const i of [J.lHa, J.rHa]) for (let c = 0; c < 3; c++) P[i][c] += (tgt[c] - P[i][c]) * k;
+      }
+    }
     // constraints
     for (let it = 0; it < RD.iters; it++) {
       for (let k = 0; k < LINKS.length; k++) this.link(LINKS[k][0], LINKS[k][1], this.rest[k], 0);
@@ -175,12 +193,12 @@ export class Ragdoll {
     return I ? [L[0] / I, L[1] / I, L[2] / I] : [0, 0, 0];
   }
 
-  /** keep a and b exactly d apart (mode 0), or at least d apart (mode 1) */
-  link(a, b, d, mode) {
+  /** keep a and b exactly d apart (mode 0), at least d apart (mode 1), or pull them partway (mode 2, stiffness st) */
+  link(a, b, d, mode, st = 1) {
     const pa = this.p[a], pb = this.p[b];
     const dx = pb[0] - pa[0], dy = pb[1] - pa[1], dz = pb[2] - pa[2], l = Math.hypot(dx, dy, dz) || 1e-6;
     if (mode === 1 && l >= d) return;
-    const wa = 1 / MASS[a], wb = 1 / MASS[b], k = (l - d) / l / (wa + wb);
+    const wa = 1 / MASS[a], wb = 1 / MASS[b], k = (l - d) / l / (wa + wb) * st;
     pa[0] += dx * k * wa; pa[1] += dy * k * wa; pa[2] += dz * k * wa;
     pb[0] -= dx * k * wb; pb[1] -= dy * k * wb; pb[2] -= dz * k * wb;
   }

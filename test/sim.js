@@ -1,7 +1,7 @@
 // Headless physics checks:  bun runeskate/test/sim.js
 import { readFileSync } from 'fs';
 import { World, railTop } from '../src/world.js';
-import { Skater, P } from '../src/skater.js';
+import { Skater, P, wheelContact } from '../src/skater.js';
 
 const w = new World(JSON.parse(readFileSync(new URL('../assets/world.json', import.meta.url))));
 const L = (x, z) => [x - w.base[0], z - w.base[1]];
@@ -466,6 +466,19 @@ const loneTrunk = (() => {
   s2.reset(w.spawn[0], w.spawn[1], Math.PI / 2); s2.mode = 'air'; s2.y += 6; s2.vy = -8; s2.vz = 4; s2.bail('flip');                 // thrown off high up
   for (let i = 0; i < 120 && s2.rag; i++) s2.step(1 / 60, {});
   check('a big drop breaks bones (Hall of Meat)', s2.rag && s2.rag.broken.size > 0, s2.rag && [...s2.rag.broken].join(','));
+}
+// ---- the board is its own object: once it lands wheels-down it rolls on along its length, grips sideways,
+// and sits tipped to the ground under its four wheels
+{
+  const flat = { height: () => 0, tileKind: () => 0, segsNear: () => [] };
+  const sk = new Skater(w); sk.reset(w.spawn[0], w.spawn[1], 0); sk.bail('sketchy');
+  sk.w = flat; sk.rag = null; sk.x = sk.z = 0; sk.y = 0; sk.vx = sk.vz = sk.vy = 0;
+  const b = sk.board; Object.assign(b, { x: 0, z: 0, y: 0, vx: 4, vz: 4, vy: 0, yaw: 0, roll: 0, pitch: 0, spinR: 0, spinY: 0, spinP: 0 });
+  for (let i = 0; i < 60; i++) sk.stepBail(1 / 60, {});
+  check('a loose board rolls on along its length', b.vx > 2.5 && Math.abs(b.vz) < 0.2, `along ${b.vx.toFixed(2)} across ${b.vz.toFixed(2)}`);
+  const slope = { height: (x) => x * 0.25 };
+  const wc = wheelContact(slope, 0, 0, 0), wc2 = wheelContact(slope, 0, 0, Math.PI / 2);
+  check('four-wheel contact tips the board to the slope', Math.abs(wc.pitch - Math.atan(0.25)) < 0.01 && Math.abs(wc2.roll + Math.atan(0.25)) < 0.01, `pitch ${wc.pitch.toFixed(3)} roll ${wc2.roll.toFixed(3)}`);
 }
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
 process.exit(fails ? 1 : 0);

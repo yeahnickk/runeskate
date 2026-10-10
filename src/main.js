@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { World } from './world.js';
-import { Skater, P, TRICK_KEYS } from './skater.js';
+import { Skater, P, TRICK_KEYS, wheelContact } from './skater.js';
 import { loadRSModel, buildBoard, TOP_Z, DECK_Z } from './model.js';
 import { RSFont, loadHitsplat, HUD } from './hud.js';
 import { SkateAudio } from './audio.js';
@@ -608,7 +608,7 @@ async function main() {
   function snapshot() {
     const o = { mode: sk.mode, gk: sk.grindKind, gr: sk.grab || '', sl: sk.slide ? 1 : 0, w: sk.inWater ? 1 : 0, wk: sk.walking || 0, fa: sk.footAir ? 1 : 0, fk: sk._fk ? 1 : 0, em: emote ? emote * 100 + emoteSeq : 0 };   // wk: 0 stand, 1 walk, 2 run; em: emote*100+seq
     for (const k of SNAP) o[k] = Math.round((sk[k] || 0) * 1000) / 1000;
-    if (sk.mode === 'bail' && sk.board) o.b = [sk.board.x, sk.board.y, sk.board.z, sk.board.yaw, sk.board.roll].map(v => Math.round(v * 1000) / 1000);
+    if (sk.mode === 'bail' && sk.board) o.b = [sk.board.x, sk.board.y, sk.board.z, sk.board.yaw, sk.board.roll, sk.board.pitch || 0].map(v => Math.round(v * 1000) / 1000);
     return o;
   }
   const wrapA = a => ((a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
@@ -624,7 +624,7 @@ async function main() {
       for (const f of ['manual', 'lean', 'balance', 'vy', 'grabT']) s[f] = t[f] || 0;
       s.grab = t.gr || null;
       s.mode = t.mode; s.grindKind = t.gk; s.slide = !!t.sl; s.inWater = !!t.w; s.walking = t.wk || 0; s.footAir = !!t.fa; s.fk = !!t.fk; s.em = t.em || 0;
-      if (t.b) s.board = { x: t.b[0], y: t.b[1], z: t.b[2], yaw: t.b[3], roll: t.b[4] };
+      if (t.b) s.board = { x: t.b[0], y: t.b[1], z: t.b[2], yaw: t.b[3], roll: t.b[4], pitch: t.b[5] || 0 };
       drawRider(dt, s, r.m, r.board);
       r.shadow ||= makeShadow(); placeShadow(r.shadow, s.x, s.y, s.z, true);
     }
@@ -803,9 +803,15 @@ async function main() {
     if (sk.mode === 'air' && sk.grab) { bpitch = 0.3; broll = (sk.grab === 'Melon' || sk.grab === 'Stalefish' ? -0.35 : 0.35); }
     if (sk.mode === 'grind') by = sk.grindKind === 'Boardslide' ? sk.y - DECK_Z + 0.01 : sk.y - 0.035;
     if (sk.mode === 'ground' && sk.slide) byaw = sk.body;
+    // four wheels on the ground: the board tips to the slope and over kerbs (smoothed so tile steps don't jitter)
+    let tp = 0, tr = 0;
+    if (sk.mode === 'ground') { const wc = wheelContact(world, sk.x, sk.z, byaw); tp = wc.pitch; tr = wc.roll; by = Math.max(by, wc.y); }
+    const ks = 1 - Math.exp(-dt * 18);
+    m._tp = (m._tp || 0) + (tp - (m._tp || 0)) * ks; m._tr = (m._tr || 0) + (tr - (m._tr || 0)) * ks;
+    bpitch += m._tp; broll += m._tr;
     if (sk.mode === 'bail') {
       const b = sk.board; board.root.position.copy(T(b.x, b.y, b.z));
-      board.root.rotation.set(0, b.yaw, 0); board.roll.rotation.x = b.roll; board.pitch.rotation.z = 0;
+      board.root.rotation.set(0, b.yaw, 0); board.roll.rotation.x = b.roll; board.pitch.rotation.z = b.pitch || 0;
     } else {
       board.root.position.copy(T(sk.x, by, sk.z));
       board.root.rotation.set(0, byaw, 0); board.roll.rotation.x = broll; board.pitch.rotation.z = bpitch;

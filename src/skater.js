@@ -97,6 +97,21 @@ const TRICKS = {
 };
 export const TRICK_KEYS = { j: 'kickflip', k: 'heelflip', l: 'shove', i: 'varial', u: 'tre', n: 'hardflip', m: 'shove360', y: 'double', b: 'doubleheel' };
 
+/**
+ * four-wheel contact: the ground under each wheel (trucks 0.285 either side of the middle, wheels 0.095 out)
+ * tips the board to the slope and over kerbs. Returns the contact height and the pitch (nose up +) and roll
+ * (right side down +) the board sits at.
+ */
+export function wheelContact(w, x, z, yaw) {
+  const nx = Math.cos(yaw), nz = Math.sin(yaw), rx = nz, rz = -nx, T = 0.285, S = 0.095;
+  const h = (a, b) => w.height(x + nx * a + rx * b, z + nz * a + rz * b);
+  const fl = h(T, -S), fr = h(T, S), bl = h(-T, -S), br = h(-T, S);
+  const f = Math.max(fl, fr), b = Math.max(bl, br), l = Math.max(fl, bl), r = Math.max(fr, br);
+  // a wheel can't sit lower than the middle of the board allows over a sharp step: limit the tilt
+  const pitch = Math.max(-0.5, Math.min(0.5, Math.atan2(f - b, 2 * T))), roll = Math.max(-0.4, Math.min(0.4, Math.atan2(l - r, 2 * S)));
+  return { y: Math.max((f + b) / 2, w.height(x, z)), pitch, roll };
+}
+
 const wrap = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
 
 const TRUNK = { kind: 'block', trunk: true };            // collide()'s stand-in segment for a trunk hit
@@ -894,7 +909,7 @@ export class Skater {
     b.free = true; b.x = this.x; b.z = this.z; b.y = this.y + 0.05;
     b.vx = this.vx * 1.15 + (Math.random() - 0.5) * 2; b.vz = this.vz * 1.15 + (Math.random() - 0.5) * 2;
     b.vy = 2.5 + Math.random() * 2.5; b.yaw = this.heading; b.roll = this.boardRoll; b.pitch = 0;
-    b.spinR = (Math.random() - 0.5) * 22; b.spinY = (Math.random() - 0.5) * 12;
+    b.spinR = (Math.random() - 0.5) * 22; b.spinY = (Math.random() - 0.5) * 12; b.spinP = (Math.random() - 0.5) * 10;
     // the rider goes limp: a ragdoll built from the body's pose on this frame, carrying its speed (the renderer
     // hands over the real model's skeleton and where it stands; headless, a standard one side-on to the board)
     if (why !== 'water') {
@@ -942,19 +957,29 @@ export class Skater {
       this.y = Math.max(this.y - dt * 0.6, w.height(this.x, this.z) - 0.9);
     }
     this.tumble = Math.min(1, this.tumble + dt * 3.5);
-    // board: its own little rigid body, bounces off the ground and walls
+    // board: its own little rigid body. Tumbles in the air, bounces off the ground and walls; once it lands
+    // wheels-down it rolls on along its length (grips sideways) and runs away downhill
     const b = this.board;
     b.vy -= P.gravity * dt;
     b.x += b.vx * dt; b.z += b.vz * dt; b.y += b.vy * dt;
-    b.roll += b.spinR * dt; b.yaw += b.spinY * dt;
+    b.roll += b.spinR * dt; b.yaw += b.spinY * dt; b.pitch = (b.pitch || 0) + (b.spinP || 0) * dt;
     const gb = w.height(b.x, b.z);
-    if (w.tileKind(b.x, b.z) === 2 && b.y < gb + 0.05) { b.vx *= 0.9; b.vz *= 0.9; b.vy = Math.max(b.vy, -0.5); b.y = Math.max(b.y, gb - 0.02); b.spinR *= 0.9; }
+    if (w.tileKind(b.x, b.z) === 2 && b.y < gb + 0.05) { b.vx *= 0.9; b.vz *= 0.9; b.vy = Math.max(b.vy, -0.5); b.y = Math.max(b.y, gb - 0.02); b.spinR *= 0.9; b.spinP = 0; }
     else if (b.y <= gb) {
       b.y = gb;
-      if (b.vy < -2) { b.vy = -b.vy * 0.35; b.spinR *= 0.6; this.emit('clack'); } else b.vy = 0;
-      const d = Math.max(0, 1 - dt * 2.2); b.vx *= d; b.vz *= d; b.spinY *= d;
-      // settle wheels-down or grip-down
+      if (b.vy < -2) { b.vy = -b.vy * 0.35; b.spinR *= 0.6; b.spinP = (b.spinP || 0) * -0.4; this.emit('clack'); } else b.vy = 0;
+      // settle wheels-down or grip-down, flat to the ground
       const k = Math.round(b.roll / Math.PI) * Math.PI; b.roll += (k - b.roll) * Math.min(1, dt * 8); b.spinR *= 0.85;
+      const wc = wheelContact(w, b.x, b.z, b.yaw);
+      b.pitch += (wc.pitch * (k % (2 * Math.PI) ? -1 : 1) - b.pitch) * Math.min(1, dt * 10); b.spinP = 0;
+      const nx = Math.cos(b.yaw), nz = Math.sin(b.yaw), along = b.vx * nx + b.vz * nz, side = -b.vx * nz + b.vz * nx;
+      const wheels = Math.abs(wrap(b.roll)) < 0.5;
+      // rolling: little drag along the board, the wheels grip across it; upside down it just scrapes to a stop
+      const dA = Math.max(0, 1 - dt * (wheels ? 0.35 : 2.2)), dS = Math.max(0, 1 - dt * (wheels ? 9 : 2.2));
+      let a = along * dA, sd = side * dS;
+      if (wheels) a -= Math.sin(wc.pitch) * P.gravity * 0.6 * dt;            // downhill
+      b.vx = nx * a - nz * sd; b.vz = nz * a + nx * sd;
+      b.spinY *= Math.max(0, 1 - dt * 2.2);
     }
     for (const s of w.segsNear(b.x, b.z, 1)) {
       if (s.kind === 'water' || (s.top && b.y > s.top[1])) continue;
@@ -962,7 +987,7 @@ export class Skater {
       if (d < 0.2) {
         let nx = (b.x - c.x) / (d || 1), nz = (b.z - c.z) / (d || 1);
         b.x = c.x + nx * 0.2; b.z = c.z + nz * 0.2;
-        const vn = b.vx * nx + b.vz * nz; if (vn < 0) { b.vx -= 1.6 * vn * nx; b.vz -= 1.6 * vn * nz; this.emit('clack'); }
+        const vn = b.vx * nx + b.vz * nz; if (vn < 0) { b.vx -= 1.6 * vn * nx; b.vz -= 1.6 * vn * nz; b.spinY += (Math.random() - 0.5) * 6; this.emit('clack'); }
       }
     }
     if (rag && !this.inWater) {
