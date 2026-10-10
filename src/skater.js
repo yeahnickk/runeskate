@@ -61,7 +61,10 @@ export const P = {
   blockRadius: 0.17,     // trees/rocks/props: a smaller collider than walls, and you glance off them
   grindFriction: 0.55,
   grindMin: 2.2,
-  grindGap: 1.6,
+  grindGap: 1.6,          // tiles: a bend / jog in the line still bridges across this much gap
+  grindGapStraight: 2.6,  // ... and straight on along the same line (gates, missing posts)
+  grindStepUp: 0.85,      // the next rail can sit this much higher and the grind rides up onto it
+  grindBump: 0.45,        // something across the rail up to this far above it is a bump, not a wall
   trunkPad: 0.1,         // rider half-width against a tree trunk (the trunk itself is measured, see tools/build.py)
   treeClear: 0.6,         // tiles of air under the board: from here up you fly through trees/props
   treeGain: 0.1,          // steer only toward a line at least this much clearer (fraction of the look distance)
@@ -605,8 +608,10 @@ export class Skater {
     if (this.bridge) { this.stepBridge(dt, inp); return; }
     // slope of the rail speeds you up / slows you down
     const t0 = this.railT;
-    const slope = (railTop(r, Math.min(r.len, t0 + 0.2)) - railTop(r, Math.max(0, t0 - 0.2))) / 0.4 * this.railDir;
-    this.railSpeed = Math.max(0.5, this.railSpeed - (P.grindFriction + slope * 7) * dt);
+    // (over a tile and a bit, so a post or a lump in the fence top never brakes you)
+    const ta = Math.max(0, t0 - 0.6), tb = Math.min(r.len, t0 + 0.6);
+    const slope = tb - ta > 0.3 ? Math.max(-0.6, Math.min(0.6, (railTop(r, tb) - railTop(r, ta)) / (tb - ta))) * this.railDir : 0;
+    this.railSpeed = Math.max(Math.min(this.railSpeed, P.grindMin * 0.6), this.railSpeed - (P.grindFriction + slope * 7) * dt);
     this.railT += this.railDir * this.railSpeed * dt;
     const top = railTop(r, Math.max(0, Math.min(r.len, this.railT)));
     this.x = r.horiz ? r.ax + this.railT : r.ax;
@@ -617,7 +622,7 @@ export class Skater {
     // hit something standing on the rail line (end posts, perpendicular walls)?
     for (const s of this.w.segsNear(this.x, this.z, 0.6)) {
       if (s.kind === 'rail' || s.kind === 'water' || s.kind === 'edge') continue;
-      if (s.top && this.y > Math.max(...s.top) - 0.05) continue;   // low stuff under the rail can't stop you
+      if (s.top && this.y > Math.max(...s.top) - P.grindBump) continue;   // low stuff, and posts / lumps a bit above the rail, you ride over
       if ((s.dx === 0) !== r.horiz) continue;                 // only walls crossing the rail line
       const across = r.horiz ? [Math.min(s.az, s.bz), Math.max(s.az, s.bz), r.az, s.ax, this.x]
                              : [Math.min(s.ax, s.bx), Math.max(s.ax, s.bx), r.ax, s.az, this.z];
@@ -651,12 +656,15 @@ export class Skater {
       for (const [qt, qdir] of [[0, 1], [q.len, -1]]) {
         const qx = q.horiz ? q.ax + qt : q.ax, qz = q.horiz ? q.az : q.az + qt;
         const gap = Math.hypot(qx - ex, qz - ez);
-        if (gap > P.grindGap) continue;
+        if (gap > P.grindGapStraight) continue;
         const ox = q.dirx * qdir, oz = q.dirz * qdir, dot = fx * ox + fz * oz;
         if (dot < -0.1) continue;                                           // no hairpins
+        // the same fence line carrying on past a gate / a missing post: a longer gap is fine, straight on
+        const inLine = dot > 0.99 && Math.abs((qx - ex) * fz - (qz - ez) * fx) < 0.05;
+        if (gap > P.grindGap && !inLine) continue;
         if (gap > 0.05 && (qx - ex) * fx + (qz - ez) * fz < -0.3) continue;   // never hop back to a rail behind you
         const qy = railTop(q, qt);
-        if (qy - ey > 0.6 || ey - qy > 1.3) continue;
+        if (qy - ey > P.grindStepUp || ey - qy > 2) continue;
         if (gap > 0.05 && this.gapBlocked(ex, ez, qx, qz, Math.max(ey, qy))) continue;
         const score = gap + (1 - dot) * 0.6;
         if (!best || score < best.score) best = { q, qt, qdir, qx, qz, qy, dot, score, gap };
@@ -678,7 +686,7 @@ export class Skater {
   gapBlocked(ax, az, bx, bz, y) {
     for (const s of this.w.segsNear((ax + bx) / 2, (az + bz) / 2, Math.hypot(bx - ax, bz - az) / 2 + 0.6)) {
       if (s.kind === 'rail' || s.kind === 'water' || s.kind === 'edge') continue;
-      if (s.top && y > Math.max(...s.top) - 0.05) continue;
+      if (s.top && y > Math.max(...s.top) - P.grindBump) continue;
       if (segsCross(ax, az, bx, bz, s.ax, s.az, s.bx, s.bz)) return true;
     }
     return false;

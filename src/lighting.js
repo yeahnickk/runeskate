@@ -9,7 +9,7 @@ const DAY_MS = 40 * 60 * 1000;           // one full day/night = 40 real minutes
 const lerpC = (a, b, t) => new THREE.Color(a).lerp(new THREE.Color(b), t);
 
 export class Lighting {
-  constructor({ scene, renderer, mats, fog, setSky }) {
+  constructor({ scene, renderer, mats, fog, setSky, quality = 'high' }) {
     Object.assign(this, { scene, renderer, mats, fog, setSky });
     this.basic = { opaque: mats.opaque, alpha: mats.alpha };
     this.lit = {
@@ -23,7 +23,7 @@ export class Lighting {
     sh.bias = -0.0006; sh.normalBias = 0.03;
     scene.add(this.hemi, this.sun, this.sun.target);
     this.meshes = new Set();
-    let q = 'high'; try { q = localStorage.getItem('rs_gfx') || 'high'; } catch {}
+    let q = quality; try { q = localStorage.getItem('rs_gfx') || quality; } catch {}
     this.quality = null; this.set(q);
     modelHooks.created = mesh => this.add(mesh, 'actor');
     this.slowT = 0; this.override = null;           // override: fixed time of day (0..1), e.g. for screenshots

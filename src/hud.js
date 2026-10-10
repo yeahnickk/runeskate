@@ -69,8 +69,11 @@ import { levelFor, levelProgress, xpToNext, MAX_LEVEL } from './levels.js';
 export class HUD {
   constructor(canvas, fonts, splat) {
     this.c = canvas; this.x = canvas.getContext('2d'); this.f = fonts; this.splat = splat;
-    this.pops = [];       // floating trick names
+    this.pops = [];       // floating trick names (on screen)
+    this.popQ = [];       // ... and waiting their turn
+    this.popGap = 0;
     this.msg = null;      // big centre message
+    this.msgQ = [];       // ... and the ones waiting behind it
     this.splats = [];     // world-anchored hitsplats (screen pos supplied each frame)
     this.tags = [];       // name tags / overhead chat (screen pos supplied each frame)
     this.chat = [];       // chat + join/leave lines
@@ -96,8 +99,24 @@ export class HUD {
     c.fillStyle = '#e0303a'; c.fillRect(x + w * 0.5 - k, y + h * 0.62, 2 * k, 2 * k);   // a ruby in the band
     return w;
   }
-  pop(text, color = '#fff') { this.pops.push({ text, color, t: 0 }); }
-  big(text, color = '#f00', sub = '', dur = 2.2) { this.msg = { text, color, sub, t: 0, dur }; }
+  /** a floating line (trick names, notices). At most POP_MAX show at once, the rest wait their turn and come
+   *  in one at a time; the same line again while it is still up counts up (x2, x3) instead of stacking. */
+  pop(text, color = '#fff') {
+    const same = [...this.pops, ...this.popQ].find(p => p.text === text);
+    if (same) { same.n = (same.n || 1) + 1; if (same.t !== undefined) same.t = Math.min(same.t, 0.3); return; }
+    this.popQ.push({ text, color, n: 1 });
+    if (this.popQ.length > 8) this.popQ.splice(0, this.popQ.length - 8);   // a flood: keep the newest
+  }
+  /** the big centre message. One at a time: a new one waits until the current has been read (its time is
+   *  cut short when something is queued behind it). now = show it straight away and drop the queue. */
+  big(text, color = '#f00', sub = '', dur = 2.2, now = false) {
+    const m = { text, color, sub, t: 0, dur };
+    if (now || !this.msg) { this.msg = m; if (now) this.msgQ.length = 0; return; }
+    if (this.msg.text === text) { Object.assign(this.msg, { sub, color, dur: Math.max(this.msg.dur, this.msg.t + 1) }); return; }
+    const q = this.msgQ.find(x => x.text === text);
+    if (q) Object.assign(q, m); else this.msgQ.push(m);
+    if (this.msgQ.length > 3) this.msgQ.shift();
+  }
 
   draw(dt, sk, cfg) {
     const x = this.x, W = this.c.width, H = this.c.height;
@@ -111,7 +130,7 @@ export class HUD {
     this.text(`CAM: ${cfg.camName}  [C]`, W - 16, 14 + k1 * 11, '#fff', k1, 'r', 'p12', 0.8);
     if (this.mini && cfg.map !== false) this.drawMini(W - 16, 14 + k1 * 24, K, sk);
     // the one standing challenge, small, under the minimap: all runes unlock ::noclip (the owner has it anyway)
-    if (this.goal && this.me && !this.me.own) {
+    if (this.goal && this.me && !this.me.own && !this.touch) {   // (a phone has its buttons there)
       const g = this.goal, cy = 14 + k1 * 24 + (this.mini && cfg.map !== false ? Math.round(34 * Math.max(2, K)) * 2 + 14 : 0);
       if (sk.noclip) this.text('NOCLIP ON', W - 16, cy, '#0ff', k1, 'r', 'p12', 0.8);
       else if (g.allRunes) this.text('::NOCLIP UNLOCKED', W - 16, cy, '#0f0', k1, 'r', 'p12', 0.8);
@@ -198,11 +217,19 @@ export class HUD {
       x.fillStyle = 'rgba(0,0,0,0.5)'; x.fillRect(W / 2 - 42, H * 0.3, 84, 8);
       x.fillStyle = '#ff0'; x.fillRect(W / 2 - 40, H * 0.3 + 2, 80 * sk.charge, 4);
     }
-    // floating trick pops
-    this.pops = this.pops.filter(p => (p.t += dt) < 1.6);
+    // floating trick pops: a few slots under the top bar, each line glides to its slot as older ones leave
+    const POP_LIFE = 1.5, POP_MAX = 3;
+    for (const p of this.pops) p.t += dt;
+    this.pops = this.pops.filter(p => p.t < POP_LIFE);
+    if ((this.popGap -= dt) <= 0 && this.popQ.length && this.pops.length < POP_MAX) {
+      const p = this.popQ.shift(); p.t = 0; p.y = null; this.pops.push(p); this.popGap = 0.16;
+    }
+    const slot = K * 13, y0 = H * 0.17;
     this.pops.forEach((p, i) => {
-      const a = Math.min(1, (1.6 - p.t) / 0.4);
-      this.text(p.text, W / 2, H * 0.22 + i * K * 12 - p.t * 30, p.color, K, 'c', 'b12', a);
+      const want = y0 + i * slot;
+      p.y = p.y == null ? want + slot * 0.6 : p.y + (want - p.y) * Math.min(1, dt * 12);
+      const a = Math.min(1, p.t / 0.12, (POP_LIFE - p.t) / 0.35);
+      this.text(p.text + (p.n > 1 ? `  x${p.n}` : ''), W / 2, p.y, p.color, K, 'c', 'b12', a);
     });
     // hitsplats
     this.splats = this.splats.filter(s => (s.t += dt) < 1.4);
@@ -217,8 +244,9 @@ export class HUD {
     // big message
     if (this.msg) {
       const m = this.msg; m.t += dt;
-      const a = Math.min(1, (m.dur - m.t) / 0.4);
-      if (m.t > m.dur) this.msg = null;
+      if (this.msgQ.length && !m.cut) { m.cut = true; m.dur = Math.min(m.dur, Math.max(m.t + 0.3, 1.1)); }    // something waiting: wrap this one up
+      const a = Math.min(1, (m.dur - m.t) / 0.3);
+      if (m.t > m.dur) this.msg = this.msgQ.shift() || null;
       else {
         const k = K * 2 * (m.t < 0.12 ? 1.6 - m.t * 5 : 1);
         this.text(m.text, W / 2, H * 0.38, m.color, Math.max(K, Math.round(k)), 'c', 'b12', a);
@@ -227,7 +255,7 @@ export class HUD {
     }
     if (this.board) this.drawBoard(K);
     if (cfg.help) this.drawHelp(K);
-    else this.text('H: controls', 16, H - 16 - K * 10, '#ff981f', Math.max(1, K - 1), 'l', 'p12', 0.75);
+    else if (!this.touch) this.text('H: controls', 16, H - 16 - K * 10, '#ff981f', Math.max(1, K - 1), 'l', 'p12', 0.75);
   }
 
   /** RS-style round minimap, north up, centred on the skater */
@@ -291,8 +319,8 @@ export class HUD {
     const lines = [
       ['W / UP', 'push'], ['S / DOWN', 'brake'], ['A D / LEFT RIGHT', 'steer (air: spin, grind: balance)'],
       ['SPACE', 'hold + release: ollie'], ['J / K / L / I', 'kickflip / heelflip / shove-it / varial'], ['U / N / M / Y / B', '360 flip / hardflip / 360 shove / double kick / double heel'], ['MOUSE', 'pull down, flick up: ollie (up-left kickflip, up-right heelflip)'],
-      ['SHIFT', 'powerslide'], ['Q (rolling)', 'manual, balance with W / S'], ['Q (in the air)', 'grab: hold, A/D pick the grab'], ['C', 'camera'], ['R', 'back to Lumbridge spawn'], ['E', 'step off / on the board (SPACE hops on foot)'], ['O', 'outfit'], ['1 - 5', 'emotes: wave, cheer, dance, laugh, clap'], ['PORTALS', 'along the walls of the Lumbridge castle courtyard'], ['ENTER', 'chat'],
-      ['TAB (hold)', 'leaderboard'], ['X', 'replay editor: scrub, slow-mo, cameras, save video'], ['P', 'build mode: place rails, ledges, kickers'], ['::skate NAME', 'challenge someone to S.K.A.T.E.'], ['G', 'graphics: high / low'], ['H', 'hide this help'],
+      ['SHIFT', 'powerslide'], ['Q (rolling)', 'manual, balance with W / S'], ['Q (in the air)', 'grab: hold, A/D pick the grab'], ['C', 'camera'], ['R', 'back to Lumbridge spawn'], ['E', 'step off / on the board (SPACE hops on foot)'], ['O', 'outfit'], ['1 - 5', 'emotes: wave, cheer, dance, laugh, clap'], ['ENTER', 'chat'],
+      ['TAB', 'teleport anywhere + leaderboard'], ['X', 'replay editor: scrub, slow-mo, cameras, save video'], ['P', 'build mode: place rails, ledges, kickers'], ['::skate NAME', 'challenge someone to S.K.A.T.E.'], ['G', 'graphics: high / low'], ['H', 'hide this help'],
     ];
     const k2 = Math.max(1, K - 1), p12 = this.f.p12, lh = k2 * 12;
     const col = 8 + Math.max(...lines.map(([k]) => p12.measure(k))) * k2 + 10;

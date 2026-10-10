@@ -10,6 +10,7 @@ import { PORTAL_HOME, PORTAL_DESTS, CORE_SPAWNS } from './src/mapdata.js';
 import { EXTRA_SPAWNS } from './src/npc-spawns.js';
 import { SPOTS_ALL } from './src/spots.js';
 import { cleanPark, footprint, PARK_PER, PARK_MAX } from './src/park-shape.js';
+import { nearFarPlan } from './src/nearfirst.js';
 const ROOT = import.meta.dir;
 const port = Number(process.argv[2] || process.env.PORT || 8123);
 
@@ -115,6 +116,22 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) process.prependListener(sig, (
 const STATS_HTML = readFileSync(join(ROOT, 'stats.html'), 'utf8');
 const MAP_HTML = readFileSync(join(ROOT, 'map.html'), 'utf8');
 // the /map page: everything that never moves, sent once (world tiles)
+// near-first loading (src/nearfirst.js): world.bin split into the chunks around spawn and the rest, written
+// (with .gz siblings) whenever they are missing or older than world.bin. Gitignored, made here on boot.
+{
+  const A = join(ROOT, 'assets'), bin = join(A, 'world.bin'), js = join(A, 'world.json');
+  const out = ['world.near.bin', 'world.far.bin'].map(f => join(A, f));
+  const fresh = (f: string) => { try { return statSync(f).mtimeMs >= Math.max(statSync(bin).mtimeMs, statSync(js).mtimeMs) && statSync(f + '.gz').mtimeMs >= statSync(f).mtimeMs - 2000; } catch { return false; } };
+  if (existsSync(bin) && !out.every(fresh)) {
+    const t0 = performance.now(), w = JSON.parse(readFileSync(js, 'utf8')), src = readFileSync(bin);
+    nearFarPlan(w.index, w.spawn).files.forEach((f: any, i: number) => {
+      const buf = new Uint8Array(f.size);
+      for (const [from, to, n] of f.copy) buf.set(src.subarray(from, from + n), to);
+      writeFileSync(out[i], buf); writeFileSync(out[i] + '.gz', Bun.gzipSync(buf, { level: 6 }));
+    });
+    console.log(`near-first world split in ${((performance.now() - t0) / 1000).toFixed(1)}s: near ${(statSync(out[0] + '.gz').size / 1e6).toFixed(1)} MB gz, far ${(statSync(out[1] + '.gz').size / 1e6).toFixed(1)} MB gz`);
+  }
+}
 const CORE_JSON = (({ name, title, x0, z0, w, h, baseX, baseZ, regions }) => ({ name, title, x0, z0, w, h, baseX, baseZ, regions }))(JSON.parse(readFileSync(join(ROOT, 'assets', 'world.json'), 'utf8')));
 const BASE = [CORE_JSON.baseX, CORE_JSON.baseZ];
 const MAP_STATIC = (() => {
@@ -124,8 +141,8 @@ const MAP_STATIC = (() => {
     img: { src: '/assets/map.png', x0: 2048, z1: 4032, px: 2 },             // tools/mapimg.py
     regions: [CORE_JSON, ...(CORE_JSON.regions || [])].map((r: any) => ({ title: r.title, x: r.x0 + BASE[0], z: r.z0 + BASE[1], w: r.w, h: r.h })),
     runes: JSON.parse(readFileSync(join(ROOT, 'assets', 'runes.json'), 'utf8')).runes.map((r: any) => ({ kind: r.kind, x: r.x, z: r.z, high: !!r.high })),
-    portals: [...PORTAL_DESTS.map((d: any) => ({ name: d.name, x: d.pad[0], z: d.pad[1], col: d.col, home: 1 })),
-      ...PORTAL_DESTS.map((d: any) => ({ name: 'to Lumbridge', x: d.back[0], z: d.back[1], col: PORTAL_HOME.col }))],
+    // teleport arrival points (TAB in the game)
+    portals: [PORTAL_HOME, ...PORTAL_DESTS].map((d: any) => ({ name: d.name, x: d.at[0], z: d.at[1], col: d.col, home: 1 })),
     npcs, spawn: [3222, 3218],
   };
 })();
@@ -133,7 +150,7 @@ const MAP_STATIC = (() => {
 // ------------------------------------------------------------------ static files
 // Fast public loading: pre-compressed .br/.gz siblings (tools/compress.ts), on-the-fly gzip for the small
 // source files, and an ETag on everything so a returning player revalidates (a 304) instead of
-// re-downloading the 12 MB world. vendor/ never changes, so the browser may keep it for a day.
+// re-downloading the world. vendor/ never changes, so the browser may keep it for a day.
 const TYPES: Record<string, string> = { js: 'text/javascript; charset=utf-8', json: 'application/json', html: 'text/html; charset=utf-8', bin: 'application/octet-stream', png: 'image/png', css: 'text/css' };
 const gzCache = new Map<string, { m: number; buf: Uint8Array }>();
 async function sendFile(req: Request, full: string) {

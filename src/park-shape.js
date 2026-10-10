@@ -19,7 +19,7 @@ export function footprint(o) {
   return out;
 }
 
-/** a clean object from untrusted input, or null. Keeps portals and the spawn clear */
+/** a clean object from untrusted input, or null. Keeps the spawn, the courtyard and the teleport arrivals clear */
 export function cleanPark(o) {
   if (!o || typeof o !== 'object' || !PARK_KINDS[o.kind]) return null;
   const K = PARK_KINDS[o.kind], x = Math.floor(+o.x), z = Math.floor(+o.z), dir = Math.floor(+o.dir), len = Math.floor(+o.len);

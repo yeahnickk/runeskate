@@ -234,6 +234,17 @@ function cellsAlong(ax, az, bx, bz, pad) {
   return out;
 }
 
+/** a height change bigger than this between two touching rail tiles makes them two rails (bridged in the grind) */
+const RAIL_STEP = 0.6;
+/** fence tops are lumpy (posts, finials, a gate's crossbar): take out one-sample spikes and dips, then soften
+ *  what is left, so a grind runs smooth along the line instead of jolting (or slowing to a crawl) at each post */
+function smoothProfile(prof) {
+  const h = prof.map(p => p[1]), n = h.length;
+  if (n < 3) return;
+  const med = h.map((v, i) => i === 0 || i === n - 1 ? v : [h[i - 1], v, h[i + 1]].sort((a, b) => a - b)[1]);
+  for (let i = 0; i < n; i++) prof[i][1] = i === 0 || i === n - 1 ? med[i] : med[i - 1] * 0.25 + med[i] * 0.5 + med[i + 1] * 0.25;
+}
+
 /** merge collinear, touching 1-tile rail segments into long grindable rails with a height profile */
 function buildRails(rs) {
   const lines = new Map();
@@ -262,6 +273,7 @@ function buildRails(rs) {
         const t = flip ? [...s.top].reverse() : s.top;
         prof.push([lo + 0.15, t[0]], [lo + 0.5, t[1]], [lo + 0.85, t[2]]);
       }
+      smoothProfile(prof);
       const r = horiz ? { ax: a0, az: c, bx: a1, bz: c } : { ax: c, az: a0, bx: c, bz: a1 };
       r.horiz = horiz; r.len = a1 - a0; r.a0 = a0; r.prof = prof; r.id = rails.length;
       r.dirx = horiz ? 1 : 0; r.dirz = horiz ? 0 : 1;
@@ -277,8 +289,10 @@ function buildRails(rs) {
       if (run.length) {
         const prev = run[run.length - 1];
         const phi = horiz ? Math.max(prev.ax, prev.bx) : Math.max(prev.az, prev.bz);
-        const ptop = prev.top[2] ?? prev.top[1], ctop = s.top[0];
-        if (phi !== lo || Math.abs(ptop - ctop) > 0.35) flush();
+        // the heights where the two meet (a segment can run either way along the axis)
+        const ptop = (horiz ? prev.ax > prev.bx : prev.az > prev.bz) ? prev.top[0] : prev.top[2];
+        const ctop = (horiz ? s.ax > s.bx : s.az > s.bz) ? s.top[2] : s.top[0];
+        if (phi !== lo || Math.abs(ptop - ctop) > RAIL_STEP) flush();
       }
       run.push(s);
     }

@@ -13,7 +13,7 @@ const GRIND = { metal: { f: 2900, q: 9, g: 0.4 }, wood: { f: 900, q: 3, g: 0.45 
 export class SkateAudio {
   constructor() { this.ctx = null; this.surface = 'stone'; this.dist = 0; this.pad = null; }
   start() {
-    if (this.ctx) return;
+    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {}); return; }   // iOS suspends it when the app goes to the background
     const C = this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.master = C.createGain(); this.master.gain.value = 0.55; this.master.connect(C.destination);
     const len = C.sampleRate * 2, buf = C.createBuffer(1, len, C.sampleRate), d = buf.getChannelData(0);

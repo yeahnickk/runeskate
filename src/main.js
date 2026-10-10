@@ -14,7 +14,9 @@ import { Designer } from './designer.js';
 import { Goals } from './goals.js';
 import { EXTRA_SPAWNS } from './npc-spawns.js';
 import { CORE_SPAWNS } from './mapdata.js';
-import { Portals } from './portals.js';
+import { Teleports } from './teleport.js';
+import { Touch } from './touch.js';
+import { nearFarPlan } from './nearfirst.js';
 import { Lighting } from './lighting.js';
 import { buildRagSkin, poseRagSkin, skinFrame } from './ragskin.js';
 import { poseRider, rigDims } from './rig.js';
@@ -26,10 +28,17 @@ THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 const FOG = 0xbcd1ea;
+// a phone / tablet: touch controls on screen, lighter graphics
+const TOUCH = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0 && !matchMedia('(pointer: fine)').matches;
 const status = t => { const el = document.getElementById('status'); if (el) el.textContent = t; };
 
 // three coords: x = east, y = up, z = -north
 const T = (x, y, z) => new THREE.Vector3(x, y, -z);
+
+// iPhone Safari: no pinch zoom / double-tap zoom / rubber-banding over the game (text fields still work)
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, e => e.preventDefault());
+document.addEventListener('touchmove', e => { if (e.touches.length > 1 || !e.target.closest?.('.panel, #tpmenu, #designer, #replay')) e.preventDefault(); }, { passive: false });
+document.addEventListener('dblclick', e => e.preventDefault());
 
 async function main() {
   status('loading world...');
@@ -37,7 +46,9 @@ async function main() {
   // outfit kit all stream together instead of queueing behind each other
   const pJson = fetch('assets/world.json').then(r => r.json());
   const pRunes = fetch('assets/runes.json').then(r => r.json()).then(j => j.runes).catch(() => []);
-  const pBin = fetch('assets/world.bin').then(r => r.arrayBuffer());
+  // near-first: just the meshes around spawn before you can play (serve.ts splits world.bin, src/nearfirst.js);
+  // an older server without the split sends the whole world.bin instead
+  const pNear = fetch('assets/world.near.bin').then(r => r.ok ? r.arrayBuffer() : null).catch(() => null);
   const NPC_KINDS = ['goblin', 'cow', 'chicken', 'rat', 'imp', 'man', 'darkwizard'];
   const pModels = Promise.all([loadRSModel('nickai3'), ...NPC_KINDS.map(k => loadRSModel('npc_' + k))]);
   const pFonts = Promise.all([RSFont.load('b12'), RSFont.load('p12')]);
@@ -45,12 +56,14 @@ async function main() {
   loadKit(0).catch(() => {});
   const wjson = await pJson;
   const world = new World(wjson);
-  const bin = await pBin;
+  let bin = await pNear, farPlan = null;
+  if (bin) { const plan = nearFarPlan(wjson.index, wjson.spawn); if (plan.files[0].size === bin.byteLength) farPlan = plan; else bin = null; }
+  if (!bin) bin = await fetch('assets/world.bin').then(r => r.arrayBuffer());
   status('building Lumbridge...');
 
   // resource friendly: no MSAA on hi-dpi screens, pixel ratio capped, ~60 fps cap, nothing drawn while hidden
-  const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gl'), antialias: devicePixelRatio < 1.5, alpha: true, powerPreference: 'low-power' });
-  const BASE_DPR = Math.min(devicePixelRatio, 1.25);
+  const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gl'), antialias: devicePixelRatio < 1.5 && !TOUCH, alpha: true, powerPreference: 'low-power' });
+  const BASE_DPR = Math.min(devicePixelRatio, TOUCH ? 1.5 : 1.25);       // phones: sharp enough, and the adaptive step below takes it lower if needed
   renderer.setPixelRatio(BASE_DPR);
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;     // RS colours are baked, show them 1:1
   renderer.setClearColor(0x000000, 0);
@@ -69,7 +82,7 @@ async function main() {
   const skyCss = document.documentElement.style;
   const replay = new Replay();
   let parks = null;                                        // Create-a-Park (made once the player is known)
-  const lighting = new Lighting({ scene, renderer, mats, setSky: (top, hor) => { skyCss.setProperty('--sky-top', top); skyCss.setProperty('--sky-hor', hor); } });
+  const lighting = new Lighting({ scene, renderer, mats, quality: TOUCH ? 'low' : 'high', setSky: (top, hor) => { skyCss.setProperty('--sky-top', top); skyCss.setProperty('--sky-hor', hor); } });
   // skate lanes through the forests (tools/lanes.py): the trees on them lost their collision, so paint the
   // ground under them worn dirt so they read as "go this way"
   const laneS = new Float32Array(world.N * world.N);
@@ -127,7 +140,17 @@ async function main() {
     }
   }
   }
-  addChunks(wjson, bin);
+  addChunks(farPlan ? { ...wjson, index: { chunk: CH, chunks: farPlan.files[0].chunks } } : wjson, bin);
+  // ... and the rest of the first pack's meshes once the game is running
+  function loadFar() {
+    if (!farPlan) return;
+    fetch('assets/world.far.bin').then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(fb => {
+      if (fb.byteLength !== farPlan.files[1].size) throw new Error('far size');
+      addChunks({ ...wjson, index: { chunk: CH, chunks: farPlan.files[1].chunks } }, fb);
+      for (const r of world.rects) if (r.x0 === wjson.x0 && r.z0 === wjson.z0) renderMini(r);
+      farPlan = null;
+    }).catch(() => setTimeout(loadFar, 5000));
+  }
   const nearOccluders = [], bvhQueue = [];
   function cullChunks(x, z) {
     nearOccluders.length = 0;
@@ -184,7 +207,7 @@ async function main() {
       loadRegion(r).catch(() => {});
     }
   }
-  /** fetch + drop in one pack (once); the portals await this before teleporting somewhere not yet loaded */
+  /** fetch + drop in one pack (once); a teleport awaits this before teleporting somewhere not yet loaded */
   const regionLoads = new Map();
   function loadRegion(r) {
     if (world.loaded.has(r.name)) return Promise.resolve();
@@ -341,15 +364,16 @@ async function main() {
     if (designer?.open) return;
     // start menu up: the game ignores keys (Enter on the menu skates, like the SKATE button)
     if (document.getElementById('start').style.display === 'flex') { if (e.key === 'Enter' && e.target?.tagName !== 'BUTTON') { e.preventDefault(); window.RS.autoLogin?.(); } return; }
-    if (e.key === 'Enter' && net.online) { e.preventDefault(); openChat(); return; }
-    if (e.key === 'Tab') { e.preventDefault(); if (!e.repeat) { hud.board = topNow(); refreshTop(); } }
-    if (replay.open) {                                   // the replay editor has the keys while it's open
-      const k = e.key.toLowerCase(); e.preventDefault();
-      if (k === 'x' || k === 'escape') { if (!replay.rec) closeReplay(); return; }
-      if (replay.rec) return;
-      if (replay.key(k, e.shiftKey) === 'record') { const why = replay.startRec(renderer.domElement); if (why) chatLog.push({ text: 'Replay: ' + why, col: '#f80', t: 0, msg: 1 }); }
+    if (e.key === 'Tab' || teleports?.open) {                // TAB: the teleport menu (with the leaderboard)
+      e.preventDefault();
+      if (e.repeat) return;
+      if (replay.open || designer?.open) return;
+      if (!teleports.open) { refreshTop(); keys.clear(); teleports.show(true); }
+      else teleports.key(e.key.toLowerCase());
       return;
     }
+    if (e.key === 'Enter' && net.online) { e.preventDefault(); openChat(); return; }
+    if (replay.open) { e.preventDefault(); replayKey(e.key.toLowerCase(), e.shiftKey); return; }   // the replay editor has the keys while it's open
     if (e.repeat) return;
     audio.start();
     const k = e.key.toLowerCase();
@@ -370,15 +394,22 @@ async function main() {
     if (k === 'f3') { cfg.debug = !cfg.debug; dbg.visible = cfg.debug; }
     if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
   });
-  addEventListener('keyup', e => { keys.delete(e.key.toLowerCase()); if (e.key === 'Tab') hud.board = null; });
+  function replayKey(k, shift) {
+    if (k === 'x' || k === 'escape') { if (!replay.rec) closeReplay(); return; }
+    if (replay.rec) return;
+    if (replay.key(k, shift) === 'record') { const why = replay.startRec(renderer.domElement); if (why) chatLog.push({ text: 'Replay: ' + why, col: '#f80', t: 0, msg: 1 }); }
+  }
+  replay.onKey = k => replayKey(k, false);
+  addEventListener('keyup', e => { keys.delete(e.key.toLowerCase()); });
   addEventListener('blur', () => keys.clear());
   const down = (...ks) => ks.some(k => keys.has(k));
   function readInput(first) {
     if (first) pollPad();
     let steer = (down('a', 'arrowleft') ? 1 : 0) - (down('d', 'arrowright') ? 1 : 0);
     if (!steer && pad.on) steer = pad.steer;
+    if (!steer && touch) steer = touch.steer;
     const inp = {
-      steer, fwd: Math.cos(sk.heading) * camDir.x + Math.sin(sk.heading) * camDir.y >= 0 ? 1 : -1, push: down('w', 'arrowup') || (pad.on && pad.push), brake: down('s', 'arrowdown') || (pad.on && pad.brake), jump: down(' '),
+      steer, fwd: Math.cos(sk.heading) * camDir.x + Math.sin(sk.heading) * camDir.y >= 0 ? 1 : -1, push: down('w', 'arrowup') || (pad.on && pad.push) || !!touch?.push, brake: down('s', 'arrowdown') || (pad.on && pad.brake) || !!touch?.brake, jump: down(' '),
       jumpPressed: first && jumpEdge, slide: down('shift') || (pad.on && pad.slide), manual: down('q') || (pad.on && pad.manual), trick: null, anyKey: first && anyEdge,
     };
     if (first && flick) { if (sk.mode === 'ground' && sk.charge < 0) inp.flickPop = flick.power; if (flick.trick) { pendingTrick = flick.trick; trickTimer = 0.3; } flick = null; }
@@ -391,10 +422,11 @@ async function main() {
   // in the air throws a trick. Double-length flicks do the double / 360 versions.
   let flick = null, gest = null;
   const gl = document.getElementById('gl');
-  gl.addEventListener('pointerdown', e => { if (e.button !== 0 || designer?.open) return; audio.start(); gest = { low: e.clientY, lowX: e.clientX, x0: e.clientX, y0: e.clientY, lowT: performance.now() }; });
-  addEventListener('pointermove', e => { if (gest && e.clientY > gest.low) { gest.low = e.clientY; gest.lowX = e.clientX; gest.lowT = performance.now(); } });
+  gl.addEventListener('pointerdown', e => { if (e.button !== 0 || designer?.open || gest) return; audio.start(); gest = { id: e.pointerId, low: e.clientY, lowX: e.clientX, x0: e.clientX, y0: e.clientY, lowT: performance.now() }; });
+  addEventListener('pointermove', e => { if (gest && e.pointerId === gest.id && e.clientY > gest.low) { gest.low = e.clientY; gest.lowX = e.clientX; gest.lowT = performance.now(); } });
+  addEventListener('pointercancel', e => { if (gest && e.pointerId === gest.id) gest = null; });
   addEventListener('pointerup', e => {
-    if (!gest) return;
+    if (!gest || e.pointerId !== gest.id) return;
     const g = gest; gest = null;
     const s = Math.min(innerWidth, innerHeight) / 100;             // gesture units: % of the short screen side
     const up = (g.low - e.clientY) / s, dx = (e.clientX - g.lowX) / s, wind = (g.low - g.y0) / s;
@@ -467,7 +499,7 @@ async function main() {
   function refreshTop() {
     if (performance.now() - topAt < 3000) return;
     topAt = performance.now();
-    fetch('/api/top').then(r => r.json()).then(t => { top = t; if (keys.has('tab')) hud.board = topNow(); }).catch(() => {});
+    fetch('/api/top').then(r => r.json()).then(t => { top = t; if (teleports?.open) teleports.drawTop(); }).catch(() => {});
   }
   function topNow() {
     const rows = top.map(r => ({ ...r }));
@@ -571,9 +603,22 @@ async function main() {
   const offlineProg = localProg();
   window.RS.goals = goals; window.RS.lighting = lighting;
   goals.onAllRunes = () => chatLog.push({ text: 'Every rune found! Type ::noclip in chat to skate through anything.', col: '#0ff', t: 0, msg: 1 });
-  const portals = new Portals({ scene, world, sk, hud, audio, ensureAt });
-  window.RS.portals = portals;
+  var teleports = new Teleports({ world, sk, hud, audio, ensureAt, getTop: () => topNow(), me, touch: TOUCH });
+  window.RS.teleports = teleports;
+  // phones / tablets: on-screen controls that press the same keys
+  const fakeKey = (type, k) => dispatchEvent(new KeyboardEvent(type, { key: k === 'shift' ? 'Shift' : k }));
+  var touch = TOUCH ? new Touch({
+    press: k => { active(); audio.start(); if (k) fakeKey('keydown', k); },
+    release: k => fakeKey('keyup', k),
+    chat: () => net.online ? openChat() : hud.pop('CHAT NEEDS YOU ONLINE', '#f80'),
+    menu: [['Teleport', () => teleports.show(true)], ['Outfit', () => fakeKey('keydown', 'o')], ['Graphics', () => fakeKey('keydown', 'g')],
+      ['Respawn', () => fakeKey('keydown', 'r')], ['Wave', () => fakeKey('keydown', '1')], ['Cheer', () => fakeKey('keydown', '2')],
+      ['Dance', () => fakeKey('keydown', '3')], ['Clap', () => fakeKey('keydown', '5')]],
+  }) : null;
+  let playing = false;                                    // past the start menu
+  window.RS.touch = touch;
   window.RS.onLogin = async who => {
+    teleports.ready(); playing = true; document.body.classList.add('playing');
     // this browser's saved progress only counts for the account that made it (or a solo run)
     const lp = offlineProg && (!offlineProg.who || offlineProg.who === who.name || offlineProg.who === who.login || offlineProg.who === 'offline') ? offlineProg : null;
     if (lp) goals.load(lp);
@@ -683,6 +728,7 @@ async function main() {
   }
   // scroll the chat history while the chat box is open
   addEventListener('wheel', e => { if (!hud.chatOpen) return; hud.chatScroll = Math.max(0, (hud.chatScroll || 0) + (e.deltaY < 0 ? 1 : -1)); }, { passive: true });
+  $('chatbox').addEventListener('blur', e => { e.target.style.display = 'none'; hud.chatOpen = false; });   // phones: tapping away closes it
   $('chatbox').addEventListener('keydown', e => {
     e.stopPropagation();
     if (e.key === 'Enter') { const t = e.target.value.trim(); if (t.startsWith('::')) command(t.slice(2).toLowerCase()); else if (t) net.send({ t: 'say', text: t }); }
@@ -1045,7 +1091,7 @@ async function main() {
     replay.show(false); hud.c.style.visibility = ''; scene.background = null;
     camera.fov = 62; camera.updateProjectionMatrix(); last = performance.now(); acc = 0;
   }
-  replay.onSaved = () => chatLog.push({ text: 'Replay saved as a .webm video (in your downloads).', col: '#0f0', t: 0, msg: 1 });
+  replay.onSaved = () => chatLog.push({ text: 'Replay saved as a video (in your downloads).', col: '#0f0', t: 0, msg: 1 });
   function replayTick(dt) {
     const f = replay.advance(dt); if (!f) return;
     const rdt = replay.play ? dt * [0.125, 0.25, 0.5, 1][replay.speed] : 0;
@@ -1109,7 +1155,8 @@ async function main() {
     document.getElementById('start').style.display = 'flex';
     window.RS.prefill();
     $('skate').focus();
-  }
+  } else { teleports.ready(); playing = true; document.body.classList.add('playing'); }
+  setTimeout(loadFar, 300);
   let last = performance.now(), acc = 0, first = true;
   const DT = 1 / 240;
   const v = new THREE.Vector3();
@@ -1130,7 +1177,7 @@ async function main() {
     placeShadow(myShadow, sk.x, sk.y, sk.z, sk.mode !== 'bail' || !sk.inWater);
     updateSparks(dt);
     goals.update(dt, camera);
-    portals.update(dt);
+    teleports.update(dt);
     drawSkater(dt);
     updateRemotes(dt);
     net.state(snapshot(), performance.now());
@@ -1166,12 +1213,12 @@ async function main() {
     hud.chat = chatLog; hud.me = me; hud.online = null; hud.mini = miniMap;
     hud.playing = net.online ? net.players.size + 1 : 0;   // live skaters on the server, you included
     hud.miniDots.length = 0;
-    hud.miniDots.push(...goals.dots(), ...portals.dots());
+    hud.miniDots.push(...goals.dots());
     for (const r of remotes.values()) if (r.s) hud.miniDots.push({ x: r.s.x, z: r.s.z, col: '#fff', r: 2 });
     hud.goal = goals.status();
     skPanel(dt);
     buildBar();
-    hud.draw(dt, sk, cfg);
+    hud.touch = !!touch; hud.draw(dt, sk, cfg);
   }
   // adaptive resolution: if frames run long for a second, render fewer pixels (down to 55%); step back up
   // once there's headroom. Keeps slower laptops smooth without making fast machines look worse.
@@ -1197,6 +1244,8 @@ async function main() {
     const dt = Math.min(0.1, gap / 1000); last = now;
     if (pendingRes) { resScale = pendingRes; pendingRes = 0; renderer.setPixelRatio(BASE_DPR * resScale); needResize = true; }
     if (needResize) { needResize = false; resize(); }
+    if (touch) { const on = playing && !replay.open && !designer.open && !teleports.open && $('chatbox').style.display !== 'block'; if (on !== touch.on) { touch.on = on; touch.show(on); } }
+    if (playing) { const b = !replay.open && !designer.open; if (b !== teleports.shown) teleports.ready(teleports.shown = b); }
     if (replay.open) replayTick(dt);
     else if (!window.RS.paused) { tick(dt); if (gap < 250) adaptResolution(gap, dt); }
   }

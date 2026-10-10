@@ -41,12 +41,13 @@ map data and running in the browser. Every door and gate stands open.
   Black Dragon at 90). First kills and kill milestones (10/50/100/500) pay big XP bonuses, and re-killing the same
   spawn soon after pays less.
 - **Grind anything that looks grindable.** Bridge parapets, fences, low walls and hedges, measured from the
-  real geometry. Grinds carry round corners and across small gaps.
+  real geometry. Grinds carry round corners, past gates and missing posts, and run smooth over lumpy fence
+  tops and posts instead of stopping.
 - **The real map.** Every wall, gate, tree and river comes from the server's own collision data. Trees
   collide at the trunk, not the tile, and flowers, stumps and fungus are ridden straight over.
 - **Multiplayer.** Everyone on one server, with chat, emotes, outfits and a leaderboard.
 - **Replay editor.** X opens the last 30 seconds: scrub, slow-mo down to 1/8x, four cameras (follow, tripod,
-  low fisheye, orbit), mark in and out, and V saves the clip as a `.webm` video, recorded in the browser.
+  low fisheye, orbit), mark in and out, and V saves the clip as a video (`.webm`, `.mp4` on Safari), recorded in the browser.
 - **Create-a-Park.** P opens build mode: drop rails, ledges and kickers into the world for everyone (12 pieces
   each, kept in `data/parks.json`). Rails and ledges grind; kickers launch you.
 - **Game of S.K.A.T.E.** `::skate Name` challenges someone online, `::accept` takes it. Set a trick and ride it
@@ -54,9 +55,14 @@ map data and running in the browser. Every door and gate stands open.
 - **Own the spot.** The best combo banked at each challenge spot owns it, with your name floating over it for
   everyone, until someone beats it.
 - **Things to do.** 100 hidden runes and a set of challenge spots across the map, goblins to stomp, and
-  portals to every town (stop on a portal's pad for a second to go; riding past never teleports you).
+  teleports to every town: press TAB (or the TELEPORT button) anywhere and pick one.
   Collect all 100 runes (the real 2004 rune stones) to unlock `::noclip`.
-- **Live map** at `/map`: the whole world with runes, portals, challenges and everyone online.
+- **Phones and tablets.** Full touch controls (a thumbstick that appears under your thumb, OLLIE, GRAB /
+  MANUAL, SLIDE, swipe-to-flick tricks, replay buttons) and lighter graphics. Works on iPhone Safari; add it to
+  the home screen for full screen. Play it sideways.
+- **Fast start.** Only the meshes around spawn (about 2 MB) load before you can skate; the rest of Lumbridge
+  streams in behind you, and other towns load as you get near (or teleport).
+- **Live map** at `/map`: the whole world with runes, teleports, challenges and everyone online.
 
 ![The world map](assets/map.png)
 
@@ -73,7 +79,8 @@ map data and running in the browser. Every door and gate stands open.
 | SHIFT | powerslide |
 | Q | manual when rolling (balance with W/S), grab in the air (A/D picks the grab) |
 | C / R / E / O | camera / back to spawn / step off the board / outfit |
-| 1-5, ENTER, TAB | emotes, chat, leaderboard |
+| 1-5, ENTER | emotes, chat |
+| TAB | teleport menu (click, number key, or arrows + ENTER) and the leaderboard |
 | X | replay editor (SPACE play, arrows scrub/speed, C camera, [ ] in/out, V save video) |
 | P | build mode (1 rail, 2 ledge, 3 kicker, [ ] length, R turn, F build, Backspace remove) |
 | G | graphics high / low |
@@ -104,13 +111,15 @@ Optional environment variables:
 | `RUNESKATE_DATA` | where the `data/` files live (default `./data`; the tests use a temp dir) |
 
 `bun tools/compress.ts` pre-compresses the assets (`.br`/`.gz`) for much faster loading over the internet.
+On boot `serve.ts` also splits `world.bin` into `world.near.bin` (the chunks round spawn) and `world.far.bin`,
+with `.gz` siblings, whenever they are missing or stale (a few seconds, gitignored).
 
 ## Development
 
 - `bun test/sim.js` runs the headless physics checks (collisions, grinds, rune placement, regions, ragdoll, board).
 - `bun test/net.js` starts the server on a spare port and plays it: S.K.A.T.E. turns, park limits, spot claims.
 - `bun tools/spot-check.ts` checks every challenge spot is reachable from spawn.
-- `bun tools/pocket-check.ts` (after split) checks spawn and every portal drop land in a big connected area, never a pocket you cannot skate out of.
+- `bun tools/pocket-check.ts` (after split) checks spawn and every teleport drop land in a big connected area, never a pocket you cannot skate out of.
 - `src/skater.js` is the physics, `src/world.js` the collision world, `src/main.js` the client,
   `serve.ts` the server (static files, accounts, multiplayer relay).
 

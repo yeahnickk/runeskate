@@ -41,7 +41,7 @@ const RUNE_COL = { air: '#e8f4ff', water: '#3c7cff', earth: '#8b5a2b', fire: '#f
 const LAYERS = [
   { k: 'players', label: 'Players (live)', col: '#ff0', on: true },
   { k: 'runes', label: 'Runes', col: '#fff', on: true },
-  { k: 'portals', label: 'Portals', col: '#c4f', on: true },
+  { k: 'portals', label: 'Teleports', col: '#c4f', on: true },
   { k: 'npcs', label: 'NPCs', col: '#f55', on: true },
   { k: 'regions', label: 'Regions', col: '#ff981f', on: false },
 ];
@@ -93,7 +93,7 @@ function draw() {
   if (on.npcs && M.npcs.kbd) for (const [x, z] of M.npcs.kbd) label(x, z, 'KING BLACK DRAGON', '#f55', -10 * u, 11 * d);
   if (on.runes) for (const r of M.runes) dot(r.x, r.z, 3.2 * u, RUNE_COL[r.kind] || '#fff', '#000');
   if (on.portals) for (const p of M.portals) { dot(p.x, p.z, 3.6 * u, p.col, '#c4f'); if (p.home && view.s >= 5) label(p.x, p.z, p.name, p.col, -7 * u, 10 * d); }
-  if (on.portals && view.s < 5) label(M.spawn[0], M.spawn[1], 'PORTALS', '#c4f', -12 * u, 11 * d);
+  if (on.portals && view.s < 5) void 0;
   if (on.players) for (const p of live) {
     dot(p.x - 0.5, p.z - 0.5, 4.2 * u, p.own ? '#ffd700' : '#ff0', '#000');
     label(p.x - 0.5, p.z - 0.5, (p.own ? '♛ ' : '') + p.name, p.own ? '#ffd700' : '#fff', -9 * u, 12 * d);
@@ -128,7 +128,7 @@ function hover(sx, sy, cx, cy) {
   const hits = [];
   if (on.players) for (const p of live) if (Math.hypot(p.x - wx, p.z - wz) < r) hits.push(`${p.own ? '♛ ' : ''}${p.name} · ${p.runes} runes · ${p.mode || ''}`);
   if (on.runes) for (const q of M.runes) if (Math.hypot(q.x + 0.5 - wx, q.z + 0.5 - wz) < r) hits.push(`${q.kind} rune${q.high ? ' (up high)' : ''}`);
-  if (on.portals) for (const q of M.portals) if (Math.hypot(q.x + 0.5 - wx, q.z + 0.5 - wz) < r) hits.push(`portal: ${q.name}`);
+  if (on.portals) for (const q of M.portals) if (Math.hypot(q.x + 0.5 - wx, q.z + 0.5 - wz) < r) hits.push(`teleport: ${q.name}`);
   if (on.npcs) for (const [k, list] of Object.entries(M.npcs)) for (const [x, z] of list) if (Math.hypot(x + 0.5 - wx, z + 0.5 - wz) < r) hits.push(k === 'kbd' ? 'King Black Dragon' : k);
   if (!hits.length) { tip.style.display = 'none'; return; }
   tip.textContent = [...new Set(hits)].slice(0, 6).join('\n'); tip.style.whiteSpace = 'pre';

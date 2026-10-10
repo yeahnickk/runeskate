@@ -1,6 +1,6 @@
 // Pure data shared by the game client and serve.ts (the /map page): no three.js, no DOM.
-// Portals: world tiles. `pad` = the portal in the Lumbridge courtyard, `at` = where it drops you, `back` = the
-// portal home beside it. Arrivals sit on flat ground (no rolling away downhill the moment you land).
+// Teleports (TAB in the game): world tiles. `at` = where it drops you, `back` = a spot behind the arrival (you
+// face away from it), `pad` = the old courtyard portal spot, still kept clear of building. Arrivals sit on flat ground.
 export const PORTAL_HOME = { name: 'Lumbridge', at: [3222, 3218], col: '#3cf' };
 export const PORTAL_DESTS = [
   { name: 'Varrock', pad: [3226, 3223], at: [3209, 3425], back: [3207, 3427], col: '#f93' },

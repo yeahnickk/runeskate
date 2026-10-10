@@ -343,6 +343,33 @@ const loneTrunk = (() => {
   check('grind carries round a fence corner', c.rails.has(corner[2]), `rails ridden ${c.rails.size} ungrind=${c.ungrind} ` + where(c.sk));
   if (gap) { const g = grindFrom(gap[0], gap[1]); check('grind carries across a small gap', g.rails.has(gap[2]), `gap rails ${g.rails.size} ` + where(g.sk)); }
   else check('a gapped rail pair exists to test', false);
+  // fences keep going: past a gate / a missing post (a 2-tile gap straight on) and over lumpy tops
+  let wide = null;
+  for (const r of w.rails) for (const dir of [1, -1]) {
+    if (wide || r.len < 4) continue;
+    const [ex, ez] = end(r, dir > 0 ? r.len : 0), fx = r.dirx * dir, fz = r.dirz * dir;
+    for (const q of w.railsNear(ex, ez, 3)) for (const u of [0, q.len]) {
+      if (wide || q === r || q.horiz !== r.horiz || q.len < 3) continue;
+      const [qx, qz] = end(q, u), ahead = (qx - ex) * fx + (qz - ez) * fz;
+      if (ahead > 1.7 && ahead < 2.5 && Math.abs((qx - ex) * fz - (qz - ez) * fx) < 0.01 && Math.abs(railTop(q, u) - railTop(r, dir > 0 ? r.len : 0)) < 0.3
+          && !new Skater(w).gapBlocked(ex, ez, qx, qz, railTop(r, dir > 0 ? r.len : 0))) wide = [r, dir, q];
+    }
+  }
+  if (wide) { const g = grindFrom(wide[0], wide[1]); check('grind carries on along a fence past a 2-tile gap', g.rails.has(wide[2]), `rails ${g.rails.size} ` + where(g.sk)); }
+  else check('a fence with a 2-tile gap exists to test', false);
+  let spikes = 0;
+  for (const r of w.rails) for (let i = 1; i < r.prof.length - 1; i++) { const [a, b, c] = [r.prof[i - 1][1], r.prof[i][1], r.prof[i + 1][1]]; if (b - Math.max(a, c) > 0.08 || Math.min(a, c) - b > 0.08) spikes++; }
+  check('rail tops are smooth (no post spikes to jolt over)', spikes < 10, `${spikes} spikes`);
+  // a long lumpy fence: ride it end to end without coming off
+  let lumpy = null, worst = 0;
+  for (const r of w.rails) { if (r.len < 8) continue; let m = 0; for (let i = 1; i < r.prof.length; i++) m = Math.max(m, Math.abs(r.prof[i][1] - r.prof[i - 1][1])); if (m > worst && m < 0.5) { worst = m; lumpy = r; } }
+  if (lumpy) {
+    const sk = new Skater(w), t0 = 0.3; const [x, z] = end(lumpy, t0); sk.reset(x, z, Math.atan2(lumpy.dirz, lumpy.dirx));
+    Object.assign(sk, { mode: 'grind', rail: lumpy, railT: t0, railDir: 1, railSpeed: 5, railSide: 1, grindKind: '50-50', grindHeading: sk.heading, balance: 0, grindTime: 0, y: railTop(lumpy, t0) });
+    let off = null, minV = 9;
+    run(sk, (lumpy.len - 1) / 4, (t, s) => { if (s.mode !== 'grind' && off === null) off = t; if (s.mode === 'grind') minV = Math.min(minV, s.railSpeed); return { steer: Math.max(-1, Math.min(1, (s.balance || 0) * 4)) }; });
+    check('a lumpy fence grinds end to end at speed', off === null && minV > 2.5, `off at ${off} min speed ${minV.toFixed(2)} bumps ${worst.toFixed(2)} len ${lumpy.len}`);
+  }
 }
 
 // jump the River Lum: its bed has invisible server walls, which used to stop you mid-air ("hit a wall")

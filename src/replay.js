@@ -1,8 +1,8 @@
 // Replay editor: the last 30 seconds of your skating (and the skaters near you) are always being kept. X opens
 // it: the game pauses and the clip plays back through the same renderer (rig, ragdoll, board), with
 //   Space play/pause · ←/→ scrub (Shift = faster) · ↑/↓ speed (1/8x .. 1x) · C camera (follow, tripod,
-//   fisheye, orbit) · [ / ] mark in and out · V save the in..out clip as a .webm video · X or Esc back to skating
-// The video is recorded in the browser (MediaRecorder on the canvas) and downloaded: nothing leaves the machine.
+//   fisheye, orbit) · [ / ] mark in and out · V save the in..out clip as a video (.webm, or .mp4 on Safari) · X or Esc back to skating
+// The video is recorded in the browser; on a touch screen the strip has buttons for all of it (MediaRecorder on the canvas) and downloaded: nothing leaves the machine.
 import * as THREE from 'three';
 
 const KEEP = 30, HZ = 30;
@@ -138,13 +138,15 @@ export class Replay {
   startRec(canvas) {
     if (this.rec) return 'already recording';
     if (typeof MediaRecorder === 'undefined' || !canvas.captureStream) return 'this browser cannot record video';
-    const type = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t));
-    if (!type) return 'this browser cannot record webm';
+    // webm where it exists, mp4 on Safari / iPhone
+    const type = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4;codecs=avc1', 'video/mp4'].find(t => MediaRecorder.isTypeSupported(t));
+    if (!type) return 'this browser cannot record video';
+    const ext = type.startsWith('video/mp4') ? 'mp4' : 'webm';
     const chunks = [], mr = new MediaRecorder(canvas.captureStream(30), { mimeType: type, videoBitsPerSecond: 6e6 });
     mr.ondataavailable = e => e.data.size && chunks.push(e.data);
     mr.onstop = () => {
-      const url = URL.createObjectURL(new Blob(chunks, { type: 'video/webm' })), a = document.createElement('a');
-      a.href = url; a.download = `runeskate-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.webm`;
+      const url = URL.createObjectURL(new Blob(chunks, { type: type.split(';')[0] })), a = document.createElement('a');
+      a.href = url; a.download = `runeskate-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${ext}`;
       document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 10000);
       this.onSaved?.();
     };
@@ -165,8 +167,14 @@ export class Replay {
         <div id="rp-bar" style="position:relative;height:14px;margin:8px 0;background:rgba(255,255,255,.18);cursor:pointer;touch-action:none">
           <div id="rp-mark" style="position:absolute;top:0;bottom:0;background:rgba(80,200,255,.35)"></div>
           <div id="rp-head" style="position:absolute;top:-3px;bottom:-3px;width:3px;background:#ff0"></div></div>
+        <div id="rp-btns" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+          <button class="small" data-k=" ">PLAY/PAUSE</button><button class="small" data-k="arrowleft">&lt;&lt;</button><button class="small" data-k="arrowright">&gt;&gt;</button>
+          <button class="small" data-k="arrowdown">SLOWER</button><button class="small" data-k="arrowup">FASTER</button><button class="small" data-k="c">CAMERA</button>
+          <button class="small" data-k="[">MARK IN</button><button class="small" data-k="]">MARK OUT</button><button class="small" data-k="v">SAVE VIDEO</button><button class="small" data-k="x">BACK</button></div>
         <div style="opacity:.85">SPACE play · ←/→ scrub · ↑/↓ speed · C camera · [ ] mark in/out · V save video · X back to skating</div>`;
       document.body.appendChild(d);
+      for (const b of d.querySelectorAll('#rp-btns button')) b.addEventListener('click', e => { e.stopPropagation(); b.blur(); this.onKey?.(b.dataset.k); });
+      d.addEventListener('pointerdown', e => e.stopPropagation());
       const bar = d.querySelector('#rp-bar');
       const seek = e => { const r = bar.getBoundingClientRect(); this.t = this.t0 + (this.t1 - this.t0) * Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)); this.play = false; this.ui(true); };
       bar.addEventListener('pointerdown', e => { e.stopPropagation(); bar.setPointerCapture(e.pointerId); seek(e); bar.onpointermove = seek; });

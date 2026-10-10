@@ -2,16 +2,22 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2a5cc8">
 <title>RuneSkate</title>
 <link rel="icon" href="data:,">
 <style>
   :root { --sky-top: #2a5cc8; --sky-hor: #bcd1ea; --ink: #ff981f; }
-  html, body { margin: 0; height: 100%; overflow: hidden; background: linear-gradient(180deg, var(--sky-top) 0%, #6f9be0 38%, var(--sky-hor) 62%); font-family: monospace; color: #fff; }
-  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; background: linear-gradient(180deg, var(--sky-top) 0%, #6f9be0 38%, var(--sky-hor) 62%); font-family: monospace; color: #fff; }
+  body { position: fixed; inset: 0; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   #hud { pointer-events: none; image-rendering: pixelated; }
   .panel { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
-           background: radial-gradient(ellipse at center, rgba(40,30,15,.85), rgba(0,0,0,.92)); z-index: 5; text-align: center; padding: 16px; }
+           background: radial-gradient(ellipse at center, rgba(40,30,15,.85), rgba(0,0,0,.92)); z-index: 5; text-align: center; padding: 16px;
+           box-sizing: border-box; overflow-y: auto; justify-content: safe center; -webkit-overflow-scrolling: touch; }
   .title { font-size: clamp(40px, 9vw, 96px); font-weight: 900; color: var(--ink); letter-spacing: 4px;
            text-shadow: 4px 4px 0 #000, -2px -2px 0 #5a3a10; font-family: Impact, 'Arial Black', sans-serif; }
   .sub { color: #ff0; font-size: 16px; text-shadow: 1px 1px 0 #000; }
@@ -30,9 +36,17 @@
   #social svg { height: 12px; fill: #fff; }
   #discord { background: rgba(88,101,242,0.85); } #discord:hover { background: #5865f2; }
   #xfollow { background: rgba(0,0,0,0.75); } #xfollow:hover { background: #000; }
+  .touchkeys { display: none; }
+  @media (pointer: coarse) {
+    .keys.desk { display: none; } .touchkeys { display: block; }
+    body.playing #social { display: none; }
+    .panel { gap: 10px; } .title { font-size: clamp(32px, 9vw, 72px); }
+    .login input { font-size: 16px; }                      /* 16px+: iOS doesn't zoom into the field */
+  }
+  @media (max-height: 480px) { .panel { gap: 8px; padding: 8px; } .title { font-size: 34px; } .sub { font-size: 13px; } }
 </style>
 <!-- start the big downloads with the HTML, not after the whole module graph has loaded -->
-<link rel="preload" href="assets/world.bin" as="fetch" crossorigin="anonymous">
+<link rel="preload" href="assets/world.near.bin" as="fetch" crossorigin="anonymous">
 <link rel="preload" href="assets/world.json" as="fetch" crossorigin="anonymous">
 <script type="importmap">
   { "imports": { "three": "./vendor/three.module.js", "three-mesh-bvh": "./vendor/three-mesh-bvh.module.js" } }
@@ -51,6 +65,18 @@
 <link rel="modulepreload" href="./src/skater.js">
 <link rel="modulepreload" href="./src/spots.js">
 <link rel="modulepreload" href="./src/world.js">
+<link rel="modulepreload" href="./src/teleport.js">
+<link rel="modulepreload" href="./src/touch.js">
+<link rel="modulepreload" href="./src/nearfirst.js">
+<link rel="modulepreload" href="./src/lighting.js">
+<link rel="modulepreload" href="./src/ragskin.js">
+<link rel="modulepreload" href="./src/ragdoll.js">
+<link rel="modulepreload" href="./src/rig.js">
+<link rel="modulepreload" href="./src/replay.js">
+<link rel="modulepreload" href="./src/park.js">
+<link rel="modulepreload" href="./src/park-shape.js">
+<link rel="modulepreload" href="./src/mapdata.js">
+<link rel="modulepreload" href="./src/npc-spawns.js">
 </head>
 <body>
 <canvas id="gl"></canvas>
@@ -61,12 +87,17 @@
 <div class="panel" id="start" style="background: rgba(0,0,0,.72); display: none">
   <div class="title">RUNESKATE</div>
   <div class="sub">Lumbridge, 2004. Grab your board.</div>
-  <div class="keys">
+  <div class="keys desk">
     <b>W</b> push &nbsp; <b>S</b> brake &nbsp; <b>A/D</b> steer, spin in the air, balance on rails (hold one as you pop to hop to the next rail)<br>
     <b>SPACE</b> hold + release to ollie &nbsp; <b>J K L I</b> kickflip, heelflip, shove-it, varial<br>
     <b>SHIFT</b> powerslide &nbsp; <b>E</b> walk / ride &nbsp; <b>O</b> outfit &nbsp; <b>ENTER</b> chat &nbsp; <b>C</b> camera &nbsp; <b>R</b> respawn &nbsp; <b>H</b> help<br>
-    <b>Q</b> manual (rolling) / grab (air) &nbsp; <b>MOUSE</b> pull down + flick up: ollie &amp; flip tricks &nbsp; <b>TAB</b> leaderboard &nbsp; gamepad works too<br>
-    Collect the runes, beat the challenge spots (gold beams), stomp goblins. Don't ride into the river. Stop on a portal along the castle courtyard walls to travel anywhere, members' land included. Get all 100 runes to unlock ::noclip. <a href="/map" target="_blank" style="color:#ff0">Live map</a>
+    <b>Q</b> manual (rolling) / grab (air) &nbsp; <b>MOUSE</b> pull down + flick up: ollie &amp; flip tricks &nbsp; <b>TAB</b> teleport + leaderboard &nbsp; gamepad works too<br>
+    Collect the runes, beat the challenge spots (gold beams), stomp goblins. Don't ride into the river. Press <b>TAB</b> (or the TELEPORT button) to travel anywhere, members' land included. Get all 100 runes to unlock ::noclip. <a href="/map" target="_blank" style="color:#ff0">Live map</a>
+  </div>
+  <div class="keys touchkeys">
+    <b>LEFT THUMB</b> anywhere on the left: steer, up to push, down to brake<br>
+    <b>OLLIE</b> hold + let go to pop &nbsp; <b>SWIPE</b> the right side: down then up = ollie, up-left kickflip, up-right heelflip<br>
+    <b>GRAB / MANUAL</b>, <b>SLIDE</b>, and <b>TELEPORT</b> anywhere, members' land included. Turn your phone sideways.
   </div>
   <div class="login">
     <input id="lname" placeholder="name" maxlength="12" autocomplete="username">
