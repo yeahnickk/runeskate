@@ -148,7 +148,7 @@ console.log('rails:', w.rails.length, 'segments:', w.segs.length);
   const sk = new Skater(w);
   const [x, z] = L(3221.5, 3219.5); sk.reset(x, z, Math.PI);
   sk.vx = -13;
-  const log = run(sk, 5);
+  const log = run(sk, 7);                              // the rider is always up by RD.maxTime (6 s)
   check('bail -> recover', log.some(e => e.type === 'recover') && sk.mode === 'ground', where(sk));
 }
 

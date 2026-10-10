@@ -297,12 +297,12 @@ export class Skater {
     const h1 = w.height(this.x, this.z);
     const drop = this.y - h1;
     if (drop > Math.max(0.18, this.speed * dt * 1.4) && this.speed > 1) {
-      // rolled off a ledge
-      this.mode = 'air'; this.vy = 0; this.airTime = 0; this.spin = 0; this.airTricks = []; this.body = this.heading;
+      // rolled off a ledge (off the lip of a kicker or a crest: keep the climb you had)
+      this.mode = 'air'; this.vy = Math.max(0, Math.min(7, this.climb || 0)); this.airTime = 0; this.spin = 0; this.airTricks = []; this.body = this.heading;
       this.emit('air');
       return;
     }
-    this.y = h1;
+    this.climb = (h1 - this.y) / dt; this.y = h1;
     this.body = this.slide ? this.heading + this.slideSign * Math.PI / 2 * Math.min(1, this.slide) : this.heading;
     if (this.slide) this.slide = Math.min(1, this.slide + dt * 6);
 

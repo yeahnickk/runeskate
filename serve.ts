@@ -8,11 +8,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSyn
 import { cleanChat } from './profanity.ts';
 import { PORTAL_HOME, PORTAL_DESTS, CORE_SPAWNS } from './src/mapdata.js';
 import { EXTRA_SPAWNS } from './src/npc-spawns.js';
+import { SPOTS_ALL } from './src/spots.js';
+import { cleanPark, footprint, PARK_PER, PARK_MAX } from './src/park-shape.js';
 const ROOT = import.meta.dir;
 const port = Number(process.argv[2] || process.env.PORT || 8123);
 
 // ------------------------------------------------------------------ accounts
-const DATA = join(ROOT, 'data'); mkdirSync(DATA, { recursive: true });
+const DATA = process.env.RUNESKATE_DATA || join(ROOT, 'data'); mkdirSync(DATA, { recursive: true });   // (tests point it at a temp dir)
 const ACC = join(DATA, 'accounts.json');
 type Account = { name: string; login?: string; hash: string; outfit: any | null; xp: number; created: number; seen: number; prog?: { found: string[]; done: string[] } };
 const accounts: Record<string, Account> = existsSync(ACC) ? JSON.parse(readFileSync(ACC, 'utf8')) : {};
@@ -97,6 +99,19 @@ setInterval(() => {
   pruneChat(); statsDirty = true; saveStats();
 }, SAMPLE_MS);
 setInterval(saveStats, 30_000);
+// ------------------------------------------------------------------ Create-a-Park + own-the-spot
+// Parks: rails, ledges and kickers players drop into the world for everyone (src/park-shape.js), PARK_PER each.
+// Spots: the best combo banked at each challenge spot owns it (name on the spot for everyone to see).
+const PARKS = join(DATA, 'parks.json'), SPOTS_F = join(DATA, 'spots.json');
+type ParkObj = { id: number; k: string; by: string; kind: string; x: number; z: number; dir: number; len: number; t: number };
+const parks: ParkObj[] = loadJson(PARKS, []);
+const spotBest: Record<string, { name: string; score: number; t: number }> = loadJson(SPOTS_F, {});
+const SPOT_IDS = new Set(SPOTS_ALL.map((s: any) => s.id));
+let parkId = parks.reduce((m, o) => Math.max(m, o.id), 0) + 1, parksDirty = false, spotsDirty = false;
+const pubPark = ({ id, by, kind, x, z, dir, len }: ParkObj) => ({ id, by, kind, x, z, dir, len });
+const saveParks = () => { if (parksDirty) { parksDirty = false; writeJson(PARKS, parks); } if (spotsDirty) { spotsDirty = false; writeJson(SPOTS_F, spotBest); } };
+setInterval(saveParks, 3000);
+for (const sig of ['SIGTERM', 'SIGINT'] as const) process.prependListener(sig, () => { try { saveParks(); } catch {} });
 const STATS_HTML = readFileSync(join(ROOT, 'stats.html'), 'utf8');
 const MAP_HTML = readFileSync(join(ROOT, 'map.html'), 'utf8');
 // the /map page: everything that never moves, sent once (world tiles)
@@ -145,11 +160,77 @@ async function sendFile(req: Request, full: string) {
 }
 
 // ------------------------------------------------------------------ sessions
-type Sess = { id: number; name: string; k: string; own?: number; st: any; ws: any; xp: number; outfit: any; lastHit?: number; bucket?: number; bucketAt?: number };
+type Sess = { id: number; name: string; k: string; own?: number; st: any; ws: any; xp: number; outfit: any; lastHit?: number; bucket?: number; bucketAt?: number; lastPark?: number; lastBank?: number; lastBankAt?: number };
 const sessions = new Map<number, Sess>();
 let nextId = 1;
 const pub = (s: Sess) => ({ id: s.id, name: s.name, own: s.own, xp: s.xp, outfit: s.outfit, st: s.st });
 const broadcast = (msg: any, except?: number) => { const m = JSON.stringify(msg); for (const s of sessions.values()) if (s.id !== except) s.ws.send(m); };
+
+// ------------------------------------------------------------------ Game of S.K.A.T.E.
+// Two skaters take turns: the setter lands a trick (it counts once the combo banks, so you have to ride it
+// away), the other has to land the same one. Miss a match and you take a letter; miss a set and the turn
+// passes. Five letters spells S.K.A.T.E. and loses. Tricks are judged by the clients' banked trick names; the
+// server keeps the turns, the letters and the clock. The winner gets SKATE_WIN XP (once per pair per 10 min).
+type Game = { p: [Sess, Sess]; letters: [number, number]; setter: number; phase: 'set' | 'match'; trick: string | null; until: number };
+const games = new Map<number, Game>(), invites = new Map<number, { from: number; at: number }>(), paid = new Map<string, number>();
+const SK_TURN = 25_000, SKATE_WIN = 10_000;
+const gView = (g: Game) => ({ names: g.p.map(s => s.name), ids: g.p.map(s => s.id), letters: g.letters, setter: g.p[g.setter].id, phase: g.phase, trick: g.trick, left: Math.max(0, g.until - Date.now()) });
+const gSend = (g: Game, msg: any) => { const m = JSON.stringify({ t: 'skate', ...msg, g: gView(g) }); for (const s of g.p) s.ws.send(m); };
+const letters = (n: number) => 'SKATE'.slice(0, n).split('').join('.') + (n ? '.' : '');
+function gTurn(g: Game, setter: number, msg: string) { g.setter = setter; g.phase = 'set'; g.trick = null; g.until = Date.now() + SK_TURN; gSend(g, { op: 'turn', msg }); }
+function gEnd(g: Game, winner: Sess | null, why: string, reward = true) {
+  for (const s of g.p) games.delete(s.id);
+  const pair = g.p.map(s => s.k).sort().join('|');
+  let xp = 0;
+  if (winner && reward && Date.now() - (paid.get(pair) || 0) > 600_000) {
+    paid.set(pair, Date.now()); xp = SKATE_WIN;
+    winner.xp += xp; accounts[winner.k].xp = winner.xp; dirty = true; broadcast({ t: 'xp', id: winner.id, xp: winner.xp });
+  }
+  const m = JSON.stringify({ t: 'skate', op: 'end', winner: winner?.name || null, why, xp, g: gView(g) });
+  for (const s of g.p) if (sessions.get(s.id) === s) s.ws.send(m);
+}
+function gResult(g: Game, s: Sess, ok: boolean, trick: string | null) {
+  const me = g.p[0] === s ? 0 : 1, other = g.p[1 - me];
+  if (g.phase === 'set') {
+    if (me !== g.setter) return;
+    if (ok && trick) { g.phase = 'match'; g.trick = trick; g.until = Date.now() + SK_TURN; gSend(g, { op: 'turn', msg: `${s.name} set a ${trick}. ${other.name}: match it!` }); }
+    else gTurn(g, 1 - me, `${s.name} missed the set. ${other.name} sets.`);
+  } else {
+    if (me === g.setter) return;
+    if (ok && trick === g.trick) return gTurn(g, g.setter, `${s.name} matched the ${trick}! ${other.name} sets again.`);
+    g.letters[me]++;
+    if (g.letters[me] >= 5) return gEnd(g, other, `${s.name} spelled S.K.A.T.E.`);
+    gTurn(g, g.setter, `${s.name} missed the ${g.trick}: ${letters(g.letters[me])}`);
+  }
+}
+setInterval(() => {
+  for (const g of new Set(games.values())) if (Date.now() > g.until) gResult(g, g.phase === 'set' ? g.p[g.setter] : g.p[1 - g.setter], false, null);
+}, 500);
+function skateMsg(s: Sess, m: any) {
+  const info = (text: string) => s.ws.send(JSON.stringify({ t: 'skate', op: 'info', msg: text }));
+  if (m.op === 'challenge') {
+    const tgt = [...sessions.values()].find(o => o.k === key(String(m.name || '')));
+    if (!tgt) return info('Nobody called that is online.');
+    if (tgt === s) return info("You can't play yourself.");
+    if (games.has(s.id) || games.has(tgt.id)) return info('One of you is already in a game (::quit to leave yours).');
+    invites.set(tgt.id, { from: s.id, at: Date.now() });
+    tgt.ws.send(JSON.stringify({ t: 'skate', op: 'invite', from: s.name }));
+    info(`Challenge sent to ${tgt.name}.`);
+  } else if (m.op === 'accept') {
+    const inv = invites.get(s.id); invites.delete(s.id);
+    const from = inv && Date.now() - inv.at < 60_000 ? sessions.get(inv.from) : null;
+    if (!from) return info('No challenge to accept (they expire after a minute).');
+    if (games.has(s.id) || games.has(from.id)) return info('One of you is already in a game.');
+    const g: Game = { p: [from, s], letters: [0, 0], setter: 0, phase: 'set', trick: null, until: 0 };
+    games.set(from.id, g); games.set(s.id, g);
+    gTurn(g, 0, `S.K.A.T.E.: ${from.name} vs ${s.name}. ${from.name} sets first.`);
+  } else if (m.op === 'land' || m.op === 'miss') {
+    const g = games.get(s.id); if (!g) return;
+    gResult(g, s, m.op === 'land', m.op === 'land' ? String(m.trick || '').slice(0, 60) : null);
+  } else if (m.op === 'quit') {
+    const g = games.get(s.id); if (g) gEnd(g, g.p[g.p[0] === s ? 1 : 0], `${s.name} forfeited`);
+  }
+}
 
 Bun.serve({
   port,
@@ -215,7 +296,7 @@ Bun.serve({
           const sess: Sess = { id: nextId++, name: a.name, own: isOwner(k) ? 1 : undefined, k, st: null, ws, xp: a.xp, outfit: a.outfit };
           ws.data.sess = sess; sessions.set(sess.id, sess); peak = Math.max(peak, sessions.size);
           a.seen = Date.now(); dirty = true;
-          ws.send(JSON.stringify({ t: 'welcome', id: sess.id, name: a.name, login: a.login || a.name, own: sess.own, xp: a.xp, outfit: a.outfit, isNew, prog: a.prog || { found: [], done: [] }, recent: chatLog.slice(-20).map(c => ({ n: c.n, m: c.m, o: c.o })), players: [...sessions.values()].filter(o => o !== sess).map(pub) }));
+          ws.send(JSON.stringify({ t: 'welcome', id: sess.id, name: a.name, login: a.login || a.name, own: sess.own, xp: a.xp, outfit: a.outfit, isNew, prog: a.prog || { found: [], done: [] }, recent: chatLog.slice(-20).map(c => ({ n: c.n, m: c.m, o: c.o })), parks: parks.map(pubPark), spots: spotBest, players: [...sessions.values()].filter(o => o !== sess).map(pub) }));
           broadcast({ t: 'join', ...pub(sess) }, sess.id);
         } finally { ws.data.busy = false; }
         return;
@@ -228,6 +309,7 @@ Bun.serve({
         const add = Math.max(0, Math.min(XP_PER_MSG, s.bucket, Math.floor(+m.add || 0)));
         s.bucket -= add;
         s.xp += add; accounts[s.k].xp = s.xp; dirty = true;
+        s.lastBank = add; s.lastBankAt = now;                    // own-the-spot: only a combo just banked can claim a spot
         broadcast({ t: 'xp', id: s.id, xp: s.xp }, s.id);
       } else if (m.t === 'outfit') {
         m.outfit = cleanOutfit(m.outfit, isOwner(s.k)); if (!m.outfit) return;
@@ -248,6 +330,31 @@ Bun.serve({
         const tgt = sessions.get(Math.floor(+m.id)); if (!tgt || tgt === s) return;
         const dx = +m.dx || 0, dz = +m.dz || 0, L = Math.hypot(dx, dz) || 1;
         tgt.ws.send(JSON.stringify({ t: 'hit', by: s.id, name: s.name, dx: dx / L, dz: dz / L }));
+      } else if (m.t === 'park') {                               // Create-a-Park: place / remove an object
+        const err = (why: string) => s.ws.send(JSON.stringify({ t: 'park', op: 'err', why }));
+        if (m.op === 'add') {
+          const now = Date.now(); if (now - (s.lastPark || 0) < 700) return; s.lastPark = now;
+          const o = cleanPark(m.o); if (!o) return err("can't build there");
+          if (!s.own && parks.filter(p => p.k === s.k).length >= PARK_PER) return err(`you have ${PARK_PER} pieces out - remove one first (Backspace near it)`);
+          if (parks.length >= PARK_MAX) return err('the park is full - remove one of yours first');
+          const taken = new Set(parks.flatMap(p => footprint(p).map(t => t.join(','))));
+          if (footprint(o).some(t => taken.has(t.join(',')))) return err('something is already built there');
+          const po: ParkObj = { ...o, id: parkId++, k: s.k, by: s.name, t: now };
+          parks.push(po); parksDirty = true; broadcast({ t: 'park', op: 'add', o: pubPark(po) });
+        } else if (m.op === 'del') {
+          const i = parks.findIndex(p => p.id === Math.floor(+m.id) && (p.k === s.k || s.own));
+          if (i < 0) return err('not yours to remove');
+          const [o] = parks.splice(i, 1); parksDirty = true; broadcast({ t: 'park', op: 'del', id: o.id });
+        }
+      } else if (m.t === 'spot') {                               // own-the-spot: a banked combo at a challenge spot
+        const id = String(m.id || ''), score = Math.floor(+m.score || 0);
+        if (!SPOT_IDS.has(id) || !(score > 0) || !s.lastBank || Date.now() - (s.lastBankAt || 0) > 10_000 || score > s.lastBank) return;
+        s.lastBank = 0;
+        const cur = spotBest[id]; if (cur && cur.score >= score) return;
+        spotBest[id] = { name: s.name, score, t: Date.now() }; spotsDirty = true;
+        broadcast({ t: 'spot', id, name: s.name, score, prev: cur && cur.name !== s.name ? cur.name : null });
+      } else if (m.t === 'skate') {                              // Game of S.K.A.T.E.
+        skateMsg(s, m);
       } else if (m.t === 'say') {
         const text = cleanChat(String(m.text || '').slice(0, 80).trim()).slice(0, 80);
         if (text) { broadcast({ t: 'say', id: s.id, name: s.name, own: s.own, text }); chatLog.push({ t: Date.now(), n: s.name, m: text, ...(s.own ? { o: 1 } : {}) }); statsDirty = true; }
@@ -255,7 +362,11 @@ Bun.serve({
     },
     close(ws: any) {
       const s: Sess | null = ws.data.sess;
-      if (s && sessions.get(s.id) === s) { sessions.delete(s.id); broadcast({ t: 'leave', id: s.id }); }
+      if (s && sessions.get(s.id) === s) {
+        sessions.delete(s.id); broadcast({ t: 'leave', id: s.id });
+        const g = games.get(s.id); if (g) gEnd(g, g.p[g.p[0] === s ? 1 : 0], `${s.name} left`, false);
+        invites.delete(s.id);
+      }
     },
   },
 });

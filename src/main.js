@@ -18,6 +18,9 @@ import { Portals } from './portals.js';
 import { Lighting } from './lighting.js';
 import { buildRagSkin, poseRagSkin } from './ragskin.js';
 import { poseRider, rigDims } from './rig.js';
+import { Replay } from './replay.js';
+import { Parks } from './park.js';
+import { SPOTS_ALL } from './spots.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
@@ -64,6 +67,8 @@ async function main() {
   };
   // sun, shadows, sky and the day/night cycle (src/lighting.js); G switches graphics high/low
   const skyCss = document.documentElement.style;
+  const replay = new Replay();
+  let parks = null;                                        // Create-a-Park (made once the player is known)
   const lighting = new Lighting({ scene, renderer, mats, setSky: (top, hor) => { skyCss.setProperty('--sky-top', top); skyCss.setProperty('--sky-hor', hor); } });
   // skate lanes through the forests (tools/lanes.py): the trees on them lost their collision, so paint the
   // ground under them worn dirt so they read as "go this way"
@@ -338,9 +343,17 @@ async function main() {
     if (document.getElementById('start').style.display === 'flex') { if (e.key === 'Enter' && e.target?.tagName !== 'BUTTON') { e.preventDefault(); window.RS.autoLogin?.(); } return; }
     if (e.key === 'Enter' && net.online) { e.preventDefault(); openChat(); return; }
     if (e.key === 'Tab') { e.preventDefault(); if (!e.repeat) { hud.board = topNow(); refreshTop(); } }
+    if (replay.open) {                                   // the replay editor has the keys while it's open
+      const k = e.key.toLowerCase(); e.preventDefault();
+      if (k === 'x' || k === 'escape') { if (!replay.rec) closeReplay(); return; }
+      if (replay.rec) return;
+      if (replay.key(k, e.shiftKey) === 'record') { const why = replay.startRec(renderer.domElement); if (why) chatLog.push({ text: 'Replay: ' + why, col: '#f80', t: 0, msg: 1 }); }
+      return;
+    }
     if (e.repeat) return;
     audio.start();
     const k = e.key.toLowerCase();
+    if (parks?.key(k, sk)) { e.preventDefault(); return; }
     keys.add(k); anyEdge = true;
     if (k === ' ') jumpEdge = true;
     const tricks = TRICK_KEYS;
@@ -348,11 +361,13 @@ async function main() {
     if (EMOTE_KEYS[k]) startEmote(+k);
     if (k === 'c') { cfg.cam = (cfg.cam + 1) % 3; cfg.camName = CAMS[cfg.cam]; filmer = null; }
     if (k === 'g') hud.pop('GRAPHICS: ' + lighting.toggle().toUpperCase(), '#0ff');
+    if (k === 'x') openReplay();
+    if (k === 'p' && parks) hud.pop(parks.toggle() ? 'BUILD MODE' : 'BUILD MODE OFF', '#3fa');
     if (k === 'h') cfg.help = !cfg.help;
     if (k === 'o') { keys.clear(); designer.show(me.outfit, false); return; }
     if (k === 'e' && !sk.toggleWalk()) hud.pop('slow down to step off', '#f80');
     if (k === 'r') { sk.reset(world.spawn[0], world.spawn[1], Math.PI / 2); sk.score = 0; }
-    if (k === 'f3' || k === 'g') { cfg.debug = !cfg.debug; dbg.visible = cfg.debug; }
+    if (k === 'f3') { cfg.debug = !cfg.debug; dbg.visible = cfg.debug; }
     if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
   });
   addEventListener('keyup', e => { keys.delete(e.key.toLowerCase()); if (e.key === 'Tab') hud.board = null; });
@@ -444,6 +459,8 @@ async function main() {
   const net = new Net();
   const me = { name: 'offline', xp: 0 };
   window.RS.net = net; window.RS.me = me;
+  parks = new Parks({ scene, world, lighting, net, hud, me });
+  window.RS.parks = parks; window.RS.replay = replay;
   // leaderboard: kept warm in the background so holding TAB shows it instantly (a fetch per press went out
   // through the tunnel and back, which read as TAB being slow); your own row always shows your live XP
   let top = [], topAt = 0;
@@ -471,7 +488,7 @@ async function main() {
   }, 5000);
   function rejoinAfterIdle() {
     idleKicked = false; $('idle').style.display = 'none';
-    if (net.creds) net.connect(...net.creds).then(w => { me.xp = Math.max(me.xp, w.xp); chatLog.push({ text: 'Welcome back.', col: '#0f0', t: 0 }); }).catch(e => chatLog.push({ text: 'Could not reconnect: ' + e.message, col: '#f00', t: 0 }));
+    if (net.creds) net.connect(...net.creds).then(w => { parks.load(w.parks); spotOwn = w.spots || spotOwn; me.xp = Math.max(me.xp, w.xp); chatLog.push({ text: 'Welcome back.', col: '#0f0', t: 0 }); }).catch(e => chatLog.push({ text: 'Could not reconnect: ' + e.message, col: '#f00', t: 0 }));
   }
   const qs = new URLSearchParams(location.search);
   const $ = id => document.getElementById(id);
@@ -485,7 +502,7 @@ async function main() {
       $('lerr').textContent = 'connecting...';
       try {
         const w = await net.connect(name, pass);
-        me.name = w.name; me.login = w.login || w.name; me.own = w.own; me.xp = w.xp; me.outfit = w.outfit; me.prog = w.prog; me.isNew = w.isNew || !w.outfit;
+        me.name = w.name; me.login = w.login || w.name; me.own = w.own; me.xp = w.xp; me.outfit = w.outfit; me.prog = w.prog; me.isNew = w.isNew || !w.outfit; me.parks = w.parks; me.spots = w.spots;
         for (const c of w.recent || []) chatLog.push(c.o ? { text: '[OWNER] ' + c.n + ': ' + c.m, col: GOLD, crown: true, t: 0, msg: 1, old: 1 } : { text: c.n + ': ' + c.m, col: '#ff0', t: 0, msg: 1, old: 1 });   // earlier chat: in the history (ENTER), not on screen
         const q = new URLSearchParams(location.search); q.set('name', w.login || w.name); q.delete('password');   // log in by the ACCOUNT name, not the display name
         history.replaceState(null, '', '?' + q.toString() + location.hash);
@@ -564,6 +581,7 @@ async function main() {
       for (const id of goals.found) if (!have.has(id)) net.prog({ kind: 'rune', id });
     }
     refreshTop();
+    parks.load(who.parks); spotOwn = who.spots || {};
     if (who.own) { scene.remove(board.root); board = buildBoard(true); scene.add(board.root); }   // the owner's gold board
     if (who.outfit) await wearOutfit(who.outfit);
     if (who.isNew && net.online) { keys.clear(); designer.show(who.outfit, true); }
@@ -603,7 +621,20 @@ async function main() {
      })
      .on('kicked', () => { chatLog.push({ text: 'Logged in somewhere else - disconnected.', col: '#f00', t: 0 }); })
      .on('closed', () => { if (!idleKicked) chatLog.push({ text: 'Connection lost - reconnecting...', col: '#f00', t: 0 }); for (const id of [...remotes.keys()]) dropRemote(id); })
-     .on('rejoined', w => { me.xp = Math.max(me.xp, w.xp); chatLog.push({ text: 'Reconnected.', col: '#0f0', t: 0 }); });
+     .on('park', m => {                                  // Create-a-Park: someone built or removed a piece
+       if (m.op === 'add') { parks.add(m.o); if (m.o.by === me.name) hud.pop(`BUILT ${m.o.kind.toUpperCase()}`, '#3fa'); }
+       else if (m.op === 'del') parks.remove(m.id);
+       else if (m.op === 'err') hud.pop(m.why.toUpperCase(), '#f80');
+     })
+     .on('spot', m => {                                  // own-the-spot: a spot changed hands
+       spotOwn[m.id] = { name: m.name, score: m.score };
+       const sp = SPOT_BY_ID.get(m.id)?.name || m.id;
+       if (m.name === me.name) hud.big('SPOT OWNED', '#ff0', `${sp} · ${m.score.toLocaleString()}`, 2.4);
+       else if (m.prev === me.name) hud.pop(`${m.name.toUpperCase()} TOOK ${sp.toUpperCase()} OFF YOU`, '#f44');
+       chatLog.push({ text: `${m.name} owns ${sp} (${m.score.toLocaleString()})` + (m.prev ? ` - taken from ${m.prev}` : ''), col: '#ff0', t: 0 });
+     })
+     .on('skate', m => skateEvent(m))
+     .on('rejoined', w => { parks.load(w.parks); spotOwn = w.spots || spotOwn; me.xp = Math.max(me.xp, w.xp); chatLog.push({ text: 'Reconnected.', col: '#0f0', t: 0 }); });
   const SNAP = ['x', 'y', 'z', 'heading', 'body', 'boardYaw', 'boardRoll', 'charge', 'airTime', 'pushing', 'tumble', 'tumbleAxis', 'speed', 'manual', 'lean', 'balance', 'vy', 'grabT'];
   function snapshot() {
     const o = { mode: sk.mode, gk: sk.grindKind, gr: sk.grab || '', sl: sk.slide ? 1 : 0, w: sk.inWater ? 1 : 0, wk: sk.walking || 0, fa: sk.footAir ? 1 : 0, fk: sk._fk ? 1 : 0, em: emote ? emote * 100 + emoteSeq : 0 };   // wk: 0 stand, 1 walk, 2 run; em: emote*100+seq
@@ -634,10 +665,14 @@ async function main() {
   // the owner has every command; everybody else earns ::noclip by collecting all 100 runes
   function command(c) {
     const canNoclip = me.own || goals.allRunes();
+    const info = text => chatLog.push({ text, col: '#0ff', t: 0, msg: 1 });
+    if (c.startsWith('skate')) { const n = c.slice(5).trim(); if (!n) info('::skate <name> challenges someone to a game of S.K.A.T.E.'); else net.send({ t: 'skate', op: 'challenge', name: n }); return; }
+    if (c === 'accept') { net.send({ t: 'skate', op: 'accept' }); return; }
+    if (c === 'quit') { if (skGame) net.send({ t: 'skate', op: 'quit' }); else info('Not in a game.'); return; }
+    if (c === 'help' || c === 'commands') { info('Commands: ::skate <name> · ::accept · ::quit' + (canNoclip ? ' · ::noclip' : '')); return; }
     if (c === 'noclip' && canNoclip) { sk.noclip = !sk.noclip; chatLog.push({ text: 'Noclip ' + (sk.noclip ? 'ON - skate through anything.' : 'OFF.'), col: me.own ? GOLD : '#0ff', crown: !!me.own, t: 0, msg: 1 }); }
     else if (c === 'noclip') chatLog.push({ text: `Collect all ${goals.runes.length} runes to unlock ::noclip (${goals.status().runes}/${goals.runes.length}).`, col: '#f00', t: 0, msg: 1 });
-    else if (canNoclip) chatLog.push({ text: 'Commands: ::noclip', col: me.own ? GOLD : '#0ff', t: 0, msg: 1 });
-    else chatLog.push({ text: 'Unknown command.', col: '#f00', t: 0, msg: 1 });
+    else chatLog.push({ text: 'Unknown command. ::help lists them.', col: '#f00', t: 0, msg: 1 });
   }
   function openChat() {
     const box = $('chatbox'); if (box.style.display === 'block') return;
@@ -972,13 +1007,93 @@ async function main() {
         meatBest = Math.max(meatBest, e.score);
         hud.big('HALL OF MEAT', '#f44', `${e.score.toLocaleString()} pts${e.broken.length ? ` · ${e.broken.length} broken` : ''}${e.score >= meatBest ? ' · NEW BEST' : ''}`, 2.2);
       }
+      if (e.type === 'land') skLanded = true;
+      if (e.type === 'trick') { if (skLanded && !skTrick) skTrick = e.name; skLanded = false; }
+      if (e.type === 'bail') { if (skMyTurn()) net.send({ t: 'skate', op: 'miss' }); skTrick = null; skLanded = false; }
+      if (e.type === 'banked') { if (skMyTurn() && skTrick) net.send({ t: 'skate', op: 'land', trick: skTrick }); skTrick = null; }
       if (e.type === 'banked' && e.total > 0) {
         hud.big(`+${e.total.toLocaleString()}`, '#ffff00', `${e.n} trick combo`, 1.5);
         addXP(e.total);
+        // own-the-spot: banked at a challenge spot and better than its owner's
+        const sp = nearSpot(sk.x, sk.z, SPOT_R);
+        if (sp && net.online && e.total > (spotOwn[sp.id]?.score || 0)) net.send({ t: 'spot', id: sp.id, score: e.total });
       }
       if (e.type === 'land' && e.impact > 7) shake = Math.max(shake, 0.06);
     }
     sk.events.length = 0;
+  }
+
+  // ---------------- replay editor (src/replay.js): the game pauses, the last 30 s play back
+  let skyTex = null;
+  function openReplay() {
+    if (sk.mode === 'walk' || !replay.show(true)) { hud.pop('NOTHING TO REPLAY YET', '#f80'); return; }
+    keys.clear(); hud.c.style.visibility = 'hidden';
+    // the video records the canvas only, so the sky (a CSS gradient behind it) is drawn into the scene
+    const c = document.createElement('canvas'); c.width = 2; c.height = 256;
+    const x = c.getContext('2d'), gr = x.createLinearGradient(0, 0, 0, 256);
+    gr.addColorStop(0, '#' + (lighting.skyTop?.getHexString() || '2a64c8')); gr.addColorStop(0.6, '#' + (lighting.skyHor?.getHexString() || 'bcd1ea'));
+    x.fillStyle = gr; x.fillRect(0, 0, 2, 256);
+    skyTex?.dispose(); skyTex = new THREE.CanvasTexture(c); skyTex.colorSpace = THREE.SRGBColorSpace; scene.background = skyTex;
+    parks.clearGhost();
+  }
+  function closeReplay() {
+    replay.show(false); hud.c.style.visibility = ''; scene.background = null;
+    camera.fov = 62; camera.updateProjectionMatrix(); last = performance.now(); acc = 0;
+  }
+  replay.onSaved = () => chatLog.push({ text: 'Replay saved as a .webm video (in your downloads).', col: '#0f0', t: 0, msg: 1 });
+  function replayTick(dt) {
+    const f = replay.advance(dt); if (!f) return;
+    const rdt = replay.play ? dt * [0.125, 0.25, 0.5, 1][replay.speed] : 0;
+    drawRider(rdt, f.me, player, board);
+    for (const [id, s] of f.others) { const r = remotes.get(id); if (r?.m) drawRider(rdt, s, r.m, r.board); }
+    replay.camera(camera, f, dt);
+    cullChunks(f.me.x, f.me.z);
+    lighting.update(_lfocus.set(f.me.x, f.me.y, -f.me.z), dt);
+    renderer.render(scene, camera);
+  }
+
+  // ---------------- own-the-spot: the best combo banked at a challenge spot owns it (serve.ts keeps them)
+  let spotOwn = {};
+  const SPOT_BY_ID = new Map(SPOTS_ALL.map(s => [s.id, s])), SPOT_R = 12;
+  function nearSpot(x, z, r) {
+    let best = null, bd = r;
+    for (const s of SPOTS_ALL) { const d = Math.hypot(s.at[0] - world.base[0] + 0.5 - x, s.at[1] - world.base[1] + 0.5 - z); if (d < bd) { bd = d; best = s; } }
+    return best;
+  }
+
+  // ---------------- Game of S.K.A.T.E. (serve.ts runs the turns; a trick counts once its combo banks)
+  let skGame = null, skGot = 0, skTrick = null, skLanded = false, skEl = null;
+  window.RS.skate = () => skGame; window.RS.spots = () => spotOwn;   // test hooks
+  const skMyTurn = () => !!skGame && net.me && (skGame.phase === 'set' ? skGame.setter === net.me.id : skGame.setter !== net.me.id);
+  const skLetters = n => 'S.K.A.T.E.'.slice(0, n * 2) || '-';
+  function skateEvent(m) {
+    const say = (text, col = '#0ff') => chatLog.push({ text, col, t: 0, msg: 1 });
+    if (m.op === 'invite') { say(`${m.from} challenges you to a game of S.K.A.T.E.! Type ::accept to play.`, '#ff0'); hud.pop(`${m.from.toUpperCase()} WANTS A GAME OF S.K.A.T.E.`, '#ff0'); }
+    else if (m.op === 'info') say(m.msg);
+    else if (m.op === 'turn') { skGame = m.g; skGot = performance.now(); skTrick = null; say(m.msg, '#ff0'); hud.pop(skMyTurn() ? (skGame.phase === 'set' ? 'YOUR SET' : 'MATCH: ' + skGame.trick.toUpperCase()) : 'THEIR TURN', '#ff0'); }
+    else if (m.op === 'end') {
+      skGame = null; skTrick = null;
+      const won = m.winner === me.name;
+      hud.big(won ? 'YOU WIN S.K.A.T.E.' : 'S.K.A.T.E. OVER', won ? '#0f0' : '#f44', m.why + (won && m.xp ? `  +${m.xp.toLocaleString()} XP` : ''), 3);
+      if (won && m.xp) me.xp += m.xp;
+      say(`S.K.A.T.E.: ${m.why}. ${m.winner ? m.winner + ' wins.' : ''}`, '#ff0');
+    }
+  }
+  function skPanel() {
+    if (!skEl) { skEl = document.createElement('div'); skEl.style.cssText = 'position:fixed;top:8px;left:50%;transform:translateX(-50%);padding:6px 14px;background:rgba(0,0,0,.6);color:#fff;font:14px monospace;z-index:5;text-align:center;pointer-events:none;display:none;max-width:calc(100vw - 32px)'; document.body.appendChild(skEl); }
+    if (!skGame) { skEl.style.display = 'none'; return; }
+    const g = skGame, left = Math.max(0, Math.ceil((g.left - (performance.now() - skGot)) / 1000));
+    const i = g.ids.indexOf(net.me?.id), them = 1 - i;
+    const what = skMyTurn() ? (g.phase === 'set' ? 'YOUR SET: land any trick and ride it away' : `MATCH: ${g.trick}`) : (g.phase === 'set' ? `${g.names[them]} is setting` : `${g.names[them]} has to match your ${g.trick}`);
+    skEl.innerHTML = `<b style="color:#ff0">S.K.A.T.E.</b> &nbsp; you ${skLetters(g.letters[i])} &nbsp;vs&nbsp; ${g.names[them]} ${skLetters(g.letters[them])}<br>${what} &nbsp;(${left}s)`;
+    skEl.style.display = 'block';
+  }
+  // build mode's key strip
+  let buildEl = null;
+  function buildBar() {
+    const st = parks.status();
+    if (!buildEl) { buildEl = document.createElement('div'); buildEl.style.cssText = 'position:fixed;bottom:8px;left:50%;transform:translateX(-50%);padding:6px 12px;background:rgba(0,0,0,.65);color:#3fa;font:13px monospace;z-index:5;pointer-events:none;max-width:calc(100vw - 32px);text-align:center'; document.body.appendChild(buildEl); }
+    buildEl.style.display = st ? 'block' : 'none'; if (st && buildEl.textContent !== st) buildEl.textContent = st;
   }
 
   // ---------------- loop
@@ -1004,6 +1119,8 @@ async function main() {
       firstStep = false; acc -= DT;
     }
     handleEvents();
+    replay.record(sk, remotes, dt);
+    parks.update(sk, dt);
     updateGoblins(dt);
     placeShadow(myShadow, sk.x, sk.y, sk.z, sk.mode !== 'bail' || !sk.inWater);
     updateSparks(dt);
@@ -1032,6 +1149,12 @@ async function main() {
       if (r.own) tag(r.s.x, r.s.y + 2.35, r.s.z, `[OWNER] ${r.name} (level-${levelFor(r.xp)})`, GOLD, said ? said.text : null, true);
       else tag(r.s.x, r.s.y + 2.35, r.s.z, `${r.name} (level-${levelFor(r.xp)})`, '#fff', said ? said.text : null);
     }
+    for (const sp of SPOTS_ALL) {                         // own-the-spot: who holds the spots near you
+      const gx = sp.at[0] - world.base[0] + 0.5, gz = sp.at[1] - world.base[1] + 0.5;
+      if (Math.hypot(gx - sk.x, gz - sk.z) > 22) continue;
+      const o = spotOwn[sp.id];
+      tag(gx, world.height(gx, gz) + 2.2, gz, sp.name, '#ff0', o ? `${o.name} owns it · ${o.score.toLocaleString()}` : 'unclaimed: bank a combo here', !!o);
+    }
     for (const [id, m] of say) { m.t += dt; if (m.t > 5) say.delete(id); }
     const mine = net.me && say.get(net.me.id);
     if (mine) tag(sk.x, sk.y + 2.35, sk.z, '', '#fff', mine.text);
@@ -1041,6 +1164,8 @@ async function main() {
     hud.miniDots.push(...goals.dots(), ...portals.dots());
     for (const r of remotes.values()) if (r.s) hud.miniDots.push({ x: r.s.x, z: r.s.z, col: '#fff', r: 2 });
     hud.goal = goals.status();
+    skPanel(dt);
+    buildBar();
     hud.draw(dt, sk, cfg);
   }
   // adaptive resolution: if frames run long for a second, render fewer pixels (down to 55%); step back up
@@ -1067,7 +1192,8 @@ async function main() {
     const dt = Math.min(0.1, gap / 1000); last = now;
     if (pendingRes) { resScale = pendingRes; pendingRes = 0; renderer.setPixelRatio(BASE_DPR * resScale); needResize = true; }
     if (needResize) { needResize = false; resize(); }
-    if (!window.RS.paused) { tick(dt); if (gap < 250) adaptResolution(gap, dt); }
+    if (replay.open) replayTick(dt);
+    else if (!window.RS.paused) { tick(dt); if (gap < 250) adaptResolution(gap, dt); }
   }
   // test hook: step the game synchronously with scripted keys, e.g.
   //   RS.advance(1.5, t => t < 1 ? ['w'] : ['w', ' '])

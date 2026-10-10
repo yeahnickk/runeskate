@@ -18,6 +18,16 @@ map data and running in the browser. Every door and gate stands open.
   landings resolved against the ground normal (land down a bank and keep your speed) and judged sketchy from spin
   rate and sideways speed. Skate 3's own tuning tables are EA's game data (that project loads them from your ISO),
   so the numbers here are tuned for this map; written clean-room from a description of its behaviour.
+- **A real skater on the board.** The body is posed by two-bone IK with the feet locked to the deck: crouch for
+  the pop, the front foot slides up the nose, knees tuck in the air, the back foot plants and drags to push, arms
+  balance on a grind. The board tips to the ground under its four wheels (slopes, kerbs).
+- **Ragdoll bails, Hall of Meat.** A bail hands the pose over to a verlet ragdoll: muscles hold the shape for a
+  moment and fade to limp, the arms reach out to break the fall, then the body tumbles, slides and comes to rest.
+  The stick still steers it. Impacts are scored by body part and bones can break. The board flies off on its own,
+  bounces, and once it lands wheels-down it rolls away (downhill too).
+- **Light and sound.** A sun that casts shadows around you, a 40-minute day/night cycle, and wheel sound that
+  changes with the ground (stone, wood, grass, dirt, sand), grinds that sound like what they're on, and pad
+  rumble. Slow machines drop to the old flat look by themselves (G toggles it).
 - **Tricks.** Pushing, carving, powerslides, manuals, grabs, 360s and a flip-trick set (kickflip, heelflip,
   shove-it, varial, 360 flip, hardflip...). Combos chain across grinds and manuals.
 - **Fair scoring.** A banked combo is its points x the number of tricks, capped at x10; the same trick repeated in
@@ -31,6 +41,14 @@ map data and running in the browser. Every door and gate stands open.
 - **The real map.** Every wall, gate, tree and river comes from the server's own collision data. Trees
   collide at the trunk, not the tile, and flowers, stumps and fungus are ridden straight over.
 - **Multiplayer.** Everyone on one server, with chat, emotes, outfits and a leaderboard.
+- **Replay editor.** X opens the last 30 seconds: scrub, slow-mo down to 1/8x, four cameras (follow, tripod,
+  low fisheye, orbit), mark in and out, and V saves the clip as a `.webm` video, recorded in the browser.
+- **Create-a-Park.** P opens build mode: drop rails, ledges and kickers into the world for everyone (12 pieces
+  each, kept in `data/parks.json`). Rails and ledges grind; kickers launch you.
+- **Game of S.K.A.T.E.** `::skate Name` challenges someone online, `::accept` takes it. Set a trick and ride it
+  away; they have to match it or take a letter. The winner gets XP.
+- **Own the spot.** The best combo banked at each challenge spot owns it, with your name floating over it for
+  everyone, until someone beats it.
 - **Things to do.** 100 hidden runes and a set of challenge spots across the map, goblins to stomp, and
   portals to every town (stop on a portal's pad for a second to go; riding past never teleports you).
   Collect all 100 runes (the real 2004 rune stones) to unlock `::noclip`.
@@ -52,6 +70,10 @@ map data and running in the browser. Every door and gate stands open.
 | Q | manual when rolling (balance with W/S), grab in the air (A/D picks the grab) |
 | C / R / E / O | camera / back to spawn / step off the board / outfit |
 | 1-5, ENTER, TAB | emotes, chat, leaderboard |
+| X | replay editor (SPACE play, arrows scrub/speed, C camera, [ ] in/out, V save video) |
+| P | build mode (1 rail, 2 ledge, 3 kicker, [ ] length, R turn, F build, Backspace remove) |
+| G | graphics high / low |
+| `::skate Name` | challenge someone to S.K.A.T.E. (`::accept`, `::quit`) |
 
 A gamepad works too. Press **H** in game for the full list.
 
@@ -64,8 +86,9 @@ bun serve.ts 8123          # then open http://localhost:8123/?name=YourName
 ```
 
 Anyone who opens the URL with a new name is signed up on the spot (`?name=You&password=secret` works as a
-join link). Accounts (hashed passwords, outfits, XP, runes, challenges) live in `data/accounts.json`,
-which is never committed.
+join link). Accounts (hashed passwords, outfits, XP, runes, challenges) live in `data/accounts.json`, Create-a-Park
+pieces in `data/parks.json` and spot owners in `data/spots.json`; `data/` is never committed. Everything runs
+on the one Bun process: no database, no outside services, and every library is vendored in `vendor/`.
 
 Optional environment variables:
 
@@ -74,12 +97,14 @@ Optional environment variables:
 | `RUNESKATE_OWNER` | login of the server owner's account: crown, `[OWNER]` tag, gilded kit, `::noclip` |
 | `RUNESKATE_OWNER_NAME` | display name for the owner account (you still log in as `RUNESKATE_OWNER`) |
 | `RUNESKATE_RESERVED` | extra comma-separated names nobody may register |
+| `RUNESKATE_DATA` | where the `data/` files live (default `./data`; the tests use a temp dir) |
 
 `bun tools/compress.ts` pre-compresses the assets (`.br`/`.gz`) for much faster loading over the internet.
 
 ## Development
 
-- `bun test/sim.js` runs the headless physics checks (collisions, grinds, rune placement, regions).
+- `bun test/sim.js` runs the headless physics checks (collisions, grinds, rune placement, regions, ragdoll, board).
+- `bun test/net.js` starts the server on a spare port and plays it: S.K.A.T.E. turns, park limits, spot claims.
 - `bun tools/spot-check.ts` checks every challenge spot is reachable from spawn.
 - `bun tools/pocket-check.ts` (after split) checks spawn and every portal drop land in a big connected area, never a pocket you cannot skate out of.
 - `src/skater.js` is the physics, `src/world.js` the collision world, `src/main.js` the client,

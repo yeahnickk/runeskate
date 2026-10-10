@@ -40,6 +40,11 @@ export class Lighting {
     if (k === 'terrain' || k === 'locs' || k === 'locs_alpha') {
       m.material = (hi ? this.lit : this.basic)[k === 'locs_alpha' ? 'alpha' : 'opaque'];
       m.receiveShadow = hi; m.castShadow = hi && k === 'locs';
+    } else if (k === 'solid') {                                         // plain-coloured meshes (Create-a-Park pieces)
+      m.userData.litMat ||= m.material;
+      m.userData.flatMat ||= new THREE.MeshBasicMaterial({ color: m.material.color, side: m.material.side, fog: true });
+      m.material = hi ? m.userData.litMat : m.userData.flatMat;
+      m.castShadow = m.receiveShadow = hi;
     } else {                                                            // riders, NPCs, boards
       m.userData.basicMat ||= m.material;
       if (hi && !m.userData.litMat) { const b = m.userData.basicMat; m.userData.litMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: b.side, flatShading: true, fog: true }); }
@@ -87,7 +92,7 @@ export class Lighting {
     this.scene.fog.color.copy(fogC);
     const top = lerpC(0x0c1430, 0x2a64c8, day), hor = fogC;
     this.setSky?.('#' + top.getHexString(), '#' + hor.getHexString(), day);
-    this.night = 1 - day;
+    this.night = 1 - day; this.skyTop = top; this.skyHor = hor;   // (the replay's video needs the sky drawn in)
     // low graphics has no lights: dim the unlit colours instead
     const lv = 0.6 + 0.4 * day;
     if (this.quality !== 'high') { this.basic.opaque.color.setScalar(lv); this.basic.alpha.color.setScalar(lv); for (const m of this.meshes) if (m.userData.basicMat) m.userData.basicMat.color.setScalar(lv); }

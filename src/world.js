@@ -17,7 +17,8 @@ export class World {
     this.grid = new Map();
     this.rails = [];
     this.railGrid = new Map();
-    this.trunkGrid = new Map();                            // 'tx,tz' -> [{x, z, r}]: tree trunks, measured by tools/build.py
+    this.trunkGrid = new Map();
+    this.ramps = new Map();                                // tz*N+tx -> Create-a-Park kicker on that tile (src/park.js)                            // 'tx,tz' -> [{x, z, r}]: tree trunks, measured by tools/build.py
     this.regions = json.regions || [];
     this.loaded = new Set();
     this.rects = [];
@@ -146,7 +147,28 @@ export class World {
     tx = Math.max(0, Math.min(N - 1, tx)); tz = Math.max(0, Math.min(N - 1, tz));
     const u = Math.min(1, Math.max(0, x - tx)), v = Math.min(1, Math.max(0, z - tz));
     const o = (tx * N + tz) * 4, g = this.ground;
-    return (g[o] * (1 - u) + g[o + 1] * u) * (1 - v) + (g[o + 3] * (1 - u) + g[o + 2] * u) * v;
+    const h = (g[o] * (1 - u) + g[o + 1] * u) * (1 - v) + (g[o + 3] * (1 - u) + g[o + 2] * u) * v;
+    if (!this.ramps.size) return h;
+    const r = this.ramps.get(tz * N + tx);
+    return r ? h + r.rise * Math.max(0, Math.min(1, ((x - r.x0) * r.dx + (z - r.z0) * r.dz) / r.len)) : h;
+  }
+
+  /** Create-a-Park: a rail/ledge (rails + collision walls) or a kicker (a ramp on the ground). Undo with removePark */
+  addPark(id, { rails = [], segs = [], ramp = null }) {
+    for (const sg of segs) { sg.park = id; this.addSeg(sg); }
+    for (const r of rails) {
+      r.park = id; r.id = this.rails.length; this.rails.push(r);
+      for (const cell of cellsAlong(r.ax, r.az, r.bx, r.bz, 1)) { if (!this.railGrid.has(cell)) this.railGrid.set(cell, []); this.railGrid.get(cell).push(r); }
+    }
+    if (ramp) for (const [tx, tz] of ramp.tiles) this.ramps.set(tz * this.N + tx, { ...ramp, park: id });
+    this._tall = null;
+  }
+  removePark(id) {
+    this.removeSegs(s => s.park === id);
+    this.rails = this.rails.filter(r => r.park !== id);
+    for (const [k, l] of this.railGrid) { const f = l.filter(r => r.park !== id); if (f.length !== l.length) { if (f.length) this.railGrid.set(k, f); else this.railGrid.delete(k); } }
+    for (const [k, r] of this.ramps) if (r.park === id) this.ramps.delete(k);
+    this._tall = null;
   }
 
   tileKind(x, z) {
