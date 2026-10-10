@@ -15,22 +15,36 @@ export function buildRagSkin(model) {
   // across the shoulders is whichever ground axis the arms spread along
   const arms = band(0.5, 0.8), spread = k => { const m = mean(arms, k); return arms.reduce((s, p) => s + Math.abs(p[k] - m), 0); };
   const L = spread(0) >= spread(2) ? 0 : 2, Fw = 2 - L;
-  const cL = mean(arms, L), torso = band(0.45, 0.85), cF = mean(torso, Fw);
+  const cL = mean(arms, L), torso = band(0.45, 0.85), cF = mean(torso, Fw);   // cF: kept for at()
   const out = arms.map(p => Math.abs(p[L] - cL)).sort((x, y) => x - y), armOut = out[Math.floor(out.length * 0.95)] || 0.25 * H;
-  // facing: the toes stick out in front of the hips
-  const feet = band(0, 0.08), hips = band(0.35, 0.55), fs = Math.sign(mean(feet, Fw) - mean(hips, Fw)) || 1;
+  // facing: the face sticks out in front of the chest (the toes don't tell: a stance frame splits the feet)
+  const head = band(0.86, 1), chest = band(0.6, 0.8), hips = band(0.42, 0.56), fs = Math.sign(mean(head, Fw) - mean(chest, Fw)) || 1;
   const sx = armOut * 0.78, hx = armOut * 0.36;
   const at = (lat, y, f = 0) => { const p = [0, y0 + y * H, 0]; p[L] = cL + lat; p[Fw] = cF + f * fs; return p; };
   // right = up x forward; pick the lateral sign that makes that true
   const fwd = [0, 0, 0]; fwd[Fw] = fs;
   const right = [fwd[2], 0, -fwd[0]];                   // (0,1,0) x fwd
   const rs = Math.sign(right[L]) || 1;
+  // joints measured off the mesh where the pose may differ from a straight stand (legs, arms): the centroid of
+  // that side's vertices in a height band; the spine straight up the middle
+  const side = (pts, sg) => pts.filter(p => (p[L] - cL) * sg * rs > 0);
+  const cen = (pts, fb) => pts.length ? [mean(pts, 0), mean(pts, 1), mean(pts, 2)] : fb;
+  const midF = k => { const p = [0, 0, 0]; p[L] = cL; p[Fw] = mean(k, Fw); return p; };
+  const spine = (y, pts) => { const p = midF(pts); p[1] = y0 + y * H; return p; };
   const skel = [];
-  skel[J.head] = at(0, 0.92); skel[J.neck] = at(0, 0.82); skel[J.pelvis] = at(0, 0.52);
-  skel[J.lSh] = at(-sx * rs, 0.79); skel[J.lEl] = at(-sx * rs, 0.62); skel[J.lHa] = at(-sx * rs, 0.46);
-  skel[J.rSh] = at(sx * rs, 0.79); skel[J.rEl] = at(sx * rs, 0.62); skel[J.rHa] = at(sx * rs, 0.46);
-  skel[J.lHip] = at(-hx * rs, 0.5); skel[J.lKn] = at(-hx * rs, 0.27, 0.02 * H); skel[J.lFt] = at(-hx * rs, 0.04);
-  skel[J.rHip] = at(hx * rs, 0.5); skel[J.rKn] = at(hx * rs, 0.27, 0.02 * H); skel[J.rFt] = at(hx * rs, 0.04);
+  skel[J.head] = spine(0.92, head); skel[J.neck] = spine(0.82, chest); skel[J.pelvis] = spine(0.52, hips);
+  const shoulder = sg => { const p = spine(0.79, chest); p[L] = cL + sx * rs * sg; return p; };
+  const hipJ = sg => { const p = spine(0.5, hips); p[L] = cL + hx * rs * sg; return p; };
+  skel[J.lSh] = shoulder(-1); skel[J.rSh] = shoulder(1); skel[J.lHip] = hipJ(-1); skel[J.rHip] = hipJ(1);
+  const foot = band(0, 0.07), knee = band(0.24, 0.31);
+  const armPts = sg => band(0.4, 0.78).filter(p => (p[L] - cL) * sg * rs > sx * 0.7);
+  for (const [sg, Ft, Kn, El, Ha] of [[-1, J.lFt, J.lKn, J.lEl, J.lHa], [1, J.rFt, J.rKn, J.rEl, J.rHa]]) {
+    skel[Ft] = cen(side(foot, sg), at(hx * rs * sg, 0.04)); skel[Ft][1] = y0 + 0.04 * H;
+    skel[Kn] = cen(side(knee, sg), at(hx * rs * sg, 0.27));
+    const ap = armPts(sg), lo = ap.length ? Math.min(...ap.map(p => p[1])) : 0;
+    skel[Ha] = ap.length ? cen(ap.filter(p => p[1] < lo + 0.07 * H), at(sx * rs * sg, 0.46)) : at(sx * rs * sg, 0.46);
+    skel[El] = ap.length ? cen(ap.filter(p => p[1] > y0 + 0.58 * H && p[1] < y0 + 0.67 * H), at(sx * rs * sg, 0.62)) : at(sx * rs * sg, 0.62);
+  }
   // each vertex to the nearest bone (head above the neck, legs below the hips)
   const names = Object.keys(PARTS), segs = names.map(n => [skel[PARTS[n][0]], skel[PARTS[n][1]]]);
   const dseg = (p, [a, b]) => {

@@ -244,6 +244,9 @@ function buildRails(rs) {
       r.horiz = horiz; r.len = a1 - a0; r.a0 = a0; r.prof = prof; r.id = rails.length;
       r.dirx = horiz ? 1 : 0; r.dirz = horiz ? 0 : 1;
       r.minLen = run.every(s => s.kind === 'block') ? 2 : 1;   // hedges: a row, not a single bush
+      // what it's made of, for the grind sound: railings are metal, fences wood, walls and hedges stone/brush
+      const nk = k => run.filter(s => s.kind === k).length;
+      r.mat = nk('rail') >= nk('fence') && nk('rail') >= nk('block') ? 'metal' : nk('fence') >= nk('block') ? 'wood' : 'stone';
       rails.push(r);
       run = [];
     };

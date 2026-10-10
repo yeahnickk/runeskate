@@ -566,7 +566,7 @@ export class Skater {
     this.grindHold = 0;
     this.y = top; this.vy = 0;
     this.x = r.horiz ? r.ax + this.railT : r.ax; this.z = r.horiz ? r.az : r.az + this.railT;
-    this.emit('grind', { kind: this.grindKind });
+    this.emit('grind', { kind: this.grindKind, mat: this.rail?.mat });
     return true;
   }
 
@@ -901,7 +901,9 @@ export class Skater {
       // model-local -> three.js (a yaw about y) -> game (z mirrored)
       const xf = this.ragXf || { yaw: -this.heading, gx: this.x, gy: this.y + 0.09, gz3: -this.z };
       const c = Math.cos(xf.yaw), sn = Math.sin(xf.yaw);
-      const place = l => [xf.gx + l[0] * c + l[2] * sn, xf.gy + l[1], -(xf.gz3 - l[0] * sn + l[2] * c)];
+      // riding with the skate rig: start from the pose on screen (src/rig.js), else the standing skeleton
+      const pose = this.ragPose && this.ragPose.length === 15 ? this.ragPose : null;
+      const place = pose ? (l, i) => pose[i].slice() : l => [xf.gx + l[0] * c + l[2] * sn, xf.gy + l[1], -(xf.gz3 - l[0] * sn + l[2] * c)];
       this.rag = new Ragdoll(this.ragSkel || defaultSkeleton(), place, [this.vx, this.mode === 'air' ? this.vy : Math.min(0, this.vy), this.vz], why);
     } else this.rag = null;
     if (why === 'wall') { b.vx *= -0.35; b.vz *= -0.35; this.vx *= -0.25; this.vz *= -0.25; }

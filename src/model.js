@@ -2,6 +2,8 @@
 import * as THREE from 'three';
 
 const modelCache = new Map();
+/** created(mesh): every rider/NPC/board mesh, as it is made (src/lighting.js lights them) */
+export const modelHooks = { created: null };
 export async function loadRSModel(name) {
   // all four parts in parallel: over a tunnel each round trip is ~0.5 s, so serial fetches added up fast
   const buf = ext => fetch(`assets/${name}.${ext}`).then(r => r.arrayBuffer());
@@ -29,6 +31,7 @@ export class RSModel {
     this.mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, fog: true }));
     this.mesh.frustumCulled = false;
     this.group = new THREE.Group(); this.group.add(this.mesh);
+    modelHooks.created?.(this.mesh);
     this.cur = -1;
     this.clip = null; this.clipT = 0; this.loop = true;
     this.feet = new Map();
@@ -154,5 +157,6 @@ export function buildBoard(gold = false) {                // gold: the owner's b
   const yaw = new THREE.Group(), pitch = new THREE.Group(), roll = new THREE.Group();
   roll.position.y = DECK_Z; mesh.position.y = -DECK_Z;
   yaw.add(pitch); pitch.add(roll); roll.add(mesh);
+  modelHooks.created?.(mesh);
   return { root: yaw, pitch, roll, mesh };
 }

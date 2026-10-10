@@ -15,7 +15,9 @@ import { Goals } from './goals.js';
 import { EXTRA_SPAWNS } from './npc-spawns.js';
 import { CORE_SPAWNS } from './mapdata.js';
 import { Portals } from './portals.js';
+import { Lighting } from './lighting.js';
 import { buildRagSkin, poseRagSkin } from './ragskin.js';
+import { poseRider, rigDims } from './rig.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
@@ -60,6 +62,9 @@ async function main() {
     opaque: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     alpha: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.4, depthWrite: false }),
   };
+  // sun, shadows, sky and the day/night cycle (src/lighting.js); G switches graphics high/low
+  const skyCss = document.documentElement.style;
+  const lighting = new Lighting({ scene, renderer, mats, setSky: (top, hor) => { skyCss.setProperty('--sky-top', top); skyCss.setProperty('--sky-hor', hor); } });
   // skate lanes through the forests (tools/lanes.py): the trees on them lost their collision, so paint the
   // ground under them worn dirt so they read as "go this way"
   const laneS = new Float32Array(world.N * world.N);
@@ -80,6 +85,24 @@ async function main() {
       for (let c = 0; c < 3; c++) col[i * 3 + c] = Math.max(0, Math.min(255, col[i * 3 + c] * (1 - k) + (DIRT[c] + n) * k));
     }
   }
+  // what the wheels are rolling on, for the roll sound: the colour of the ground mesh under the board
+  // (grey = stone/cobble, green = grass, tan = dirt or sand), a loc floor at deck height = planks
+  const surfRay = new THREE.Raycaster(), _sv = new THREE.Vector3(), _sd = new THREE.Vector3(0, -1, 0), _sc = new THREE.Color();
+  let surfT = 0;
+  function surfaceAt(sk) {
+    if (sk.bridge) return 'wood';
+    surfRay.set(_sv.set(sk.x, sk.y + 0.5, -sk.z), _sd); surfRay.far = 1.2; surfRay.firstHitOnly = true;
+    const hit = surfRay.intersectObjects(nearOccluders, false)[0];
+    if (!hit || !hit.face) return 'stone';
+    const col = hit.object.geometry.attributes.color;
+    _sc.setRGB(col.getX(hit.face.a), col.getY(hit.face.a), col.getZ(hit.face.a));
+    if (hit.object.userData.kind === 'locs') return 'wood';
+    const hsl = _sc.getHSL({}), h = hsl.h * 360;
+    if (hsl.s < 0.16) return 'stone';
+    if (h > 65 && h < 170) return 'grass';
+    if (h >= 25 && h <= 65) return hsl.l > 0.5 ? 'sand' : 'dirt';
+    return 'stone';
+  }
   function addChunks(pack, bin) {
   for (const ch of pack.index.chunks) {
     for (const k of ['terrain', 'locs', 'locs_alpha']) {
@@ -92,7 +115,7 @@ async function main() {
       const m = new THREE.Mesh(g, alpha ? mats.alpha : mats.opaque);
       m.position.set(ch.cx * CH, 0, -ch.cz * CH); m.scale.set(1 / 128, -1 / 128, -1 / 128);
       m.updateMatrix(); m.matrixAutoUpdate = false;
-      m.userData.c = [(ch.cx + 0.5) * CH, (ch.cz + 0.5) * CH];
+      m.userData.c = [(ch.cx + 0.5) * CH, (ch.cz + 0.5) * CH]; m.userData.kind = k; lighting.add(m, k);
       if (alpha) m.renderOrder = 1;
       scene.add(m); chunkMeshes.push(m);
       if (!alpha) occluders.push(m);             // BVH built lazily, only for chunks the camera gets near
@@ -187,6 +210,7 @@ async function main() {
   const [b12, p12] = await pFonts;
   const fonts = { b12, p12 };
   const hud = new HUD(document.getElementById('hud'), fonts, await pHit);
+  lighting.onAutoLow = () => hud.pop('GRAPHICS: LOW (G TO CHANGE)', '#0ff');
   const audio = new SkateAudio();
 
   // ---------------- NPCs you can take out: land on them from the air (STOMP, and you bounce) or ram them
@@ -323,6 +347,7 @@ async function main() {
     if (tricks[k]) { pendingTrick = tricks[k]; trickTimer = 0.18; }
     if (EMOTE_KEYS[k]) startEmote(+k);
     if (k === 'c') { cfg.cam = (cfg.cam + 1) % 3; cfg.camName = CAMS[cfg.cam]; filmer = null; }
+    if (k === 'g') hud.pop('GRAPHICS: ' + lighting.toggle().toUpperCase(), '#0ff');
     if (k === 'h') cfg.help = !cfg.help;
     if (k === 'o') { keys.clear(); designer.show(me.outfit, false); return; }
     if (k === 'e' && !sk.toggleWalk()) hud.pop('slow down to step off', '#f80');
@@ -384,8 +409,8 @@ async function main() {
   const pad = { steer: 0, push: false, brake: false, slide: false, manual: false, prev: [], rs: null };
   function pollPad() {
     const gp = [...(navigator.getGamepads?.() || [])].find(g => g && g.connected);
-    if (!gp) { pad.on = false; return; }
-    pad.on = true;
+    if (!gp) { pad.on = false; audio.pad = null; return; }
+    pad.on = true; audio.pad = gp;
     const b = i => !!gp.buttons[i]?.pressed, edge = i => b(i) && !pad.prev[i];
     const lx = gp.axes[0] || 0, rx = gp.axes[2] || 0, ry = gp.axes[3] || 0;
     pad.steer = Math.abs(lx) > 0.2 ? -lx : 0;
@@ -525,7 +550,7 @@ async function main() {
     try { localStorage.setItem('rs_prog', JSON.stringify({ who: me.name, found: [...goals.found], done: [...goals.done], kills: Object.fromEntries(goals.kills) })); } catch {}
   } });
   const offlineProg = localProg();
-  window.RS.goals = goals;
+  window.RS.goals = goals; window.RS.lighting = lighting;
   goals.onAllRunes = () => chatLog.push({ text: 'Every rune found! Type ::noclip in chat to skate through anything.', col: '#0ff', t: 0, msg: 1 });
   const portals = new Portals({ scene, world, sk, hud, audio, ensureAt });
   window.RS.portals = portals;
@@ -579,9 +604,9 @@ async function main() {
      .on('kicked', () => { chatLog.push({ text: 'Logged in somewhere else - disconnected.', col: '#f00', t: 0 }); })
      .on('closed', () => { if (!idleKicked) chatLog.push({ text: 'Connection lost - reconnecting...', col: '#f00', t: 0 }); for (const id of [...remotes.keys()]) dropRemote(id); })
      .on('rejoined', w => { me.xp = Math.max(me.xp, w.xp); chatLog.push({ text: 'Reconnected.', col: '#0f0', t: 0 }); });
-  const SNAP = ['x', 'y', 'z', 'heading', 'body', 'boardYaw', 'boardRoll', 'charge', 'airTime', 'pushing', 'tumble', 'tumbleAxis', 'speed'];
+  const SNAP = ['x', 'y', 'z', 'heading', 'body', 'boardYaw', 'boardRoll', 'charge', 'airTime', 'pushing', 'tumble', 'tumbleAxis', 'speed', 'manual', 'lean', 'balance', 'vy', 'grabT'];
   function snapshot() {
-    const o = { mode: sk.mode, gk: sk.grindKind, sl: sk.slide ? 1 : 0, w: sk.inWater ? 1 : 0, wk: sk.walking || 0, fa: sk.footAir ? 1 : 0, fk: sk._fk ? 1 : 0, em: emote ? emote * 100 + emoteSeq : 0 };   // wk: 0 stand, 1 walk, 2 run; em: emote*100+seq
+    const o = { mode: sk.mode, gk: sk.grindKind, gr: sk.grab || '', sl: sk.slide ? 1 : 0, w: sk.inWater ? 1 : 0, wk: sk.walking || 0, fa: sk.footAir ? 1 : 0, fk: sk._fk ? 1 : 0, em: emote ? emote * 100 + emoteSeq : 0 };   // wk: 0 stand, 1 walk, 2 run; em: emote*100+seq
     for (const k of SNAP) o[k] = Math.round((sk[k] || 0) * 1000) / 1000;
     if (sk.mode === 'bail' && sk.board) o.b = [sk.board.x, sk.board.y, sk.board.z, sk.board.yaw, sk.board.roll].map(v => Math.round(v * 1000) / 1000);
     return o;
@@ -596,6 +621,8 @@ async function main() {
       for (const f of ['x', 'y', 'z', 'charge', 'airTime', 'tumble', 'speed']) s[f] += (t[f] - s[f]) * k;
       s.pushing = t.pushing || 0;
       for (const f of ['heading', 'body', 'boardYaw', 'boardRoll', 'tumbleAxis']) s[f] = wrapA(s[f] + wrapA(t[f] - s[f]) * k);
+      for (const f of ['manual', 'lean', 'balance', 'vy', 'grabT']) s[f] = t[f] || 0;
+      s.grab = t.gr || null;
       s.mode = t.mode; s.grindKind = t.gk; s.slide = !!t.sl; s.inWater = !!t.w; s.walking = t.wk || 0; s.footAir = !!t.fa; s.fk = !!t.fk; s.em = t.em || 0;
       if (t.b) s.board = { x: t.b[0], y: t.b[1], z: t.b[2], yaw: t.b[3], roll: t.b[4] };
       drawRider(dt, s, r.m, r.board);
@@ -652,7 +679,7 @@ async function main() {
       const hx = Math.cos(sk.heading), hz = Math.sin(sk.heading), sg = hx * camDir.x + hz * camDir.y >= 0 ? 1 : -1;
       camDir.lerp(new THREE.Vector2(hx * sg, hz * sg), 1 - Math.exp(-dt * 1.5)).normalize();
     }
-    let want, look = tgt.clone(), fov = 62;
+    let want, look = tgt.clone(), fov = 62 + Math.min(8, Math.max(0, (sk.speed || 0) - 5) * 0.9);   // a little speed kick
     if (designer.open) {
       // slow orbit; aim a little to the skater's side so they stand in the open right half of the screen
       const a = performance.now() / 1000 * 0.35, wide = innerWidth > 600 ? 0.9 : 0;
@@ -735,7 +762,9 @@ async function main() {
       sk._fk = sk.vx * Math.cos(sk.heading) + sk.vz * Math.sin(sk.heading) < 0;
     return !!sk._fk;
   }
+  const _v = new THREE.Vector3(), _lfocus = new THREE.Vector3();
   function drawRider(dt, sk, m, board) {
+    lighting.ensure(m.mesh); lighting.ensure(board.mesh);
     let clip = 'sidestep', yawOff = -Math.PI / 2, loop = true;
     const has = c => !!m.meta.anims[c];                      // (the default nickai3 model predates push/emotes)
     const em = sk.em ? EMOTES[Math.floor(sk.em / 100)] : null;
@@ -801,7 +830,22 @@ async function main() {
     g.scale.set(1, 1 - crouch * 0.9, 1);
     // the bail ragdoll needs this model's skeleton and where it stands, handed over every riding frame
     if (m._skin === undefined) m._skin = buildRagSkin(m);
-    if (sk.mode !== 'bail') { sk.ragSkel = m._skin?.skel; sk.ragXf = { yaw, gx: g.position.x, gy: g.position.y, gz3: g.position.z }; }
+    if (sk.mode !== 'bail') { sk.ragSkel = m._skin?.skel; sk.ragXf = { yaw, gx: g.position.x, gy: g.position.y, gz3: g.position.z }; sk.ragPose = null; }
+    // riding: the skate rig poses the body, feet locked to the deck (src/rig.js); walking and emotes keep the
+    // RuneScape clips
+    if (m._skin && !em && (sk.mode === 'ground' || sk.mode === 'air' || sk.mode === 'grind') && !cfg.noRig) {
+      board.root.updateMatrixWorld(true);
+      const dp = (x, y = TOP_Z) => board.mesh.localToWorld(_v.set(x, y, 0)).toArray();
+      const front = dp(0.2), back = dp(-0.24), mid = dp(0), upP = dp(0, TOP_Z + 1);
+      const ryaw = byaw - (sk.mode === 'air' ? (sk.boardYaw || 0) : 0);
+      const b = { front, back, up: [upP[0] - mid[0], upP[1] - mid[1], upP[2] - mid[2]], ryaw,
+        ground: sk.mode === 'ground' ? sk.y : world.height(sk.x, sk.z) };
+      m._rigDims ||= rigDims(m._skin.skel); m._rigSt ||= {};
+      const P = poseRider(sk, b, m._rigDims, m._rigSt, Math.min(dt, 0.1));
+      g.position.set(0, 0, 0); g.rotation.set(0, 0, 0); g.quaternion.identity(); g.scale.set(1, 1, 1);
+      m.setVerts(poseRagSkin(m._skin, P));
+      if (sk.vx !== undefined) sk.ragPose = P.map(p => [p[0], p[1], -p[2]]);   // a bail starts from this pose
+    } else if (m._rigSt) m._rigSt.mode = sk.mode;
     if (sk.mode === 'bail' && sk.rag && m._skin && !sk.inWater) {
       // limp: every body part follows its ragdoll bones (game z is three.js -z)
       g.position.set(0, 0, 0); g.rotation.set(0, 0, 0); g.quaternion.identity(); g.scale.set(1, 1, 1);
@@ -884,6 +928,7 @@ async function main() {
       }
     }
     for (const n of npcs) {
+      lighting.ensure(n.m.mesh);
       if (!n.m.group.visible) continue;
       n.m.group.position.set(n.x, world.height(n.x, n.z), -n.z);
       const face = n.state === 'dead' ? Math.atan2(sk.z - n.z, sk.x - n.x) : n.dir;
@@ -962,7 +1007,9 @@ async function main() {
     updateRemotes(dt);
     net.state(snapshot(), performance.now());
     updateCamera(dt, first); first = false;
-    audio.update(sk);
+    lighting.update(_lfocus.set(sk.x, sk.y, -sk.z), dt);
+    surfT -= dt; if (surfT <= 0) { surfT = 0.15; audio.surface = surfaceAt(sk); }
+    audio.update(sk, dt);
     for (const s of hud.splats) {
       v.set(s.gob.x, world.height(s.gob.x, s.gob.z) + 1.3, -s.gob.z).project(camera);
       s.screen = v.z < 1 ? [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight] : null;
