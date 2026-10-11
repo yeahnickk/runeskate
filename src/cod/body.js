@@ -11,7 +11,7 @@ export const MOVE = {
   eye: 1.5, crouchEye: 0.98, slideEye: 0.78, slideSpeed: 12, slideTime: 0.75, slideFriction: 2.8,
 };
 
-const _box = new THREE.Box3(), _seg = new THREE.Line3(), _tp = new THREE.Vector3(), _cp = new THREE.Vector3(), _v = new THREE.Vector3();
+const _box = new THREE.Box3(), _seg = new THREE.Line3(), _tp = new THREE.Vector3(), _cp = new THREE.Vector3(), _v = new THREE.Vector3(), _d = new THREE.Vector3();
 
 export class Body {
   constructor(pos) {
@@ -47,7 +47,7 @@ export class Body {
     }
     const crouching = (inp.crouch || this.slide > 0) && true;
     this.crouch += ((crouching ? 1 : 0) - this.crouch) * Math.min(1, dt * 12);
-    if (!crouching && this.crouch > 0.01 && this.blockedAbove(arena)) this.crouch = Math.max(this.crouch, 0.99);   // can't stand up under a ledge
+    if (this.blockedAbove(arena)) this.crouch = Math.max(this.crouch, 0.99);   // can't stand up under a ledge (and can't walk in standing)
     // target velocity on the ground plane
     const sp = (this.sprinting ? MOVE.sprint : MOVE.walk) * scale * (this.wading ? MOVE.wade : 1) * (1 - (1 - MOVE.ads) * (inp.ads || 0)) * (1 - (1 - MOVE.crouch) * this.crouch * (this.slide > 0 ? 0 : 1));
     const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
@@ -80,7 +80,9 @@ export class Body {
         this.pos.set(px + mx, py + MOVE.step, pz + mz);
         this.pushOut(arena);
         const fy = this.floorAt(arena, this.pos.x, py + MOVE.step * 0.98, this.pos.z), got2 = ((this.pos.x - px) * mx + (this.pos.z - pz) * mz) / want;
-        if (fy > py + 0.02 && fy <= py + MOVE.step + 0.02 && got2 > got + want * 0.2 && arena.standable(this.pos.x, fy, this.pos.z)) this.pos.y = fy;
+        // ...and only over open ground: a clear line just over the new floor and at chest height (the raised
+        // capsule is short, and could otherwise slip through a window or under a lintel into the next room)
+        if (fy > py + 0.02 && fy <= py + MOVE.step + 0.02 && got2 > got + want * 0.2 && arena.standable(this.pos.x, fy, this.pos.z) && this.clear(arena, px, pz, this.pos.x, this.pos.z, fy) && this.room(arena, this.pos.x, fy, this.pos.z) > MOVE.crouchHeight + 0.05) this.pos.y = fy;
         else this.pos.set(sx, py, sz);
       }
     }
@@ -88,7 +90,12 @@ export class Body {
     if (dt > 0 && this.onGround) { this.vel.x = (this.pos.x - ox) / dt; this.vel.z = (this.pos.z - oz) / dt; }
 
     // vertical: snap to the floor under us (stairs, steps, slopes) or fall
-    const fy = this.floorAt(arena, this.pos.x, this.pos.y, this.pos.z);
+    let fy = this.floorAt(arena, this.pos.x, this.pos.y, this.pos.z);
+    // a step up into a gap you don't fit in (a ledge under the storey above: standing on it put your head, and
+    // the camera, through the next floor) is a wall
+    if (this.onGround && fy > this.pos.y + 0.05 && this.room(arena, this.pos.x, fy, this.pos.z) < MOVE.crouchHeight + 0.05) {
+      this.pos.x = ox; this.pos.z = oz; this.vel.x = this.vel.z = 0; fy = this.floorAt(arena, ox, this.pos.y, oz);
+    }
     if (this.onGround) {
       if (fy > this.pos.y - MOVE.step) { if (fy > this.pos.y + 0.05) ev.push('step'); this.pos.y = fy; this.vel.y = 0; }
       else { this.onGround = false; this.vel.y = 0; }
@@ -114,13 +121,27 @@ export class Body {
 
   /** the highest floor under the body's footprint (centre and four points round it) from a step above its feet */
   floorAt(arena, x, y, z) {
-    let best = arena.floor(x, y, z, MOVE.step, 60);
-    const r = MOVE.radius * 0.6;
-    for (const [dx, dz] of [[r, 0], [-r, 0], [0, r], [0, -r]]) best = Math.max(best, arena.floor(x + dx, y, z + dz, MOVE.step, 60));
+    const mid = arena.floor(x, y, z, MOVE.step, 60), r = MOVE.radius * 0.6;
+    let best = mid;
+    for (const [dx, dz] of [[r, 0], [-r, 0], [0, r], [0, -r]]) {
+      const f = arena.floor(x + dx, y, z + dz, MOVE.step, 60);
+      // a foot's floor higher than the middle's counts only if nothing stands between (else it's the stair or
+      // the next room's floor on the far side of a thin wall: taking it pulled bodies up and through)
+      if (f > best && (f <= mid + 0.02 || !arena.ray(_v.set(x, f + 0.06, z), _d.set(dx / r, 0, dz / r), r + 0.02))) best = f;
+    }
     return best;
   }
+  /** nothing solid on the straight line between two spots, just over a floor at y and at chest height */
+  clear(arena, x0, z0, x1, z1, y) {
+    const L = Math.hypot(x1 - x0, z1 - z0); if (L < 1e-4) return true;
+    _d.set((x1 - x0) / L, 0, (z1 - z0) / L);
+    for (const h of [0.12, 1.1]) if (arena.ray(_v.set(x0, y + h, z0), _d, L + MOVE.radius * 0.5)) return false;
+    return true;
+  }
 
-  blockedAbove(arena) { return !!arena.ray(_v.set(this.pos.x, this.pos.y + this.height * 0.9, this.pos.z), UP, MOVE.height - this.height * 0.9 + 0.1); }
+  blockedAbove(arena) { return this.room(arena, this.pos.x, this.pos.y, this.pos.z) < MOVE.height + 0.05; }
+  /** headroom over a floor at (x, y, z) */
+  room(arena, x, y, z) { const h = arena.ray(_v.set(x, y + 0.05, z), UP, 3); return h ? h.distance + 0.05 : 9; }
 
   /** push the capsule (from a step above the feet to the head) sideways out of every triangle it overlaps */
   pushOut(arena) {

@@ -154,7 +154,7 @@ export class CodServer {
         case 'nade': out.push({ t: 'nade', f: e.f.id }); break;
         case 'stuck': out.push({ t: 'stuck', f: id(e.f), v: e.v.id }); break;
         case 'flag': out.push({ t: 'flag', what: e.what, f: id(e.f), fl: e.fl.team }); break;
-        case 'barrage': out.push({ t: 'barrage', f: e.f.id, p: R3(e.p) }); break;
+        case 'barrage': out.push({ t: 'barrage', f: e.f.id, p: R3(e.p), b: e.blasts.map(b => [R3(b.p), Math.round(b.t * 100) / 100]) }); break;
         case 'end': out.push({ t: 'end', winner: typeof e.winner === 'string' ? e.winner : id(e.winner) }); break;
       }
     }

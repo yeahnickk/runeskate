@@ -112,6 +112,32 @@ async function main() {
     if (fx.length > 160) { const o = fx.shift(); scene.remove(o.m); o.m.material.dispose(); }
   };
   let shake = 0;
+  // Ice Barrage, the way RS draws it: a blue orb drops on the spot, and whoever's there is locked in a block of ice
+  const iceFx = [], ICE_RING = new THREE.RingGeometry(4.6, 5.5, 40), ICE_ORB = new THREE.IcosahedronGeometry(0.45, 0), ICE_SHARD = new THREE.OctahedronGeometry(1, 0), ICE_BOX = new THREE.BoxGeometry(1, 1, 1), ICE_EDGES = new THREE.EdgesGeometry(ICE_BOX), ICE_FROST = new THREE.CircleGeometry(5, 28);
+  ICE_RING.rotateX(-Math.PI / 2); ICE_FROST.rotateX(-Math.PI / 2);
+  const orbMat = new THREE.MeshBasicMaterial({ color: 0xd8f4ff, fog: false }), glowMat = new THREE.MeshBasicMaterial({ color: 0x6fc8ff, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+  function iceMark(p, land) {
+    const ring = new THREE.Mesh(ICE_RING, new THREE.MeshBasicMaterial({ color: 0x8fdcff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    ring.position.set(p.x, p.y + 0.08, p.z);
+    const orb = new THREE.Mesh(ICE_ORB, orbMat), glow = new THREE.Mesh(ICE_ORB, glowMat); glow.scale.setScalar(2.4);
+    scene.add(ring, orb, glow); iceFx.push({ kind: 'mark', p: p.clone(), land, t: 0, ring, orb, glow });
+  }
+  function iceBlock(p) {
+    const g = new THREE.Group(), mats = [];
+    const mat = (col, o) => { const m = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: o, depthWrite: false }); m.userData.o = o; mats.push(m); return m; };
+    const cube = new THREE.Mesh(ICE_BOX, mat(0xbfeaff, 0.5)); cube.scale.set(1.7, 2.3, 1.7); cube.position.y = 1.15; cube.rotation.y = Math.random() * Math.PI; g.add(cube);   // (the RS freeze: a block round you)
+    const edge = new THREE.LineSegments(ICE_EDGES, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 })); edge.material.userData.o = 0.8; mats.push(edge.material);
+    edge.scale.copy(cube.scale); edge.position.copy(cube.position); edge.rotation.copy(cube.rotation); g.add(edge);
+    const sm = mat(0x7fd0ff, 0.75);
+    for (let i = 0; i < 11; i++) {                                   // shards bursting out of the ground round it
+      const s = new THREE.Mesh(ICE_SHARD, sm), a = i / 11 * Math.PI * 2 + Math.random() * 0.4, r = 1.2 + Math.random() * 2.6;
+      s.scale.set(0.25 + Math.random() * 0.2, 0.9 + Math.random() * 1.3, 0.25 + Math.random() * 0.2);
+      s.position.set(Math.cos(a) * r, 0.4, Math.sin(a) * r); s.rotation.set(Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5); g.add(s);
+    }
+    const frost = new THREE.Mesh(ICE_FROST, mat(0xe8f8ff, 0.35)); frost.position.y = 0.06; g.add(frost);
+    g.position.copy(p); g.position.y -= 0.35; scene.add(g);
+    iceFx.push({ kind: 'block', p: g.position.clone(), g, mats, t: 0, life: 1.8 });
+  }
 
   // ---------------- the match
   let game = null, vm = null, me = null, paused = false, inMatch = false, aimedAt = null, deathCam = 0, net = null, respawnAsk = 0;
@@ -216,6 +242,7 @@ async function main() {
       case 'spawn': { const a = avatars.get(e.f); if (a) { a.revive(); a.setGun(e.f.loadout.primary); } if (e.f === me) { hud.dmgDirs.length = 0; } break; }
       case 'streak': if (e.f === me) { hud.message(e.s.name + ' READY', '#5f5', e.s.desc, 3); sfx.jingle(); } else if (game.mode.teams && e.f.team !== me.team) hud.message(`ENEMY ${e.s.name}`, '#f55', '', 2.5); else if (game.mode.teams) hud.message(`FRIENDLY ${e.s.name}`, '#5af', '', 2); break;
       case 'boom': {
+        if (e.ice) iceBlock(e.p);
         const s = e.ice ? 0x9fe0ff : 0xffb040;
         puff(e.p, s, e.r * 0.35, 0.35, new THREE.Vector3(), true); puff(e.p, 0x555048, e.r * 0.25, 1.2, new THREE.Vector3(0, 1.5, 0));
         for (let i = 0; i < 8; i++) puff(e.p, 0x3a3530, 0.25, 0.9, new THREE.Vector3((Math.random() - 0.5) * 8, Math.random() * 7, (Math.random() - 0.5) * 8));
@@ -223,7 +250,7 @@ async function main() {
         break;
       }
       case 'bounce': if (distOf(e.p) < 20) sfx.bounce(); for (let i = 0; i < 3; i++) puff(e.p, 0x8a7a5a, 0.18, 0.6, new THREE.Vector3((Math.random() - 0.5) * 1.5, 0.8 + Math.random(), (Math.random() - 0.5) * 1.5)); break;   // (a kick of dust where it lands)
-      case 'barrage': if (e.f !== me) hud.message(game.mode.teams && e.f.team !== me?.team ? 'ENEMY ICE BARRAGE' : 'FRIENDLY ICE BARRAGE', game.mode.teams && e.f.team !== me?.team ? '#f55' : '#9fe0ff', 'take cover', 2.5); break;
+      case 'barrage': for (const b of e.blasts || []) iceMark(b.p, b.t); if (e.f !== me) hud.message(game.mode.teams && e.f.team !== me?.team ? 'ENEMY ICE BARRAGE' : 'FRIENDLY ICE BARRAGE', game.mode.teams && e.f.team !== me?.team ? '#f55' : '#9fe0ff', 'take cover', 2.5); break;
       case 'stuck': if (e.f === me) hud.point('STUCK!', '#ff0'); if (e.v === me) hud.message('STUCK!', '#f55', 'semtex on you', 1.5); break;
       case 'flag': {
         const ours = me && e.fl.team === me.team, by = e.f === me ? 'You' : e.f?.name || '';
@@ -385,6 +412,22 @@ async function main() {
       if (!g.rest && !g.stuck && !g.stuckWall) { m.rotation.x += dt * 13; m.rotation.z += dt * 4; if ((m.userData.trail += dt) > 0.025 && (!g.f || g.p.distanceTo(g.f.eye(_v)) > 2.5)) { m.userData.trail = 0; puff(g.p, 0xcfcabb, 0.08, 0.6); } }   // (not in the thrower's face)
     }
     for (const [g, m] of nades) if (!game.grenades.includes(g)) { scene.remove(m); nades.delete(g); }
+    // Ice Barrage: the warning rings and falling orbs, then the ice
+    for (let i = iceFx.length - 1; i >= 0; i--) {
+      const x = iceFx[i]; x.t += dt;
+      if (x.kind === 'mark') {
+        const u = Math.min(1, x.t / x.land);
+        x.ring.material.opacity = 0.35 + 0.35 * Math.sin(x.t * 14) ** 2; x.ring.scale.setScalar(1.15 - 0.15 * u);
+        x.orb.position.set(x.p.x, x.p.y + 0.6 + 34 * (1 - u) ** 1.6, x.p.z); x.orb.rotation.x += dt * 5; x.orb.rotation.y += dt * 3;
+        x.glow.position.copy(x.orb.position);
+        if (x.t >= x.land) { scene.remove(x.ring, x.orb, x.glow); x.ring.material.dispose(); iceFx.splice(i, 1); }
+      } else {
+        const u = x.t / x.life, grow = Math.min(1, x.t / 0.12);
+        x.g.scale.setScalar(grow); x.g.position.y = x.p.y - (u > 0.75 ? (u - 0.75) * 4 * 1.6 : 0);
+        for (const m of x.mats) m.opacity = m.userData.o * (u > 0.75 ? 1 - (u - 0.75) * 4 : 1);
+        if (u >= 1) { scene.remove(x.g); for (const m of x.mats) m.dispose(); iceFx.splice(i, 1); }
+      }
+    }
     // puffs
     for (let i = fx.length - 1; i >= 0; i--) {
       const p = fx[i]; p.t += dt; const u = p.t / p.life;

@@ -326,8 +326,19 @@ export class Arena {
 
   /** the floor under (x, y, z): highest surface below y + up, within down (castle floors stack, so not just the ground) */
   floor(x, y, z, up = 0.5, down = 40) {
-    const h = this.ray(_o.set(x, y + up, z), _down, up + down);
-    return h ? h.point.y : -Infinity;
+    // the first thing under you that's a floor: facing up, or (an RS face wound the wrong way) with room to stand on
+    // it. The underside of a staircase or a ledge you're walking beneath is not a floor: standing on it is how a
+    // body used to pop up a storey
+    const r = this._fr ||= new THREE.Ray(); r.origin.set(x, y + up, z); r.direction.copy(_down);
+    const hits = this.bvh.raycast(r, THREE.DoubleSide, 0, up + down);
+    if (!hits.length) return -Infinity;
+    hits.sort((p, q) => p.distance - q.distance);
+    for (const h of hits) {
+      const ny = h.face?.normal?.y ?? 1;
+      if (ny > 0.3) return h.point.y;
+      if (ny < -0.3 && !this.ray(_o2.set(h.point.x, h.point.y + 0.03, h.point.z), _up, 0.9)) return h.point.y;
+    }
+    return hits[hits.length - 1].point.y;
   }
 }
 /** a binary min-heap of (priority, id) for A* */
@@ -348,5 +359,5 @@ class Heap {
   }
 }
 
-const _o = new THREE.Vector3(), _down = new THREE.Vector3(0, -1, 0), _dir = new THREE.Vector3();
+const _o = new THREE.Vector3(), _o2 = new THREE.Vector3(), _down = new THREE.Vector3(0, -1, 0), _up = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3();
 const _seg = new THREE.Line3(), _box = new THREE.Box3(), _tp = new THREE.Vector3(), _cp = new THREE.Vector3();

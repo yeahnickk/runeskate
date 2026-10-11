@@ -176,7 +176,7 @@ export class NetClient {
       case 'bounce': push({ t: 'bounce', p: V(e.p) }); return;
       case 'stuck': { const f = F(e.f), v = F(e.v); if (v) push({ t: 'stuck', f, v }); return; }
       case 'flag': { const fl = g.flags[e.fl]; if (fl) push({ t: 'flag', what: e.what, f: F(e.f), fl }); return; }
-      case 'barrage': { const f = F(e.f); if (f) push({ t: 'barrage', f, p: V(e.p) }); return; }
+      case 'barrage': { const f = F(e.f); if (f) push({ t: 'barrage', f, p: V(e.p), blasts: (e.b || []).map(([p, t]) => ({ p: V(p), t })) }); return; }
       case 'end': g.over = true; g.winner = typeof e.winner === 'string' ? e.winner : F(e.winner); push({ t: 'end', winner: g.winner }); return;
     }
   }

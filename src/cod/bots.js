@@ -10,10 +10,10 @@ import { Arena } from './arena.js';
 import { lobPitch } from './weapons.js';
 
 export const DIFFICULTY = {
-  recruit: { name: 'RECRUIT', react: 0.75, err: 9, settle: 1.6, turn: 3.0, head: 0.08, fov: 0.45, hear: 22, strafe: 0.3, burst: [0.15, 0.45], nade: 0, fireCone: 2.6, spot: 0.5 },
-  regular: { name: 'REGULAR', react: 0.45, err: 5.5, settle: 1.1, turn: 5.0, head: 0.18, fov: 0.35, hear: 30, strafe: 0.6, burst: [0.25, 0.7], nade: 0.25, fireCone: 2.0, spot: 0.7 },
-  hardened: { name: 'HARDENED', react: 0.28, err: 3.2, settle: 0.75, turn: 8.0, head: 0.32, fov: 0.25, hear: 38, strafe: 0.85, burst: [0.35, 1.0], nade: 0.5, fireCone: 1.6, spot: 0.85 },
-  veteran: { name: 'VETERAN', react: 0.17, err: 1.8, settle: 0.45, turn: 12.0, head: 0.5, fov: 0.15, hear: 46, strafe: 1, burst: [0.5, 1.4], nade: 0.8, fireCone: 1.2, spot: 1 },
+  recruit: { name: 'RECRUIT', react: 0.75, err: 9, settle: 1.6, turn: 3.0, head: 0.08, fov: 0.45, hear: 22, strafe: 0.3, burst: [0.15, 0.45], nade: 0, fireCone: 2.6, spot: 0.5, wobble: 2.4, range: 30, floor: 0.35 },
+  regular: { name: 'REGULAR', react: 0.45, err: 5.5, settle: 1.1, turn: 5.0, head: 0.18, fov: 0.35, hear: 30, strafe: 0.6, burst: [0.25, 0.7], nade: 0.25, fireCone: 2.0, spot: 0.7, wobble: 1.5, range: 45, floor: 0.25 },
+  hardened: { name: 'HARDENED', react: 0.28, err: 3.2, settle: 0.75, turn: 8.0, head: 0.32, fov: 0.25, hear: 38, strafe: 0.85, burst: [0.35, 1.0], nade: 0.5, fireCone: 1.6, spot: 0.85, wobble: 0.9, range: 65, floor: 0.15 },
+  veteran: { name: 'VETERAN', react: 0.17, err: 1.8, settle: 0.45, turn: 12.0, head: 0.5, fov: 0.15, hear: 46, strafe: 1, burst: [0.5, 1.4], nade: 0.8, fireCone: 1.2, spot: 1, wobble: 0.45, range: 95, floor: 0.08 },
 };
 export const BOT_NAMES = ['Zezima', 'Durial321', 'Bluerose13x', 'Tedward', 'S U O M I', 'Lilyuffie88', 'Purepker895', 'Cow1337killr', 'Alkan', 'Drumgun',
   'Woox', 'Mr Mammal', 'Settled', 'B0aty', 'Sparc Mac', 'Torvesta', 'Framed', 'Mmorpg', 'King Kongo', 'Odablock', 'Hey Jase', 'A Friend', 'Zaros', 'Iron Hyger',
@@ -45,7 +45,12 @@ export class Brain {
   }
 
   /** a bot's own shot: the aim error it has not settled out of yet goes into the bullet */
-  aimNoise(d) { void d; }
+  /** every shot wanders off the aim point a little (a person's hands, not a turret): misses grow with range */
+  aimNoise(d) {
+    const a = this.D.wobble * Math.PI / 180 * Math.sqrt(Math.random()), t = Math.random() * Math.PI * 2;
+    const u = Math.abs(d.y) < 0.9 ? _w.set(0, 1, 0) : _w.set(1, 0, 0), r = _v.crossVectors(d, u).normalize(), up = u.crossVectors(r, d).normalize();
+    d.addScaledVector(r, Math.cos(t) * Math.tan(a)).addScaledVector(up, Math.sin(t) * Math.tan(a)).normalize();
+  }
 
   think(dt, game) {
     const f = this.f, b = f.body, D = this.D, G = f.gunner, w = G.w;
@@ -94,7 +99,10 @@ export class Brain {
       aimAt.addScaledVector(e.body.vel, Math.min(0.12, eye.distanceTo(aimAt) / (w.vel || 800)) * D.spot);
       const dir = aimAt.sub(eye).normalize(), dist = e.body.pos.distanceTo(b.pos);
       // the error settles while they track you
-      const settle = Math.exp(-dt / D.settle * 2.2); this.errX *= settle; this.errY *= settle;
+      const settle = Math.exp(-dt / D.settle * 2.2), fl = D.floor * Math.PI / 180;     // (never all the way: a floor of shake that keeps re-rolling)
+      this.errX *= settle; this.errY *= settle;
+      if (Math.abs(this.errX) < fl && Math.random() < dt * 3) this.errX = (Math.random() - 0.5) * 2 * fl;
+      if (Math.abs(this.errY) < fl && Math.random() < dt * 3) this.errY = (Math.random() - 0.5) * 2 * fl;
       const wantYaw = Math.atan2(-dir.x, -dir.z) + this.errX, wantPitch = Math.asin(Math.max(-1, Math.min(1, dir.y))) + this.errY;
       const dy = angWrap(wantYaw - b.yaw), dp = wantPitch - b.pitch, turn = D.turn * dt * (this.seenT < D.react ? 0.35 : 1);
       b.yaw += Math.max(-turn, Math.min(turn, dy)); b.pitch += Math.max(-turn, Math.min(turn, dp));
@@ -103,7 +111,8 @@ export class Brain {
       const close = w.cls === 'SHOTGUN' || (w.cls === 'SMG' && dist < 10) || dist < 5;
       gun.ads = !close && this.seenT > D.react * 0.5;
       // shoot once reacted: auto in bursts, semi/bolt one at a time once on target and (scoped) once aimed
-      if (this.seenT >= D.react && onTarget && (!w.scope || G.ads > 0.95 || dist < 6)) {
+      const inRange = dist < D.range * (w.cls === 'SNIPER' ? 2.2 : w.cls === 'SHOTGUN' ? 0.5 : w.cls === 'SMG' ? 0.8 : 1);   // (past it they hold, track, and close in)
+      if (this.seenT >= D.react && onTarget && inRange && (!w.scope || G.ads > 0.95 || dist < 6)) {
         if (w.kind === 'auto') {                     // bursts: longer up close, short taps at range
           if (this.fireT > 0) { this.fireT -= dt; gun.fire = true; }
           else if ((this.pauseT -= dt) <= 0) { this.fireT = (D.burst[0] + Math.random() * (D.burst[1] - D.burst[0])) * (dist > 25 ? 0.5 : 1); this.pauseT = 0.12 + Math.random() * 0.2 * Math.min(2, dist / 20); }

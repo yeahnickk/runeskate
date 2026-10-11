@@ -322,14 +322,14 @@ export class Game {
   callBarrage(f, x, z) {
     if (!f.barrage && !f.brain) return false;
     f.barrage = false;
-    const c = new THREE.Vector3(x, 0, z);
+    const c = new THREE.Vector3(x, 0, z), list = [];
     for (let i = 0; i < 8; i++) {
       const a = i * 2.4, r = i === 0 ? 0 : 2 + (i % 3) * 2.2;
       const p = c.clone().add(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r));
       p.y = this.arena.floor(p.x, 40, p.z, 0, 60) ?? 0;
-      this.blasts.push({ p, t: 1.6 + i * 0.3, f, r: 5.5, dmg: 140, name: 'Ice Barrage' });
+      const bl = { p, t: 1.6 + i * 0.3, f, r: 5.5, dmg: 140, name: 'Ice Barrage' }; this.blasts.push(bl); list.push(bl);
     }
-    this.emit({ t: 'barrage', f, p: c });
+    this.emit({ t: 'barrage', f, p: c, blasts: list.map(b => ({ p: b.p.clone(), t: b.t })) });   // (the renderer telegraphs each one: a ring, an orb falling)
     return true;
   }
   stepBlasts(dt) {
