@@ -116,7 +116,7 @@ export class CodServer {
       }
       case 'respawn': if (f && f.net) f.net.respawn = true; return;
       case 'cls': { const cls = CLASSES[m.i | 0]; c.cls = m.i | 0; if (f && cls) f.loadout = { primary: cls.primary, secondary: cls.secondary, lethal: cls.lethal }; return; }
-      case 'barrage': if (f && num(m.x) && num(m.z)) g.callBarrage(f, m.x, m.z); return;
+      case 'streak': if (f && typeof m.id === 'string' && num(m.x) && num(m.z)) g.callStreak(f, m.id, m.x, m.z); return;
       case 'chat': {
         if (!f || g.t - c.chatT < 0.8) return;
         const text = this.clean(String(m.text || '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 100)); if (!text) return;
@@ -155,6 +155,9 @@ export class CodServer {
         case 'stuck': out.push({ t: 'stuck', f: id(e.f), v: e.v.id }); break;
         case 'flag': out.push({ t: 'flag', what: e.what, f: id(e.f), fl: e.fl.team }); break;
         case 'barrage': out.push({ t: 'barrage', f: e.f.id, p: R3(e.p), b: e.blasts.map(b => [R3(b.p), Math.round(b.t * 100) / 100]) }); break;
+        case 'dragon': out.push({ t: 'dragon', f: e.f.id, a: R3(e.a), b: R3(e.b), lead: e.lead, dur: e.dur, bl: e.blasts.map(b => [R3(b.p), Math.round(b.t * 100) / 100]) }); break;
+        case 'wrath': out.push({ t: 'wrath', f: e.f.id, left: e.left }); break;
+        case 'wrathhit': out.push({ t: 'wrathhit', f: e.f.id }); break;
         case 'end': out.push({ t: 'end', winner: typeof e.winner === 'string' ? e.winner : id(e.winner) }); break;
       }
     }
@@ -167,8 +170,8 @@ export class CodServer {
     return {
       t: 's', T: r(g.t), tl: Math.round(g.timeLeft), sc: g.score,
       f: g.fighters.map(f => { const b = f.body; return [f.id, r(b.pos.x), r(b.pos.y), r(b.pos.z), r(b.yaw), r(b.pitch), r(b.crouch), r(b.vel.x), r(b.vel.y), r(b.vel.z),
-        (f.alive ? 1 : 0) | (b.onGround ? 2 : 0) | (b.sprinting ? 4 : 0) | (b.slide > 0 ? 8 : 0) | (f.gunner.reloading ? 16 : 0) | (b.wading ? 32 : 0) | (f.uavT > 0 ? 64 : 0) | (f.barrage ? 128 : 0),
-        Math.round(f.hp), f.gunner.cur, r(f.gunner.ads), f.kills, f.deaths, f.score, f.streak, f.caps, f.assists]; }),
+        (f.alive ? 1 : 0) | (b.onGround ? 2 : 0) | (b.sprinting ? 4 : 0) | (b.slide > 0 ? 8 : 0) | (f.gunner.reloading ? 16 : 0) | (b.wading ? 32 : 0) | (f.uavT > 0 ? 64 : 0),
+        Math.round(f.hp), f.gunner.cur, r(f.gunner.ads), f.kills, f.deaths, f.score, f.streak, f.caps, f.assists, f.ready.join(',')]; }),
       g: g.grenades.map(n => [n.id, r(n.p.x), r(n.p.y), r(n.p.z), r(n.v.x), r(n.v.y), r(n.v.z), n.L.sticky ? 1 : 0, n.rest || n.stuck || n.stuckWall ? 1 : 0, n.f ? n.f.id : -1]),
       fl: Object.fromEntries(Object.entries(g.flags).map(([k, fl]) => [k, [fl.state, r(fl.pos.x), r(fl.pos.y), r(fl.pos.z), fl.carrier ? fl.carrier.id : -1]])),
     };

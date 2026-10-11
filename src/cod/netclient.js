@@ -31,7 +31,7 @@ export class NetClient {
   hit(v, dmg, zone, w, dir, at) { this.send({ t: 'hit', v: v.id, dmg: Math.round(dmg * 10) / 10, zone, w: w.cls === 'MELEE' ? 'knife' : WKEY.get(w), dir: dir ? R3(dir) : null, at: at ? R3(at) : null }); }
   nade(g) { this.send({ t: 'nade', p: R3(g.p), v: R3(g.v), fuse: g.fuse, lethal: g.lethal }); }
   shot(f, w, o, to) { this.send({ t: 'shot', w: WKEY.get(w), o: R3(o), to: R3(to) }); }
-  barrage(x, z) { this.send({ t: 'barrage', x, z }); }
+  streak(id, x = 0, z = 0) { this.send({ t: 'streak', id, x, z }); }
   respawn() { this.send({ t: 'respawn' }); }
   cls(i) { this.send({ t: 'cls', i }); }
   chat(text) { this.send({ t: 'chat', text }); }
@@ -79,7 +79,7 @@ export class NetClient {
       f.hp = a[11]; f.kills = a[14]; f.deaths = a[15]; f.score = a[16]; f.streak = a[17]; f.caps = a[18]; f.assists = a[19];
       f.uavT = bits & 64 ? 1 : 0;
       if (f === this.me) {
-        f.barrage = !!(bits & 128);
+        f.ready = a[20] ? a[20].split(',') : [];
         if (!f.netInit && bits & 1) { f.netInit = true; f.alive = true; f.body.pos.set(a[1], a[2], a[3]); f.body.yaw = a[4]; f.body.pitch = 0; f.hp = HP; }
         else if (f.alive && !(bits & 1)) { f.alive = false; f.respawnT = g.mode.respawn; }            // (a death whose event went missing)
         continue;
@@ -171,12 +171,15 @@ export class NetClient {
         push({ t: 'spawn', f });
         return;
       }
-      case 'streak': { const f = F(e.f), s = STREAKS.find(x => x.id === e.s); if (!f || !s) return; if (f === me && s.id === 'barrage') me.barrage = true; push({ t: 'streak', f, s }); return; }
+      case 'streak': { const f = F(e.f), s = STREAKS.find(x => x.id === e.s); if (!f || !s) return; if (f === me && ['barrage', 'dragon', 'wrath'].includes(s.id)) me.ready.push(s.id); push({ t: 'streak', f, s }); return; }
       case 'boom': push({ t: 'boom', p: V(e.p), r: e.r, ice: e.ice }); return;
       case 'bounce': push({ t: 'bounce', p: V(e.p) }); return;
       case 'stuck': { const f = F(e.f), v = F(e.v); if (v) push({ t: 'stuck', f, v }); return; }
       case 'flag': { const fl = g.flags[e.fl]; if (fl) push({ t: 'flag', what: e.what, f: F(e.f), fl }); return; }
       case 'barrage': { const f = F(e.f); if (f) push({ t: 'barrage', f, p: V(e.p), blasts: (e.b || []).map(([p, t]) => ({ p: V(p), t })) }); return; }
+      case 'dragon': { const f = F(e.f); if (f) push({ t: 'dragon', f, a: V(e.a), b: V(e.b), lead: e.lead, dur: e.dur, blasts: (e.bl || []).map(([p, t]) => ({ p: V(p), t })) }); return; }
+      case 'wrath': { const f = F(e.f); if (f) { g.wrathT = e.left; push({ t: 'wrath', f, left: e.left }); } return; }
+      case 'wrathhit': { const f = F(e.f); if (f) { g.wrathT = 0; push({ t: 'wrathhit', f }); } return; }
       case 'end': g.over = true; g.winner = typeof e.winner === 'string' ? e.winner : F(e.winner); push({ t: 'end', winner: g.winner }); return;
     }
   }

@@ -131,7 +131,7 @@ export class TouchControls {
       <div class="b nade" data-h="nade">NADE</div>
       <div class="b knife" data-t="knife">KNIFE</div>
       <div class="b small board" data-h="board">SCORE</div>
-      <div class="b small strike" data-t="streak">ICE</div>
+      <div class="b small strike" data-t="streak">STREAK</div>
       <div class="b small chatb" data-t="chat">CHAT</div>
       <div class="b small pause" data-t="pause">II</div>`;
     root.appendChild(el);

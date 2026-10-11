@@ -159,6 +159,12 @@ export class CodHud {
     { let y = H - (st.touch ? 230 : 120) * k; this.chat = this.chat.filter(m => (m.t += dt) < 12);
       for (const m of this.chat.slice().reverse()) { const a = m.t > 10 ? (12 - m.t) / 2 : 1; const x = 10 * k + this.T(m.name + ': ', 10 * k, y, m.col, 'l', k, 'p12', a); this.T(m.text, x, y, '#fff', 'l', k, 'p12', a); y -= 14 * k; } }
     if (st.pick) this.picker(g, me, st.pick);
+    if (st.wrath) {                                                     // God's Wrath: the sky fills, the count, the flash
+      const w = st.wrath, col = w.team === 'zam' ? [255, 60, 30] : w.team === 'sara' ? [255, 246, 200] : [120, 255, 120];
+      if (w.tint) { c.fillStyle = `rgba(${col},${w.tint})`; c.fillRect(0, 0, W, H); }
+      if (w.left > 0) { this.panel(W / 2 - 150 * k, H * 0.12 - 8 * k, 300 * k, 74 * k, 0.92); this.T(w.name, W / 2, H * 0.12, w.team === 'zam' ? '#ff5040' : w.team === 'sara' ? '#ffd040' : '#7f7', 'c', k + 1); this.T(String(Math.ceil(w.left)), W / 2, H * 0.12 + 24 * k, '#fff', 'c', k * 2); }
+      if (w.flash) { c.fillStyle = `rgba(${col},${Math.min(1, w.flash * 1.2)})`; c.fillRect(0, 0, W, H); }
+    }
     if (st.board || g.over) this.scoreboard(g, me);
   }
 
@@ -183,7 +189,11 @@ export class CodHud {
     c.strokeStyle = '#9fe0ff'; c.lineWidth = 2 * k; c.beginPath(); c.arc(px, py, r, 0, Math.PI * 2); c.stroke();
     c.fillStyle = 'rgba(159,224,255,0.18)'; c.fill();
     c.beginPath(); c.moveTo(px - r * 1.3, py); c.lineTo(px + r * 1.3, py); c.moveTo(px, py - r * 1.3); c.lineTo(px, py + r * 1.3); c.stroke();
-    this.T('ICE BARRAGE', W / 2, y - 26 * k, '#9fe0ff', 'c', k + 1);
+    this.T(pick.kind === 'dragon' ? 'KING BLACK DRAGON' : 'ICE BARRAGE', W / 2, y - 26 * k, pick.kind === 'dragon' ? '#ff8a3a' : '#9fe0ff', 'c', k + 1);
+    if (pick.kind === 'dragon') {                                       // his run: in from your side, a line of fire through the target
+      const [mx, my] = to(me.body.pos), dx = px - mx, dy = py - my, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, h = 13 / (M.x1 - M.x0) * size;
+      c.strokeStyle = '#ff7a2a'; c.lineWidth = 4 * k; c.beginPath(); c.moveTo(px - ux * h, py - uy * h); c.lineTo(px + ux * h, py + uy * h); c.stroke();
+    }
     this.T('move to aim  ·  FIRE to call it in  ·  AIM / 4 to cancel', W / 2, y + size + 8 * k, '#fff', 'c', k, 'p12');
   }
 
@@ -270,7 +280,8 @@ export class CodHud {
     const next = STREAKS.find(s => s.n > me.streak);
     if (next) this.T(`${me.streak}/${next.n} ${next.name}`, x + 8 * k, y - 14 * k, '#ccc', 'l', Math.max(1, k - 1), 'p12');
     if (me.uavT > 0) this.T('UAV ONLINE', x + pw - 8 * k, y - 14 * k, '#5f5', 'r', Math.max(1, k - 1), 'p12');
-    if (me.barrage) this.T(st.touch ? 'ICE BARRAGE READY: tap ICE' : 'ICE BARRAGE READY [4]', x + pw - 8 * k, y - 28 * k, '#9fe0ff', 'r', k, 'b12');
+    const rd = me.ready?.[me.ready.length - 1], rs = rd && STREAKS.find(s => s.id === rd);
+    if (rs) this.T(`${rs.name} READY ${st.touch ? '(tap STREAK)' : '[4]'}${me.ready.length > 1 ? `  +${me.ready.length - 1}` : ''}`, x + pw - 8 * k, y - 28 * k, rd === 'wrath' ? '#fff6c0' : rd === 'dragon' ? '#ff8a3a' : '#9fe0ff', 'r', k, 'b12');
   }
 
   /** the arena from above (made once) with everyone on it */

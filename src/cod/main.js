@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { loadArena, Arena } from './arena.js';
-import { Game, MODES, STREAKS } from './game.js';
+import { Game, MODES, STREAKS, wrathName } from './game.js';
 import { DIFFICULTY } from './bots.js';
 import { WEAPONS, LETHALS, CLASSES, stats } from './weapons.js';
 import { ViewModel } from './viewmodel.js';
@@ -116,11 +116,36 @@ async function main() {
   const iceFx = [], ICE_RING = new THREE.RingGeometry(4.6, 5.5, 40), ICE_ORB = new THREE.IcosahedronGeometry(0.45, 0), ICE_SHARD = new THREE.OctahedronGeometry(1, 0), ICE_BOX = new THREE.BoxGeometry(1, 1, 1), ICE_EDGES = new THREE.EdgesGeometry(ICE_BOX), ICE_FROST = new THREE.CircleGeometry(5, 28);
   ICE_RING.rotateX(-Math.PI / 2); ICE_FROST.rotateX(-Math.PI / 2);
   const orbMat = new THREE.MeshBasicMaterial({ color: 0xd8f4ff, fog: false }), glowMat = new THREE.MeshBasicMaterial({ color: 0x6fc8ff, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
-  function iceMark(p, land) {
-    const ring = new THREE.Mesh(ICE_RING, new THREE.MeshBasicMaterial({ color: 0x8fdcff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  function iceMark(p, land, col = 0x8fdcff, withOrb = true) {
+    const ring = new THREE.Mesh(ICE_RING, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
     ring.position.set(p.x, p.y + 0.08, p.z);
-    const orb = new THREE.Mesh(ICE_ORB, orbMat), glow = new THREE.Mesh(ICE_ORB, glowMat); glow.scale.setScalar(2.4);
+    if (!withOrb) ring.scale.setScalar(0.85);
+    const orb = new THREE.Mesh(ICE_ORB, orbMat), glow = new THREE.Mesh(ICE_ORB, glowMat); glow.scale.setScalar(2.4); orb.visible = glow.visible = withOrb;
     scene.add(ring, orb, glow); iceFx.push({ kind: 'mark', p: p.clone(), land, t: 0, ring, orb, glow });
+  }
+  // the King Black Dragon, low-poly like his RS model: black hide, three heads, red-black wings; flies the line, breathing fire
+  let wrathFx = null;
+  const dragons = [];
+  const DRAGON_MAT = new THREE.MeshLambertMaterial({ color: 0x1c1a1e }), WING_MAT = new THREE.MeshLambertMaterial({ color: 0x3a1210, side: THREE.DoubleSide });
+  function makeDragon() {
+    const g = new THREE.Group(), box = (sx, sy, sz, x, y, z, m = DRAGON_MAT) => { const b = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); b.position.set(x, y, z); g.add(b); return b; };
+    box(1.8, 1.6, 4.2, 0, 0, 0); box(1.1, 1.0, 2.4, 0, -0.1, 2.9).rotation.x = 0.25;                       // body, haunch
+    for (let i = 0; i < 4; i++) box(0.5, 0.45, 1.0, 0, 0.1 - i * 0.12, 4.4 + i * 0.9).rotation.x = 0.1 * i;   // tail
+    for (const s of [-1, 0, 1]) {                                                                              // three heads on three necks
+      const n = box(0.45, 0.45, 1.8, s * 0.55, 0.5, -2.7); n.rotation.set(-0.35, s * 0.3, 0);
+      box(0.6, 0.5, 0.9, s * 0.85, 0.9, -3.7).rotation.y = s * 0.3;
+      box(0.12, 0.3, 0.12, s * 0.85 - 0.18, 1.25, -3.5); box(0.12, 0.3, 0.12, s * 0.85 + 0.18, 1.25, -3.5);  // horns
+    }
+    const wing = side => { const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, -1.2, 0, 0, 1.4, side * 6.5, 0, 2.2, 0, 0, -1.2, side * 6.5, 0, 2.2, side * 4.2, 0, -1.4], 3)); geo.computeVertexNormals();
+      const w = new THREE.Mesh(geo, WING_MAT), pivot = new THREE.Group(); pivot.position.set(side * 0.8, 0.5, -0.4); pivot.add(w); g.add(pivot); return pivot; };
+    g.userData.wings = [wing(-1), wing(1)];
+    g.scale.setScalar(1.3);
+    return g;
+  }
+  function flyDragon(a, b, lead, dur) {
+    const g = makeDragon(); g.visible = false; scene.add(g);
+    dragons.push({ g, a: a.clone(), b: b.clone(), lead, dur, t: 0, breath: 0 });
+    sfx.burst?.(220, 1.2, 0.5);
   }
   function iceBlock(p) {
     const g = new THREE.Group(), mats = [];
@@ -180,7 +205,8 @@ async function main() {
     for (const a of avatars.values()) { scene.remove(a.group); a.dispose(); }   // (last match's bodies: free their GPU buffers)
     vm?.dispose();
     avatars.clear();
-    game = g; me = game.player; pick = null;
+    game = g; me = game.player; pick = null; wrathFx = null;
+    for (const D of dragons.splice(0)) scene.remove(D.g);
     vm = new ViewModel(Arena.TEAMS[me.team]?.hex ?? 0x6a6a6a); vm.resize(innerWidth / innerHeight); vm.scene.environment = gunEnv;
     await Promise.all(game.fighters.map(addAvatar));
     if (game !== g) return;
@@ -250,6 +276,18 @@ async function main() {
         break;
       }
       case 'bounce': if (distOf(e.p) < 20) sfx.bounce(); for (let i = 0; i < 3; i++) puff(e.p, 0x8a7a5a, 0.18, 0.6, new THREE.Vector3((Math.random() - 0.5) * 1.5, 0.8 + Math.random(), (Math.random() - 0.5) * 1.5)); break;   // (a kick of dust where it lands)
+      case 'dragon': {
+        for (const b of e.blasts || []) iceMark(b.p, b.t, 0xff7a2a, false);
+        flyDragon(e.a, e.b, e.lead, e.dur);
+        if (e.f !== me) { const foe = game.mode.teams ? e.f.team !== me?.team : true; hud.message(foe ? 'ENEMY KING BLACK DRAGON' : 'FRIENDLY KING BLACK DRAGON', foe ? '#f55' : '#ff8a3a', 'get under cover', 2.5); }
+        sfx.boom(60, 0); break;
+      }
+      case 'wrath': {
+        wrathFx = { team: game.mode.teams ? e.f.team : null, left: e.left, on: true, mine: game.mode.teams ? e.f.team === me?.team : e.f === me, beep: Math.ceil(e.left) + 1, flash: 0 };
+        hud.message(wrathName(wrathFx.team), wrathFx.team === 'zam' ? '#ff5040' : '#fff6c0', wrathFx.mine ? `${e.f === me ? 'You' : e.f.name} called down the end of the match` : 'run. it will not help', 4);
+        sfx.jingle(); break;
+      }
+      case 'wrathhit': if (wrathFx) { wrathFx.flash = 1; wrathFx.on = false; } shake = 1; sfx.boom(0, 0); sfx.boom(5, 0.5); sfx.boom(5, -0.5); break;
       case 'barrage': for (const b of e.blasts || []) iceMark(b.p, b.t); if (e.f !== me) hud.message(game.mode.teams && e.f.team !== me?.team ? 'ENEMY ICE BARRAGE' : 'FRIENDLY ICE BARRAGE', game.mode.teams && e.f.team !== me?.team ? '#f55' : '#9fe0ff', 'take cover', 2.5); break;
       case 'stuck': if (e.f === me) hud.point('STUCK!', '#ff0'); if (e.v === me) hud.message('STUCK!', '#f55', 'semtex on you', 1.5); break;
       case 'flag': {
@@ -348,21 +386,39 @@ async function main() {
     draw(dt, inp);
   }
 
-  // Ice Barrage: the map comes up, the look moves the reticle, FIRE calls it in, AIM (or 4 again) backs out
+  // killstreaks: 4 calls in the newest one earned. The aimed ones (Ice Barrage, the King Black Dragon) bring up the
+  // map: the look moves the reticle, FIRE calls it in, AIM (or 4 again) backs out
   let pick = null, holdFire = false;
   const NO_GUN = { fire: false, ads: false, reload: false, swap: false, knife: false, nade: false };
+  const callIn = (id, x, z) => { if (game.role === 'client') { net?.streak(id, x, z); const i = me.ready.lastIndexOf(id); if (i >= 0) me.ready.splice(i, 1); } else game.callStreak(me, id, x, z); };
   function barragePick(inp) {
     if (holdFire) { if (inp.gun.fire) inp.gun = { ...NO_GUN }; else holdFire = false; }
-    if (!pick) { if (inp.streak && me.alive && me.barrage) { pick = { x: me.body.pos.x, z: me.body.pos.z, fireWas: true }; sfx.pin(); } return; }
-    if (!me.alive || !me.barrage || inp.streak || inp.gun.ads) { pick = null; inp.gun = { ...NO_GUN }; holdFire = true; return; }
+    if (!pick) {
+      const id = me.ready[me.ready.length - 1];
+      if (!inp.streak || !me.alive || !id) return;
+      if (STREAKS.find(s => s.id === id)?.pick) { pick = { kind: id, x: me.body.pos.x, z: me.body.pos.z, fireWas: true }; sfx.pin(); }
+      else { callIn(id, 0, 0); sfx.jingle(); }                            // (God's Wrath: no aiming, it falls on all of them)
+      return;
+    }
+    if (!me.alive || !me.ready.includes(pick.kind) || inp.streak || inp.gun.ads) { pick = null; inp.gun = { ...NO_GUN }; holdFire = true; return; }
     const [X0, Z0, X1, Z1] = Arena.BOUNDS, sw = arena.at(X0, Z0), ne = arena.at(X1, Z1);
     pick.x = Math.max(sw.x, Math.min(ne.x, pick.x - inp.look.dyaw * 45)); pick.z = Math.max(ne.z, Math.min(sw.z, pick.z - inp.look.dpitch * 45));
     const fire = inp.gun.fire && !pick.fireWas; pick.fireWas = inp.gun.fire;
     inp.look.dyaw = inp.look.dpitch = 0; inp.gun = { ...NO_GUN };
     if (fire) {
-      if (game.role === 'client') { net?.barrage(pick.x, pick.z); me.barrage = false; } else game.callBarrage(me, pick.x, pick.z);
-      hud.message('ICE BARRAGE INBOUND', '#9fe0ff', '', 2); sfx.jingle(); pick = null; holdFire = true;
+      callIn(pick.kind, pick.x, pick.z);
+      hud.message(pick.kind === 'dragon' ? 'KING BLACK DRAGON INBOUND' : 'ICE BARRAGE INBOUND', pick.kind === 'dragon' ? '#ff8a3a' : '#9fe0ff', '', 2); sfx.jingle(); pick = null; holdFire = true;
     }
+  }
+
+  // God's Wrath: the countdown, the sky filling with the god's colour, then the flash
+  function wrathHud(dt) {
+    const W = wrathFx; if (!W) return null;
+    if (W.on) W.left = Math.max(0, W.left - dt);                         // (game time, so it lands with the hit even on a slow frame rate)
+    const left = W.on ? W.left : 0;
+    if (W.on && Math.ceil(left) < W.beep) { W.beep = Math.ceil(left); if (W.beep > 0) sfx.flag(W.mine); }
+    if (!W.on) { W.flash = Math.max(0, W.flash - Math.max(dt, 1 / 60) / 3); if (W.flash <= 0) { wrathFx = null; return null; } }
+    return { name: wrathName(W.team), left, team: W.team, tint: W.on ? Math.min(0.45, (10 - left) / 10 * 0.45) : 0, flash: W.flash };
   }
 
   function setPaused(p) {
@@ -412,6 +468,22 @@ async function main() {
       if (!g.rest && !g.stuck && !g.stuckWall) { m.rotation.x += dt * 13; m.rotation.z += dt * 4; if ((m.userData.trail += dt) > 0.025 && (!g.f || g.p.distanceTo(g.f.eye(_v)) > 2.5)) { m.userData.trail = 0; puff(g.p, 0xcfcabb, 0.08, 0.6); } }   // (not in the thrower's face)
     }
     for (const [g, m] of nades) if (!game.grenades.includes(g)) { scene.remove(m); nades.delete(g); }
+    // the King Black Dragon's run
+    for (let i = dragons.length - 1; i >= 0; i--) {
+      const D = dragons[i]; D.t += dt;
+      const u = (D.t - D.lead) / D.dur;
+      if (u > 1.15) { scene.remove(D.g); D.g.traverse(o => o.geometry?.dispose()); dragons.splice(i, 1); continue; }
+      if (u < -0.15) continue;
+      D.g.visible = true;
+      const p = D.a.clone().lerp(D.b, u); p.y += Math.sin(u * Math.PI) * -3;          // (dips over the target)
+      D.g.position.copy(p); D.g.lookAt(p.clone().add(D.a.clone().sub(D.b)));       // (heads lead: the model faces -z)
+      const flap = Math.sin(D.t * 9) * 0.55; D.g.userData.wings[0].rotation.z = flap; D.g.userData.wings[1].rotation.z = -flap;
+      if (u > 0.3 && u < 0.7 && (D.breath += dt) > 0.03) {                           // fire from the heads, down the line
+        D.breath = 0;
+        const head = p.clone().add(D.b.clone().sub(D.a).normalize().multiplyScalar(5)), down = new THREE.Vector3((Math.random() - 0.5) * 3, -16, (Math.random() - 0.5) * 3);
+        puff(head, Math.random() < 0.5 ? 0xff7a1a : 0xffc040, 0.6 + Math.random() * 0.5, 0.7, down, true);
+      }
+    }
     // Ice Barrage: the warning rings and falling orbs, then the ice
     for (let i = iceFx.length - 1; i >= 0; i--) {
       const x = iceFx[i]; x.t += dt;
@@ -482,7 +554,7 @@ async function main() {
     // HUD
     const spreadDeg = G.spreadDeg(Math.hypot(b.vel.x, b.vel.z) / MOVE.walk, !b.onGround, b.crouch > 0.5);
     const spreadPx = Math.tan(spreadDeg * Math.PI / 180) / Math.tan(vfov / 2) * hud.c.height / 2;
-    hud.draw(dt, game, me, camera, { spreadPx, ads: G.ads, scope: scoped, scopeSway: sway, breath: scoped ? breath : undefined, board: inp.board, sprint: b.sprinting, aimedAt, touch: input.device === 'touch', clickToAim: input.device === 'kbm' && !input.locked && !paused, pick: pick && me.alive ? pick : null });
+    hud.draw(dt, game, me, camera, { spreadPx, ads: G.ads, scope: scoped, scopeSway: sway, breath: scoped ? breath : undefined, board: inp.board, sprint: b.sprinting, aimedAt, touch: input.device === 'touch', clickToAim: input.device === 'kbm' && !input.locked && !paused, pick: pick && me.alive ? pick : null, wrath: wrathHud(dt) });
   }
 
   // the menu backdrop: a slow flight round the arena

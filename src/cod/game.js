@@ -15,7 +15,15 @@ export const MODES = {
   ctf: { name: 'CAPTURE THE FLAG', short: 'CTF', teams: true, limit: 3, time: 600, respawn: 5, desc: "Castle Wars: take their standard off their tower, bring it home to yours." },
   ffa: { name: 'FREE-FOR-ALL', short: 'FFA', teams: false, limit: 25, time: 600, respawn: 2.5, desc: 'Everyone for themselves.' },
 };
-export const STREAKS = [{ n: 3, id: 'uav', name: 'UAV', desc: 'enemies on your minimap' }, { n: 5, id: 'barrage', name: 'ICE BARRAGE', desc: 'press 4 (d-pad) and pick the spot on the map' }, { n: 7, id: 'vengeance', name: 'VENGEANCE', desc: 'take the next one with you' }];
+export const STREAKS = [
+  { n: 3, id: 'uav', name: 'UAV', desc: 'enemies on your minimap' },
+  { n: 5, id: 'barrage', name: 'ICE BARRAGE', desc: 'press 4 (d-pad) and pick the spot on the map', pick: true },
+  { n: 7, id: 'vengeance', name: 'VENGEANCE', desc: 'take the next one with you' },
+  { n: 11, id: 'dragon', name: 'KING BLACK DRAGON', desc: 'press 4: pick the target, he burns a line through it', pick: true },
+  { n: 25, id: 'wrath', name: "GOD'S WRATH", desc: 'press 4: your god ends the match' },
+];
+/** the 25 streak, by side: Castle Wars is Saradomin against Zamorak (free-for-all gets Guthix) */
+export const wrathName = team => team === 'sara' ? "SARADOMIN'S WRATH" : team === 'zam' ? "ZAMORAK'S WRATH" : "GUTHIX'S WRATH";
 const TEAM_HALF = { sara: [2400, 3072, 2431, 3103], zam: [2368, 3104, 2399, 3135] };
 const FLAG_R = 1.4;                                        // touch distance for a flag
 
@@ -34,7 +42,7 @@ export class Fighter {
     this.avatar = null;                                    // set by the renderer
     this.net = null;                                       // server: a remote human's latest state ({ p, v, yaw, pitch, ... }), applied each step
     this.puppet = false;                                   // client: someone else, posed from snapshots (never simulated here)
-    this.barrage = false;                                  // an Ice Barrage earned and not yet called in
+    this.ready = [];                                       // killstreaks earned, not yet called in (4 uses the newest)
   }
   get w() { return this.gunner.w; }
   eye(out = new THREE.Vector3()) { return this.body.eye(out); }
@@ -191,6 +199,7 @@ export class Game {
     }
     for (let i = this.tracers.length - 1; i >= 0; i--) if ((this.tracers[i].t -= dt) <= 0) this.tracers.splice(i, 1);
     if (this.role === 'client') return;                       // (grenades, blasts, flags, the clock: mirrored from the server)
+    if (this.wrath && (this.wrath.t -= dt) <= 0) this.wrathFalls();
     this.stepGrenades(dt);
     this.stepBlasts(dt);
     if (this.modeId === 'ctf') for (const fl of Object.values(this.flags)) {
@@ -203,10 +212,20 @@ export class Game {
     if (!this.mode.teams && this.fighters.some(f => f.kills >= this.limit)) this.end();
   }
 
-  end() {
+  /** God's Wrath lands: every enemy of the caller dies where they stand, and the match is theirs */
+  wrathFalls() {
+    const f = this.wrath.f, w = { name: wrathName(this.mode.teams ? f.team : null), cls: 'LETHAL' };
+    this.wrath = null;
+    this.emit({ t: 'wrathhit', f });
+    for (const e of this.fighters) if (e.alive && e !== f && (!this.mode.teams || e.team !== f.team)) { e.hp = 0; this.kill(e, f, w, 'chest', new THREE.Vector3(0, -1, 0)); }
+    this.end(this.mode.teams ? f.team : f);
+  }
+
+  end(winner) {
     if (this.over) return;
     this.over = true;
-    if (this.mode.teams) this.winner = this.score.sara === this.score.zam ? 'draw' : this.score.sara > this.score.zam ? 'sara' : 'zam';
+    if (winner) this.winner = winner;
+    else if (this.mode.teams) this.winner = this.score.sara === this.score.zam ? 'draw' : this.score.sara > this.score.zam ? 'sara' : 'zam';
     else this.winner = [...this.fighters].sort((a, b) => b.kills - a.kills)[0];
     this.emit({ t: 'end', winner: this.winner });
   }
@@ -310,18 +329,25 @@ export class Game {
     this.emit({ t: 'streak', f, s });
     if (s.id === 'uav') for (const o of this.fighters) if (!this.mode.teams ? o === f : o.team === f.team) o.uavT = 30;
     if (s.id === 'vengeance') f.vengeance = true;
-    if (s.id === 'barrage') {
-      if (f.brain) {                                          // a bot calls it straight in on the thickest knot of enemies
+    if (s.id === 'barrage' || s.id === 'dragon' || s.id === 'wrath') {
+      if (f.brain) {                                          // a bot calls it straight in, on the thickest knot of enemies
         const foes = this.enemies(f); let best = null, bn = -1;
         for (const e of foes) { const n = foes.filter(o => o.body.pos.distanceTo(e.body.pos) < 8).length; if (n > bn) { bn = n; best = e; } }
-        if (best) this.callBarrage(f, best.body.pos.x, best.body.pos.z);
-      } else f.barrage = true;                                // a person picks the spot on the map (press 4)
+        if (best || s.id === 'wrath') { f.ready.push(s.id); this.callStreak(f, s.id, best?.body.pos.x ?? 0, best?.body.pos.z ?? 0); }
+      } else f.ready.push(s.id);                              // a person calls it in with 4 (and picks the spot on the map)
     }
+  }
+  /** call in an earned streak (the newest of that kind); x, z: the target for the ones aimed on the map */
+  callStreak(f, id, x = 0, z = 0) {
+    const i = f.ready.lastIndexOf(id); if (i < 0 || this.over || this.wrath) return false;
+    f.ready.splice(i, 1);
+    if (id === 'barrage') this.callBarrage(f, x, z);
+    else if (id === 'dragon') this.callDragon(f, x, z);
+    else if (id === 'wrath') { this.wrath = { f, t: 10 }; this.emit({ t: 'wrath', f, left: 10 }); }
+    return true;
   }
   /** an Ice Barrage on a spot: a ring of ice blasts walks in on it after a warning (game x, z) */
   callBarrage(f, x, z) {
-    if (!f.barrage && !f.brain) return false;
-    f.barrage = false;
     const c = new THREE.Vector3(x, 0, z), list = [];
     for (let i = 0; i < 8; i++) {
       const a = i * 2.4, r = i === 0 ? 0 : 2 + (i % 3) * 2.2;
@@ -331,6 +357,18 @@ export class Game {
     }
     this.emit({ t: 'barrage', f, p: c, blasts: list.map(b => ({ p: b.p.clone(), t: b.t })) });   // (the renderer telegraphs each one: a ring, an orb falling)
     return true;
+  }
+  /** the King Black Dragon: comes in from the caller's side, low over the target, and breathes a line of fire along it */
+  callDragon(f, x, z) {
+    const c = new THREE.Vector3(x, 0, z), d = c.clone().sub(f.body.pos).setY(0);
+    if (d.lengthSq() < 1) d.set(-Math.sin(f.body.yaw), 0, -Math.cos(f.body.yaw)); d.normalize();
+    const SPEED = 30, RUN = 45, LEAD = 1.2, list = [];
+    for (let i = -5; i <= 5; i++) {
+      const p = c.clone().addScaledVector(d, i * 2.6); p.y = this.arena.floor(p.x, 40, p.z, 0, 60) ?? 0;
+      const bl = { p, t: LEAD + (RUN + i * 2.6) / SPEED + 0.35, f, r: 4.5, dmg: 130, name: 'King Black Dragon' }; this.blasts.push(bl); list.push(bl);
+    }
+    const y = (this.arena.floor(x, 40, z, 0, 60) ?? 0) + 18;
+    this.emit({ t: 'dragon', f, a: c.clone().addScaledVector(d, -RUN).setY(y), b: c.clone().addScaledVector(d, RUN).setY(y), lead: LEAD, dur: 2 * RUN / SPEED, blasts: list.map(b => ({ p: b.p.clone(), t: b.t })) });
   }
   stepBlasts(dt) {
     for (let i = this.blasts.length - 1; i >= 0; i--) {

@@ -61,5 +61,27 @@ for (const [mode, secs, diff] of [['tdm', 150, 'veteran'], ['ctf', 240, 'hardene
   check(kills >= (mode === 'ctf' ? 5 : 10), `${mode} (${diff}): the bots fight`, `${kills} kills in ${g.t.toFixed(0)} s, ${(ms / (g.t / dt)).toFixed(2)} ms/frame, score ${JSON.stringify(g.score)}`);
   if (mode === 'ctf') check(taken > 0, 'ctf: the bots go for the flag', `${taken} taken, ${caps} captured`);
 }
+// ---- killstreaks you call in: the King Black Dragon burns a line, God's Wrath (25) ends the match
+{
+  const g = new Game(arena, { mode: 'tdm', difficulty: 'recruit', perTeam: 4, playerTeam: 'sara', loadout: { primary: 'm4a1', secondary: 'm1911', lethal: 'frag' } });
+  const me = g.player, foes = g.enemies(me), S = id => ({ dragon: { n: 11, id: 'dragon' }, wrath: { n: 25, id: 'wrath' } })[id];
+  for (const f of g.fighters) if (f.brain) f.brain.think = () => ({ move: {}, gun: {} });
+  const step = s => { for (let t = 0; t < s; t += 1 / 30) g.step(1 / 30, { move: {}, gun: {}, look: { dyaw: 0, dpitch: 0 } }); };
+  // three of them stood in a line, the dragon run straight down it
+  const c = arena.at(2405, 3110); c.y = arena.floor(c.x, 20, c.z, 0, 40);                     // (open field: under a roof they'd be safe)
+  foes.slice(0, 3).forEach((f, i) => { f.body.pos.set(c.x + i * 2.5, arena.floor(c.x + i * 2.5, 20, c.z, 0, 40), c.z); f.hp = 100; });
+  g.reward(me, S('dragon'));
+  check(me.ready.includes('dragon'), 'the 11 streak waits to be called in');
+  check(g.callStreak(me, 'dragon', c.x + 2.5, c.z), 'calling the King Black Dragon');
+  const before = foes.slice(0, 3).filter(f => f.alive).length; step(4.5);
+  const hurt = foes.slice(0, 3).filter(f => !f.alive || f.hp < 100).length;
+  check(hurt >= 2, 'the dragon burns the enemies under his line', `${hurt}/${before} hit`);
+  // God's Wrath: 10 s, then every enemy dies and the match is ours
+  for (const f of g.fighters) if (!f.alive) g.spawn(f);
+  g.reward(me, S('wrath')); g.callStreak(me, 'wrath');
+  step(9.5); check(!g.over && g.fighters.filter(f => f.team !== me.team && f.alive).length > 0, "God's Wrath counts down first");
+  step(1);
+  check(g.over && g.winner === me.team, "God's Wrath ends the match for the caller's side", `winner ${g.winner}`);
+}
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
 process.exit(fails ? 1 : 0);
