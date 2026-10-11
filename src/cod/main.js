@@ -259,7 +259,8 @@ async function main() {
     const G = me.gunner, w = G.w;
     const zoom = w.zoom || 1;
     const inp = input.read(dt, zoom, G.ads);
-    if (!game.over && (inp.pause || (inp.unlocked && !paused))) setPaused(inp.pause ? !paused : true);   // (ESC also drops the pointer lock: pause once, not twice)
+    if (menu.style.display !== 'none') { if (inp.pause && !game.over) showMenu('paused'); }   // (ESC on the class/settings page backs out to PAUSED, never unpauses under it)
+    else if (!game.over && (inp.pause || (inp.unlocked && !paused))) setPaused(inp.pause ? !paused : true);   // (ESC also drops the pointer lock: pause once, not twice)
     // paused: the menus sit over a frozen frame (drawn once); nothing renders behind them
     if (paused) { if (!pauseFrame) { draw(0, inp); pauseFrame = true; } return; }
     if (!me.alive && inp.respawn && me.respawnT <= 0) inp.respawn = true; else if (me.alive) inp.respawn = false;
@@ -276,6 +277,7 @@ async function main() {
 
   function setPaused(p) {
     paused = p; pauseFrame = false; fpsT = 0; frames = 0;            // (the resolution scaler starts counting afresh)
+    if (!p) menu.style.display = 'none';
     $('pause').style.display = p ? 'flex' : 'none';
     if (p) input.unlock(); else if (input.device === 'kbm') input.lock();
     if (input.touch) input.touch.show(!p);
@@ -418,7 +420,7 @@ async function main() {
         <div class="classes">${classes.map((c, i) => `<button data-cls="${i}" class="cls${i === ci ? ' sel' : ''}"><b>${c.name}</b><span>${WEAPONS[c.primary].name} · ${WEAPONS[c.secondary].name} · ${LETHALS[c.lethal].name}</span><em>${c.blurb}</em>${bars(c.primary)}</button>`).join('')}</div>
         <div class="col"><button id="m-back" class="small">BACK</button></div>`;
       const done = () => { if (!inMatch) return showMenu('main'); menu.style.display = 'none'; me.loadout = { ...classes[setup.cls] }; setPaused(true); };
-      for (const b of box.querySelectorAll('[data-cls]')) b.onclick = () => { setup.cls = +b.dataset.cls; save(SETUP_KEY, setup); if (inMatch) { done(); hud.message(classes[setup.cls].name, '#ff0', 'next time you spawn', 2); } else showMenu('class'); };
+      for (const b of box.querySelectorAll('[data-cls]')) b.onclick = () => { setup.cls = +b.dataset.cls; save(SETUP_KEY, setup); if (inMatch) { me.loadout = { ...classes[setup.cls] }; setPaused(false); hud.message(classes[setup.cls].name, '#ff0', 'next time you spawn', 2); } else showMenu('class'); };   // (picking a class drops you straight back in, like COD)
       $('m-back').onclick = done;
     } else if (page === 'settings') {
       const sl = (k, label, min, max, step) => `<div class="row"><span class="lab">${label}</span><input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${settings[k]}"><span class="val" id="v-${k}">${settings[k]}</span></div>`;
