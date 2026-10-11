@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#8aa;font:12px monospace;color:#fff}#g{display:grid;grid-template-columns:repeat(3,420px);gap:2px}div.c{position:relative}img{display:block}span{position:absolute;left:6px;top:4px;text-shadow:1px 1px #000}</style>
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script></head><body><div id="g"></div>
+<script type="module">
+// the armoury, side on (dev tool: headless screenshots)   test/guns.html?side=r|l|q
+import * as THREE from 'three';
+import { buildGun, gunEnvironment } from '../src/cod/guns.js';
+THREE.ColorManagement.enabled = false;
+const q = new URLSearchParams(location.search), side = q.get('side') || 'r';
+const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); r.setSize(840, 420); r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.15; r.setClearColor(0x9fb4c8);
+const s = new THREE.Scene(); s.environment = gunEnvironment(r);
+s.add(new THREE.HemisphereLight(0xe8eeff, 0x4a4030, 1.2)); const d = new THREE.DirectionalLight(0xfff2d8, 2.2); d.position.set(0.5, 1, 0.8); s.add(d);
+const models = (q.get('guns') || 'm4,ak,scar,famas,mp5,mp7,ump,m249,intervention,barrett,r870,m1911,deagle,g18,knife,frag').split(',');
+for (const id of models) {
+  const g = buildGun(id); s.add(g.group);
+  const box = new THREE.Box3().setFromObject(g.group), c = box.getCenter(new THREE.Vector3()), L = box.getSize(new THREE.Vector3()).length();
+  const cam = new THREE.PerspectiveCamera(30, 2, 0.01, 20);
+  const dir = side === 'l' ? new THREE.Vector3(-1, 0.05, 0) : side === 'q' ? new THREE.Vector3(0.7, 0.35, -0.6) : new THREE.Vector3(1, 0.05, 0);
+  cam.position.copy(c).addScaledVector(dir.normalize(), L * 1.9); cam.lookAt(c);
+  r.render(s, cam); s.remove(g.group);
+  const e = document.createElement('div'); e.className = 'c'; const im = new Image(); im.src = r.domElement.toDataURL(); im.width = 420; im.height = 210; e.appendChild(im);
+  const t = document.createElement('span'); t.textContent = id; e.appendChild(t); document.getElementById('g').appendChild(e);
+}
+document.title = 'ok';
+</script></body></html>

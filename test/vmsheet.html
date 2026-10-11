@@ -1,0 +1,35 @@
+<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#6a8ab0;font:11px monospace;color:#fff}#g{display:grid;grid-template-columns:repeat(4,320px);gap:2px}img{width:320px;height:180px;display:block}div.c{position:relative}span{position:absolute;left:4px;top:2px;text-shadow:1px 1px #000}</style>
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js", "three-mesh-bvh": "../vendor/three-mesh-bvh.module.js" } }</script></head><body><div id="g"></div>
+<script type="module">
+// a reload contact sheet:  test/vmsheet.html?gun=m4a1&what=reload|empty|cycle|shells|ads  (headless screenshots, tools only)
+import * as THREE from 'three';
+import { ViewModel } from '../src/cod/viewmodel.js';
+import { WEAPONS } from '../src/cod/weapons.js';
+import { gunEnvironment } from '../src/cod/guns.js';
+THREE.ColorManagement.enabled = false;
+const q = new URLSearchParams(location.search), what = q.get('what') || 'reload', GUNS = (q.get('gun') || 'm4a1').split(',');
+const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); r.setSize(640, 360); r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.15; r.setClearColor(0x8aa8d0);
+const vm = new ViewModel(0x2f7fe0); vm.resize(640 / 360); vm.scene.environment = gunEnvironment(r);
+const N = +(q.get('n') || 16), g = document.getElementById('g');
+// pose exploration: ?pose=[[rx,ry,rz,dx,dy,dz],...] overrides the reload offsets at f=0.3
+const poses = q.get('pose') ? JSON.parse(q.get('pose')) : null;
+if (poses) { const orig = vm.reload.bind(vm); let pi = 0; vm.reload = (...a) => { const o = orig(...a); const P = poses[pi % poses.length]; Object.assign(o, { rx: P[0], ry: P[1], rz: P[2], dx: P[3], dy: P[4], dz: P[5] }); return o; }; vm._next = () => pi++; }
+for (const id of GUNS) { const w = WEAPONS[id]; vm.setGun(id, w.model);
+for (let i = 0; i < N; i++) {
+  const f = N > 1 ? i / (N - 1) : 1;
+  const G = { w, g: { ammo: what === 'empty' ? 0 : 10, id }, phase: 'idle', t: 0, dur: 1, empty: what === 'empty', cook: -1, stage: 'shell', ads: 0 };
+  if (what === 'reload' || what === 'empty') { G.phase = 'reload'; G.t = f; G.dur = 1; }
+  if (what === 'cycle') { G.phase = 'cycle'; G.t = f; }
+  if (what === 'shells') { G.phase = 'reload'; G.stage = i < 3 ? 'start' : i > N - 4 ? 'end' : 'shell'; G.t = i < 3 ? i / 2 : i > N - 4 ? (i - (N - 3)) / 2 : ((i - 3) % 4) / 3; G.empty = true; }
+  if (what === 'ads') G.ads = f;
+  if (what === 'sights') G.ads = 1;
+  if (poses) { if (i >= poses.length) break; vm._next && i && vm._next(); }
+  vm.debris.forEach(d => vm.scene.remove(d.m)); vm.debris.length = 0; if (i === 0) vm.dropped = false;
+  vm.update(1 / 60, { gunner: G, ads: G.ads, sprint: false, speed: 0, onGround: true, look: { dx: 0, dy: 0 } });
+  r.clear(); r.render(vm.scene, vm.camera);
+  const c = document.createElement('div'); c.className = 'c'; const im = new Image(); im.src = r.domElement.toDataURL(); c.appendChild(im);
+  const s = document.createElement('span'); s.textContent = poses ? JSON.stringify(poses[i]) : `${id} ${what} ${f.toFixed(2)}`; c.appendChild(s); g.appendChild(c);
+}
+}
+document.title = 'ok';
+</script></body></html>

@@ -154,7 +154,7 @@ const MAP_STATIC = (() => {
 // Fast public loading: pre-compressed .br/.gz siblings (tools/compress.ts), on-the-fly gzip for the small
 // source files, and an ETag on everything so a returning player revalidates (a 304) instead of
 // re-downloading the world. vendor/ never changes, so the browser may keep it for a day.
-const TYPES: Record<string, string> = { js: 'text/javascript; charset=utf-8', json: 'application/json', html: 'text/html; charset=utf-8', bin: 'application/octet-stream', png: 'image/png', css: 'text/css' };
+const TYPES: Record<string, string> = { js: 'text/javascript; charset=utf-8', json: 'application/json', html: 'text/html; charset=utf-8', bin: 'application/octet-stream', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', css: 'text/css' };
 const gzCache = new Map<string, { m: number; buf: Uint8Array }>();
 async function sendFile(req: Request, full: string) {
   let st; try { st = statSync(full); } catch { return new Response('not found', { status: 404 }); }
@@ -305,12 +305,17 @@ function brMsg(s: Sess, m: any) {
   else if (brMatch && brIds.has(s.id)) brMatch.msg(s.id, m);
 }
 
+// CODScape online: the always-on Castle Wars CTF match (src/cod/netserver.js). Off, not fatal, if it can't load.
+let cod: any = null;
+import('./src/cod/netserver.js').then(m => { cod = new m.CodServer(ROOT, cleanChat); console.log('CODScape online match up'); }).catch(e => console.warn('CODScape online off:', e?.message || e));
+
 Bun.serve({
   port,
   async fetch(req, server) {
     const url = new URL(req.url);
     let p = decodeURIComponent(url.pathname);
     if (p === '/ws') return server.upgrade(req, { data: { sess: null } }) ? undefined : new Response('upgrade failed', { status: 400 });
+    if (p === '/cod-ws') return cod && server.upgrade(req, { data: { cod: true } }) ? undefined : new Response('CODScape online is off', { status: 503 });
     if (p === '/api/top') {                                         // leaderboard: all accounts by XP
       const online = new Set([...sessions.values()].map(s => s.k));
       // rank by XP up to max level, then runes found, then raw XP
@@ -318,6 +323,7 @@ Bun.serve({
         .sort((a, b) => b[1].xp - a[1].xp || runesOf(b[1]) - runesOf(a[1])).slice(0, 15)
         .map(([k, a]) => ({ name: a.name, own: isOwner(k) ? 1 : undefined, xp: a.xp, runes: runesOf(a), runeTotal: RUNE_IDS.size, on: online.has(k) })));
     }
+    if (p === '/cod' || p === '/cod/' || p === '/codscape') return Response.redirect('/cod.html', 302);
     if (p === '/map' || p === '/map/') return new Response(MAP_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' } });
     if (p === '/api/map') return Response.json(MAP_STATIC, { headers: { 'Cache-Control': 'no-cache' } });
     if (p === '/api/live') {                                         // who is where right now (world tiles)
@@ -350,7 +356,9 @@ Bun.serve({
     return sendFile(req, full);
   },
   websocket: {
+    open(ws: any) { if (ws.data.cod) cod?.open(ws); },
     async message(ws: any, raw) {
+      if (ws.data.cod) return cod?.message(ws, raw);
       let m: any; try { m = JSON.parse(String(raw)); } catch { return; }
       const s: Sess | null = ws.data.sess;
       if (!s) {
@@ -437,6 +445,7 @@ Bun.serve({
       }
     },
     close(ws: any) {
+      if (ws.data.cod) return cod?.close(ws);
       const s: Sess | null = ws.data.sess;
       if (s && sessions.get(s.id) === s) {
         sessions.delete(s.id); broadcast({ t: 'leave', id: s.id });

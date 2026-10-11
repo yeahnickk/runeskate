@@ -624,6 +624,7 @@ async function main() {
   window.RS.touch = touch;
   window.RS.onLogin = async who => {
     teleports.ready(); playing = true; document.body.classList.add('playing');
+    if (new URLSearchParams(location.search).get('play') === 'royale') setTimeout(() => br.active || br.queue(), 1200);   // came from the RuneRoyale card
     // this browser's saved progress only counts for the account that made it (or a solo run)
     const lp = offlineProg && (!offlineProg.who || offlineProg.who === who.name || offlineProg.who === who.login || offlineProg.who === 'offline') ? offlineProg : null;
     if (lp) goals.load(lp);
@@ -1298,7 +1299,7 @@ async function main() {
     if (pendingRes) { resScale = pendingRes; pendingRes = 0; renderer.setPixelRatio(BASE_DPR * resScale); needResize = true; }
     if (needResize) { needResize = false; resize(); }
     if (touch) { const on = playing && !replay.open && !designer.open && !teleports.open && !br.active && $('chatbox').style.display !== 'block'; if (on !== touch.on) { touch.on = on; touch.show(on); } }
-    if (playing) { const b = !replay.open && !designer.open && !br.active; if (b !== teleports.shown) { teleports.ready(teleports.shown = b); } br.showBtn(b); }
+    if (playing) { const b = !replay.open && !designer.open && !br.active; if (b !== teleports.shown) { teleports.ready(teleports.shown = b); } br.showBtn(b); document.body.classList.toggle('inbr', br.active); }
     if (replay.open) replayTick(dt);
     else if (!window.RS.paused) { tick(dt); if (gap < 250) adaptResolution(gap, dt); }
   }

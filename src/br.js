@@ -22,6 +22,7 @@ const fmtT = s => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 const CSS = `
+body.inbr #social { display: none !important; }
 #brbtn { position: fixed; left: 50%; bottom: 58px; transform: translateX(-50%); z-index: 6; display: none; align-items: center; gap: 8px;
   padding: 6px 14px 6px 8px; font: bold 14px monospace; color: #fff; background: rgba(120,30,140,.85); border: 2px solid #f6c;
   border-radius: 6px; box-shadow: 0 0 14px rgba(255,90,220,.5), 3px 3px 0 #000; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
