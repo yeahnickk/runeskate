@@ -191,7 +191,7 @@ export class Avatar {
     this.flash.visible = false;
   }
   updateRag(dt) {
-    if (!this.rag) return;
+    if (!this.rag || !(dt > 0)) return;                          // (the pause frame redraws with dt 0: nothing moves)
     this.rag.step(Math.min(dt, 1 / 30), this.ragW);
     this.m.setVerts(poseRagSkin(this.p.skin, this.rag.p.map(p => [p[0], p[1], p[2]])));
     if (this.dropGun) {                                       // the gun clatters to the floor

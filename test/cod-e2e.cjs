@@ -178,6 +178,9 @@ const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swif
   await p.evaluate(() => { const g = COD.game, me = COD.me; g.damage(me, 500, g.enemies(me)[0], g.enemies(me)[0].gunner.w, 'chest', me.body.look(me.body.pos.clone())); });
   await waitGame(0.5);
   check(await p.evaluate(() => !COD.me.alive), 'you can die');
+  await p.keyboard.press('Escape'); await p.waitForTimeout(400);       // pausing while dead (to change class) used to NaN the ragdoll and blank the world
+  check(await p.evaluate(() => COD.paused && COD.camera.matrixWorld.elements.every(Number.isFinite)), 'pausing while dead keeps the world drawn');
+  await p.click('#p-resume'); await p.waitForTimeout(300);
   await p.screenshot({ path: 'e2e-dead.png' });
   await waitGame(3.2); await p.keyboard.press('Space'); await waitGame(0.3);
   check(await p.evaluate(() => COD.me.alive && COD.me.hp === 100), 'SPACE respawns you after the timer');

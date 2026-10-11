@@ -49,7 +49,7 @@ async function main() {
   const sun = new THREE.DirectionalLight(0xfff0d8, 1.3); sun.position.set(-30, 60, 40); scene.add(sun);
   const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 400);
 
-  const gunEnv = gunEnvironment(renderer); scene.environment = gunEnv;   // (the world is unlit vertex colour: only the guns pick this up)
+  let gunEnv = gunEnvironment(renderer); scene.environment = gunEnv;   // (the world is unlit vertex colour: only the guns pick this up)
   const arena = await pArena;
   scene.add(arena.group);
   status('mapping the castle for the bots...');
@@ -247,16 +247,19 @@ async function main() {
   function resize() {
     const w = innerWidth, h = innerHeight;
     renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); vm?.resize(w / h); hud.resize();
+    pauseFrame = false;                                            // (a resize clears the canvas: the pause frame has to be redrawn)
   }
-  addEventListener('resize', () => { resize(); pauseFrame = false; }); resize();
+  addEventListener('resize', resize); resize();
+  // the GPU can drop the context (driver reset, a Chrome popup on a weak GPU): keep the page alive and rebuild on restore
+  let glLost = false;
+  canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); glLost = true; });
+  canvas.addEventListener('webglcontextrestored', () => { glLost = false; gunEnv = gunEnvironment(renderer); scene.environment = gunEnv; if (vm) vm.scene.environment = gunEnv; resize(); });
 
   function frame(now) {
     requestAnimationFrame(frame);
-    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const raw = (now - last) / 1000, dt = Math.min(0.05, raw); last = now;
+    if (glLost) return;
     if (!inMatch || !game) { renderer.clear(); renderer.render(scene, camera); idleCam(dt); return; }
-    // adaptive resolution: hold ~55 fps
-    fpsT += dt; frames++;
-    if (fpsT > 2) { const fps = frames / fpsT; fpsT = 0; frames = 0; const want = fps < 45 ? Math.max(0.55, resScale - 0.1) : fps > 58 && resScale < 1 ? Math.min(1, resScale + 0.05) : resScale; if (want !== resScale) { resScale = want; renderer.setPixelRatio(dprBase * resScale); resize(); } }
 
     const G = me.gunner, w = G.w;
     const zoom = w.zoom || 1;
@@ -265,6 +268,14 @@ async function main() {
     else if (!game.over && (inp.pause || (inp.unlocked && !paused))) setPaused(inp.pause ? !paused : true);   // (ESC also drops the pointer lock: pause once, not twice)
     // paused: the menus sit over a frozen frame (drawn once); nothing renders behind them
     if (paused) { if (!pauseFrame) { draw(0, inp); pauseFrame = true; } return; }
+    // adaptive resolution: hold ~55 fps, timed on the real clock (not the clamped dt) and only while playing;
+    // a single long frame (a popup, a tab switch) is a stall, not slowness: start the count again
+    if (raw > 0.25) { fpsT = 0; frames = 0; } else { fpsT += raw; frames++; }
+    if (fpsT > 1.5) {
+      const fps = frames / fpsT; fpsT = 0; frames = 0;
+      const want = fps < 45 ? Math.max(0.5, resScale * Math.max(0.6, Math.min(0.92, Math.sqrt(fps / 55)))) : fps > 58 && resScale < 1 ? Math.min(1, resScale + 0.05) : resScale;
+      if (Math.abs(want - resScale) > 0.01) { resScale = want; renderer.setPixelRatio(dprBase * resScale); resize(); }
+    }
     if (!me.alive && inp.respawn && me.respawnT <= 0) inp.respawn = true; else if (me.alive) inp.respawn = false;
     // hold breath while scoped (a few seconds, then you have to breathe)
     const scoped = w.scope && G.ads > 0.9;
@@ -445,7 +456,7 @@ async function main() {
       $('m-back').onclick = () => { if (!inMatch) return showMenu('main'); menu.style.display = 'none'; setPaused(true); };
     } else if (page === 'controls') {
       box.innerHTML = `<div class="title sm">CONTROLS</div>
-        <div class="keys"><b>WASD</b> move · <b>SHIFT</b> sprint (hold breath when scoped) · <b>SPACE</b> jump · <b>CTRL / C</b> crouch, slide out of a sprint<br>
+        <div class="keys"><b>WASD</b> move · <b>SHIFT</b> sprint (hold breath when scoped) · <b>SPACE</b> jump · <b>C</b> crouch, slide out of a sprint<br>
         <b>LMB</b> fire · <b>RMB</b> aim down sights · <b>R</b> reload · <b>1 2 Q</b> / wheel swap · <b>V / F</b> knife · <b>G</b> grenade (hold to cook)<br>
         <b>TAB</b> scoreboard · <b>ESC</b> pause</div>
         <div class="keys"><b>CONTROLLER</b>: LS move (click to sprint) · RS look · LT aim · RT fire · A jump · B crouch/slide · X reload · Y swap · RB grenade · R3 / LB knife · START pause · BACK scores. Aim assist on by default.</div>

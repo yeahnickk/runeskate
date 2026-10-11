@@ -25,7 +25,7 @@ export class Input {
     addEventListener('keydown', e => {
       if (!this.enabled) return;
       const k = e.code; if (!this.keys.has(k)) this.edges.add(k); this.keys.add(k); this.device = 'kbm';
-      if (['Tab', 'Space', 'ControlLeft', 'KeyC'].includes(k) || (k.startsWith('Arrow'))) e.preventDefault();
+      if (this.locked ? !/^F\d/.test(k) : ['Tab', 'Space', 'KeyC'].includes(k) || k.startsWith('Arrow')) e.preventDefault();   // (in play, swallow everything: a stray Ctrl+S / Ctrl+D would pop Chrome's save / bookmark dialogs over the game)
     });
     addEventListener('keyup', e => { this.keys.delete(e.code); });
     addEventListener('blur', () => { this.keys.clear(); this.mouse.l = this.mouse.r = false; });
@@ -64,7 +64,7 @@ export class Input {
     // ---- keyboard + mouse
     m.x = (K.has('KeyD') ? 1 : 0) - (K.has('KeyA') ? 1 : 0); m.z = (K.has('KeyW') ? 1 : 0) - (K.has('KeyS') ? 1 : 0);
     m.sprint = K.has('ShiftLeft') || K.has('ShiftRight'); out.breath = m.sprint;
-    m.crouch = K.has('ControlLeft') || K.has('KeyC'); m.crouchEdge = this.edge('ControlLeft') || this.edge('KeyC');
+    m.crouch = K.has('KeyC'); m.crouchEdge = this.edge('KeyC');   // (not Ctrl: Ctrl+W closes the tab, Ctrl+S opens Save, and no page can stop that)
     m.jump = this.edge('Space');
     g.fire = this.mouse.l; g.reload = this.edge('KeyR'); g.swap = this.edge('Digit1') || this.edge('Digit2') || this.edge('KeyQ') || this.wheel !== 0;
     g.knife = this.edge('KeyV') || this.edge('KeyF'); g.nade = K.has('KeyG');

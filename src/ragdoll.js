@@ -110,6 +110,7 @@ export class Ragdoll {
 
   /** inp: { steer, fwd } (the stick) and yaw (which way "forward" is for it) */
   step(dt, w, inp = {}, yaw = 0) {
+    if (!(dt > 0)) return;                                   // (a zero step, e.g. a frozen pause frame, would divide by zero below)
     this.t += dt;
     // fixed-size substeps (about 1/120 s) so a slow frame rate tumbles the same as a fast one
     const ft = Math.min(dt, 1 / 15), n = Math.max(RD.substeps, Math.ceil(ft * 120 - 1e-6)), h = ft / n;
