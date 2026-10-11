@@ -154,6 +154,11 @@ export class CodHud {
       const t = Math.max(0, me.respawnT);
       this.T(t > 0 ? `Respawn in ${t.toFixed(1)}` : (st.touch ? 'TAP TO RESPAWN' : 'PRESS SPACE / CLICK / A TO RESPAWN'), W / 2, H * 0.36 + 48 * k, '#fff', 'c', k, 'p12');
     }
+    // at a supply table: restocking, or how long until it'll restock you again
+    if (me?.alive && g.supplies) {
+      const s = g.supplies.find(s => (!g.mode.teams || s.team === me.team) && Math.abs(s.p.y - me.body.pos.y) < 1.2 && Math.hypot(s.p.x - me.body.pos.x, s.p.z - me.body.pos.z) < 2.6);
+      if (s) this.T(me.supplyCool > 0 ? `SUPPLIES RESTOCK IN ${Math.ceil(me.supplyCool)}s` : me.supplyT > 0 ? 'RESUPPLYING...' : 'SUPPLIES: STAND HERE TO RESTOCK', W / 2, H * 0.66, '#ffd040', 'c', k, 'p12');
+    }
     if (st.clickToAim && me?.alive) { this.panel(W / 2 - 90 * k, H * 0.42, 180 * k, 22 * k, 0.9); this.T('CLICK TO AIM', W / 2, H * 0.42 + 5 * k, '#ff0', 'c', k); }
     // chat, bottom left over the minimap's column
     { let y = H - (st.touch ? 230 : 120) * k; this.chat = this.chat.filter(m => (m.t += dt) < 12);
@@ -165,7 +170,7 @@ export class CodHud {
       if (w.left > 0) { this.panel(W / 2 - 150 * k, H * 0.12 - 8 * k, 300 * k, 74 * k, 0.92); this.T(w.name, W / 2, H * 0.12, w.team === 'zam' ? '#ff5040' : w.team === 'sara' ? '#ffd040' : '#7f7', 'c', k + 1); this.T(String(Math.ceil(w.left)), W / 2, H * 0.12 + 24 * k, '#fff', 'c', k * 2); }
       if (w.flash) { c.fillStyle = `rgba(${col},${Math.min(1, w.flash * 1.2)})`; c.fillRect(0, 0, W, H); }
     }
-    if (st.board || g.over) this.scoreboard(g, me);
+    if (st.board || (g.over && !st.wrath)) this.scoreboard(g, me);           // (God's Wrath gets its moment before the scores)
   }
 
   /** the Ice Barrage map: the whole arena big, everyone you can see, the strike reticle */
@@ -301,6 +306,7 @@ export class CodHud {
       c.strokeStyle = '#000'; c.lineWidth = k * 0.6; c.stroke();
     }
     if (g.modeId === 'ctf') for (const fl of Object.values(g.flags)) { const [px, py] = to(fl.pos); this.diamond(px, py, 4 * k, TEAM_COL[fl.team]); }
+    for (const s of g.supplies || []) if (!g.mode.teams || s.team === me.team) { const [px, py] = to(s.p); c.fillStyle = '#ffd040'; c.strokeStyle = '#000'; c.lineWidth = k * 0.6; c.fillRect(px - 2.5 * k, py - 2.5 * k, 5 * k, 5 * k); c.strokeRect(px - 2.5 * k, py - 2.5 * k, 5 * k, 5 * k); }   // (your side's supply tables)
     // you: an arrow along your look
     const [px, py] = to(me.body.pos), a = -me.body.yaw;
     c.fillStyle = '#fff'; c.strokeStyle = '#000'; c.lineWidth = k;

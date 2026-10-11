@@ -26,6 +26,7 @@ export const STREAKS = [
 export const wrathName = team => team === 'sara' ? "SARADOMIN'S WRATH" : team === 'zam' ? "ZAMORAK'S WRATH" : "GUTHIX'S WRATH";
 const TEAM_HALF = { sara: [2400, 3072, 2431, 3103], zam: [2368, 3104, 2399, 3135] };
 const FLAG_R = 1.4;                                        // touch distance for a flag
+export const SUPPLY_R = 1.8;                               // stand this close to a supply table to restock
 
 const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _v = new THREE.Vector3();
 
@@ -76,6 +77,16 @@ export class Game {
     for (const [k, T] of Object.entries(Arena.TEAMS)) {
       const near = arena.nodesIn(T.area), half = arena.nodesIn(TEAM_HALF[k]);
       this.spawnNodes[k] = { near: near.filter(i => arena.nav.nodes[i].n.length >= 6), half: half.filter(i => arena.nav.nodes[i].n.length >= 6) };
+    }
+    // the supply tables (Castle Wars keeps them by each side's spawn): one on each main floor of the castle, at the
+    // most open spot near that floor's middle. Same arena, same spots, so the server and every browser agree
+    this.supplies = [];
+    for (const [k, S] of Object.entries(this.spawnNodes)) for (const band of [3, 5]) {
+      const N = S.near.map(i => arena.nav.nodes[i]).filter(n => Math.round(n.y) === band && !n.water); if (N.length < 20) continue;
+      const cx = N.reduce((s, n) => s + n.x, 0) / N.length, cz = N.reduce((s, n) => s + n.z, 0) / N.length;
+      let best = null, bs = -Infinity;
+      for (const n of N) { const s = n.n.length * 2 - Math.hypot(n.x - cx, n.z - cz); if (s > bs) { bs = s; best = n; } }
+      this.supplies.push({ team: k, p: new THREE.Vector3(best.x, best.y, best.z) });
     }
     this.allNodes = arena.nav.nodes.map((n, i) => i).filter(i => arena.nav.nodes[i].ok && arena.nav.nodes[i].n.length >= 6);
     // the flags: on the castle tops
@@ -143,6 +154,17 @@ export class Game {
     this.emit({ t: 'spawn', f });
   }
 
+  /** stand at your side's supply table a moment: full mags, full reserve, grenades back (then a cooldown) */
+  resupply(f, dt) {
+    if ((f.supplyCool = (f.supplyCool || 0) - dt) > 0) return;
+    const at = this.supplies.find(s => (!this.mode.teams || s.team === f.team) && Math.abs(s.p.y - f.body.pos.y) < 1.2 && Math.hypot(s.p.x - f.body.pos.x, s.p.z - f.body.pos.z) < SUPPLY_R);
+    const G = f.gunner, full = G.slots.every(s => s.ammo === s.w.mag && s.reserve === s.w.reserve) && G.nades >= LETHALS[G.lethal].count;
+    if (!at || full) { f.supplyT = 0; return; }
+    if ((f.supplyT = (f.supplyT || 0) + dt) < 0.8) return;
+    G.refill(); f.supplyT = 0; f.supplyCool = 20;
+    this.emit({ t: 'resupply', f });
+  }
+
   canSee(a, b) {
     _d.subVectors(b, a); const L = _d.length(); _d.multiplyScalar(1 / L);
     return !this.arena.ray(a, _d, L - 0.05);
@@ -190,6 +212,7 @@ export class Game {
       const gev = G.update(dt, { ...gun, sprinting: f.body.sprinting || f.body.slide > 0, moving: Math.hypot(f.body.vel.x, f.body.vel.z) / MOVE.walk, air: !f.body.onGround });
       if (prevAds < 0.9 && G.ads >= 0.9) f.adsStart = this.t;
       for (const e of gev) this.gunEvent(f, e);
+      this.resupply(f, dt);
       // health comes back
       if (f.uavT > 0) f.uavT -= dt;
       if (this.role === 'client') continue;                  // (health, flags: the server's call)

@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { loadArena, Arena } from './arena.js';
-import { Game, MODES, STREAKS, wrathName } from './game.js';
+import { Game, MODES, STREAKS, wrathName, SUPPLY_R } from './game.js';
 import { DIFFICULTY } from './bots.js';
 import { WEAPONS, LETHALS, CLASSES, stats } from './weapons.js';
 import { ViewModel } from './viewmodel.js';
@@ -147,6 +147,46 @@ async function main() {
     dragons.push({ g, a: a.clone(), b: b.clone(), lead, dur, t: 0, breath: 0 });
     sfx.burst?.(220, 1.2, 0.5);
   }
+  // God's Wrath set pieces: pillars of the god's light (Saradomin) or fire (Zamorak) hammering down with a blast each,
+  // and a shockwave ring tearing out across the arena when it lands. Only looks: the server/match does the killing
+  const BEAM = new THREE.CylinderGeometry(0.9, 1.6, 70, 10, 1, true), SHOCK = new THREE.RingGeometry(0.85, 1, 64); SHOCK.rotateX(-Math.PI / 2);
+  const strikes = [], strikeQ = [];
+  const godCol = team => team === 'zam' ? 0xff4a1a : team === 'sara' ? 0xfff0a0 : 0x80ff80;
+  function godStrike(p, team, big = false) {
+    const col = godCol(team), m = new THREE.Mesh(BEAM, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    m.position.set(p.x, p.y + 35, p.z); m.scale.setScalar(big ? 1.6 : 1); scene.add(m); strikes.push({ m, t: 0, life: big ? 0.9 : 0.5 });
+    handle({ t: 'boom', p: p.clone().setY(p.y + 0.4), r: big ? 7 : 4.5, ice: false });
+    puff(p.clone().setY(p.y + 1), col, big ? 3.5 : 2, 0.5, new THREE.Vector3(0, 2, 0), true);
+  }
+  function shockwave(p, team) {
+    const m = new THREE.Mesh(SHOCK, new THREE.MeshBasicMaterial({ color: godCol(team), transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+    m.position.set(p.x, p.y + 0.6, p.z); scene.add(m); strikes.push({ m, t: 0, life: 2.6, wave: true });
+  }
+  const arenaSpot = () => { const [X0, Z0, X1, Z1] = Arena.BOUNDS, q = arena.at(X0 + Math.random() * (X1 - X0), Z0 + Math.random() * (Z1 - Z0)); q.y = arena.floor(q.x, 40, q.z, 0, 60); return isFinite(q.y) ? q : null; };
+  function stepStrikes(dt) {
+    for (let i = strikeQ.length - 1; i >= 0; i--) if ((strikeQ[i].t -= dt) <= 0) { const s = strikeQ.splice(i, 1)[0]; godStrike(s.p, s.team, s.big); }
+    for (let i = strikes.length - 1; i >= 0; i--) {
+      const s = strikes[i]; s.t += dt; const u = s.t / s.life;
+      if (u >= 1) { scene.remove(s.m); s.m.material.dispose(); strikes.splice(i, 1); continue; }
+      if (s.wave) { s.m.scale.setScalar(2 + u * 90); s.m.material.opacity = 0.85 * (1 - u); }
+      else { s.m.material.opacity = 0.9 * (1 - u); s.m.scale.x = s.m.scale.z = (1 - u * 0.7) * (s.m.scale.y); }
+    }
+  }
+
+  // the supply tables: a plank crate stacked with ammo cans and frags, a ring in the side's colour round it
+  const supplyMeshes = [];
+  function supplyCrate(col) {
+    const g = new THREE.Group(), wood = new THREE.MeshLambertMaterial({ color: 0x7a5530 }), dark = new THREE.MeshLambertMaterial({ color: 0x4a3218 }), can = new THREE.MeshLambertMaterial({ color: 0x4b5320 });
+    const box = (sx, sy, sz, x, y, z, m) => { const b = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); b.position.set(x, y, z); g.add(b); return b; };
+    box(1.3, 0.8, 0.85, 0, 0.4, 0, wood);
+    for (const y of [0.15, 0.45, 0.75]) box(1.34, 0.06, 0.89, 0, y, 0, dark);                                   // planks
+    for (const x of [-0.62, 0.62]) box(0.08, 0.82, 0.9, x, 0.41, 0, dark);
+    box(0.42, 0.26, 0.24, -0.3, 0.93, 0.12, can); box(0.42, 0.26, 0.24, -0.3, 0.93, -0.16, can); box(0.42, 0.26, 0.24, -0.3, 1.19, -0.02, can);   // ammo cans
+    for (let i = 0; i < 3; i++) { const n = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), can); n.scale.y = 1.2; n.position.set(0.2 + i * 0.16, 0.88, 0.1); g.add(n); }   // frags
+    const ring = new THREE.Mesh(new THREE.RingGeometry(SUPPLY_R - 0.12, SUPPLY_R, 32), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide }));
+    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.04; g.add(ring);
+    return g;
+  }
   function iceBlock(p) {
     const g = new THREE.Group(), mats = [];
     const mat = (col, o) => { const m = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: o, depthWrite: false }); m.userData.o = o; mats.push(m); return m; };
@@ -205,7 +245,9 @@ async function main() {
     for (const a of avatars.values()) { scene.remove(a.group); a.dispose(); }   // (last match's bodies: free their GPU buffers)
     vm?.dispose();
     avatars.clear();
-    game = g; me = game.player; pick = null; wrathFx = null;
+    game = g; me = game.player; pick = null; wrathFx = null; strikeQ.length = 0;
+    for (const m of supplyMeshes.splice(0)) scene.remove(m);
+    for (const s of game.supplies) { const m = supplyCrate(Arena.TEAMS[s.team]?.hex ?? 0xffd040); m.position.copy(s.p); scene.add(m); supplyMeshes.push(m); }
     for (const D of dragons.splice(0)) scene.remove(D.g);
     vm = new ViewModel(Arena.TEAMS[me.team]?.hex ?? 0x6a6a6a); vm.resize(innerWidth / innerHeight); vm.scene.environment = gunEnv;
     await Promise.all(game.fighters.map(addAvatar));
@@ -287,8 +329,17 @@ async function main() {
         hud.message(wrathName(wrathFx.team), wrathFx.team === 'zam' ? '#ff5040' : '#fff6c0', wrathFx.mine ? `${e.f === me ? 'You' : e.f.name} called down the end of the match` : 'run. it will not help', 4);
         sfx.jingle(); break;
       }
-      case 'wrathhit': if (wrathFx) { wrathFx.flash = 1; wrathFx.on = false; } shake = 1; sfx.boom(0, 0); sfx.boom(5, 0.5); sfx.boom(5, -0.5); break;
+      case 'wrathhit': {
+        const team = game.mode.teams ? e.f.team : null;
+        if (wrathFx) { wrathFx.flash = 1; wrathFx.on = false; }
+        shake = 1.4; sfx.boom(0, 0); sfx.boom(5, 0.5); sfx.boom(5, -0.5);
+        for (const f of game.fighters) if (f.alive && f !== e.f && (!game.mode.teams || f.team !== e.f.team)) strikeQ.push({ p: f.body.pos.clone(), team, big: true, t: Math.random() * 0.25 });   // (one on every one of them)
+        for (let i = 0; i < 40; i++) { const q = arenaSpot(); if (q) strikeQ.push({ p: q, team, big: Math.random() < 0.3, t: 0.15 + Math.random() * 3 }); }
+        const c = arena.at(2400, 3104); c.y = arena.floor(c.x, 40, c.z, 0, 60) || 2; shockwave(c, team); setTimeout(() => shockwave(c, team), 350);
+        break;
+      }
       case 'barrage': for (const b of e.blasts || []) iceMark(b.p, b.t); if (e.f !== me) hud.message(game.mode.teams && e.f.team !== me?.team ? 'ENEMY ICE BARRAGE' : 'FRIENDLY ICE BARRAGE', game.mode.teams && e.f.team !== me?.team ? '#f55' : '#9fe0ff', 'take cover', 2.5); break;
+      case 'resupply': if (e.f === me) { hud.message('RESUPPLIED', '#ffd040', 'ammo and grenades topped up', 1.6); sfx.magIn(); sfx.pin(); } break;
       case 'stuck': if (e.f === me) hud.point('STUCK!', '#ff0'); if (e.v === me) hud.message('STUCK!', '#f55', 'semtex on you', 1.5); break;
       case 'flag': {
         const ours = me && e.fl.team === me.team, by = e.f === me ? 'You' : e.f?.name || '';
@@ -299,7 +350,7 @@ async function main() {
         break;
       }
       case 'move': if (e.f === me) { if (e.e === 'land') sfx.land(me.body.landed); if (e.e === 'slide') sfx.burst?.(800, 0.4, 0.2); } break;
-      case 'end': hud.message(game.winner === 'draw' ? 'DRAW' : (game.mode.teams ? (game.winner === me.team ? 'VICTORY' : 'DEFEAT') : (game.winner === me ? 'VICTORY' : 'DEFEAT')), '#ff0', '', 6); input.unlock(); { const g0 = game; setTimeout(() => { if (game === g0 && game.over) showEnd(); }, 3500); } break;
+      case 'end': hud.message(game.winner === 'draw' ? 'DRAW' : (game.mode.teams ? (game.winner === me.team ? 'VICTORY' : 'DEFEAT') : (game.winner === me ? 'VICTORY' : 'DEFEAT')), '#ff0', '', 6); input.unlock(); if (wrathFx) wrathFx.endAfter = true; else { const g0 = game; setTimeout(() => { if (game === g0 && game.over) showEnd(); }, 3500); } break;   // (after God's Wrath: once its storm has played out)
     }
   }
 
@@ -415,9 +466,16 @@ async function main() {
   function wrathHud(dt) {
     const W = wrathFx; if (!W) return null;
     if (W.on) W.left = Math.max(0, W.left - dt);                         // (game time, so it lands with the hit even on a slow frame rate)
+    if (W.on) {                                                          // the god's patience runs out: the ground shakes, then it starts hitting things
+      shake = Math.max(shake, (10 - W.left) / 10 * 0.35);
+      if (W.left < 6 && (W.next = (W.next ?? 0) - dt) <= 0) { W.next = 0.12 + W.left / 6 * 0.5; const q = arenaSpot(); if (q) godStrike(q, W.team); }
+    }
     const left = W.on ? W.left : 0;
     if (W.on && Math.ceil(left) < W.beep) { W.beep = Math.ceil(left); if (W.beep > 0) sfx.flag(W.mine); }
-    if (!W.on) { W.flash = Math.max(0, W.flash - Math.max(dt, 1 / 60) / 3); if (W.flash <= 0) { wrathFx = null; return null; } }
+    if (!W.on) {                                                         // the flash burns off fast so you see the storm it leaves; 5 s of that before the scores
+      W.after = (W.after || 0) + Math.max(dt, 1 / 60); W.flash = Math.max(0, 1 - W.after / 1.4); shake = Math.max(shake, 0.6 * Math.max(0, 1 - W.after / 4));
+      if (W.after > 5) { wrathFx = null; if (W.endAfter && game?.over) showEnd(); return null; }
+    }
     return { name: wrathName(W.team), left, team: W.team, tint: W.on ? Math.min(0.45, (10 - left) / 10 * 0.45) : 0, flash: W.flash };
   }
 
@@ -468,6 +526,7 @@ async function main() {
       if (!g.rest && !g.stuck && !g.stuckWall) { m.rotation.x += dt * 13; m.rotation.z += dt * 4; if ((m.userData.trail += dt) > 0.025 && (!g.f || g.p.distanceTo(g.f.eye(_v)) > 2.5)) { m.userData.trail = 0; puff(g.p, 0xcfcabb, 0.08, 0.6); } }   // (not in the thrower's face)
     }
     for (const [g, m] of nades) if (!game.grenades.includes(g)) { scene.remove(m); nades.delete(g); }
+    stepStrikes(dt);
     // the King Black Dragon's run
     for (let i = dragons.length - 1; i >= 0; i--) {
       const D = dragons[i]; D.t += dt;

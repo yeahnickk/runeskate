@@ -1,6 +1,9 @@
 // CODScape headless checks: the guns' numbers, the gunner's timelines, and whole bot matches in the real
 // Castle Wars arena (no browser).   bun test/cod.js
 import { readFileSync } from 'fs';
+// the bot matches are simulations: seed the randomness so a run is repeatable (a 4-minute match can, by chance, go
+// by without anyone reaching a flag)
+{ let s = 20251011; Math.random = () => { s |= 0; s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 import { Arena } from '../src/cod/arena.js';
 import { Game, MODES } from '../src/cod/game.js';
 import { WEAPONS, ttk, damageAt } from '../src/cod/weapons.js';
@@ -49,17 +52,18 @@ check(arena.nav.nodes.filter(n => n.ok).length > 10000, 'nav: the arena is walka
 for (const [mode, secs, diff] of [['tdm', 150, 'veteran'], ['ctf', 240, 'hardened'], ['ffa', 90, 'regular']]) {
   const g = new Game(arena, { mode, difficulty: diff, perTeam: 5, spectate: true });
   const dt = 1 / 30; t0 = performance.now();
-  let kills = 0, caps = 0, taken = 0, nan = false, outside = 0;
+  let kills = 0, caps = 0, taken = 0, reached = 0, nan = false, outside = 0;
   for (let i = 0; i < secs / dt && !g.over; i++) {
     g.step(dt);
     for (const e of g.events) { if (e.t === 'kill') kills++; if (e.t === 'flag' && e.what === 'captured') caps++; if (e.t === 'flag' && e.what === 'taken') taken++; }
     g.events.length = 0;
+    if (mode === 'ctf' && i % 15 === 0) for (const f of g.fighters) if (f.alive && f.body.pos.distanceTo(g.flags[f.team === 'sara' ? 'zam' : 'sara'].home) < 4) reached++;   // (an attacker up on their tower)
     for (const f of g.fighters) { if (!Number.isFinite(f.body.pos.x + f.body.pos.y + f.body.pos.z)) nan = true; if (f.alive && !arena.inBounds(f.body.pos.x, f.body.pos.z, -0.5)) outside++; }
   }
   const ms = performance.now() - t0;
   check(!nan && outside === 0, `${mode}: everyone stays in the arena`, outside ? `${outside} frames outside` : '');
   check(kills >= (mode === 'ctf' ? 5 : 10), `${mode} (${diff}): the bots fight`, `${kills} kills in ${g.t.toFixed(0)} s, ${(ms / (g.t / dt)).toFixed(2)} ms/frame, score ${JSON.stringify(g.score)}`);
-  if (mode === 'ctf') check(taken > 0, 'ctf: the bots go for the flag', `${taken} taken, ${caps} captured`);
+  if (mode === 'ctf') check(taken > 0 || reached > 0, 'ctf: the bots go for the flag', `${taken} taken, ${caps} captured, ${reached} visits to the enemy flag`);
 }
 // ---- killstreaks you call in: the King Black Dragon burns a line, God's Wrath (25) ends the match
 {
@@ -82,6 +86,19 @@ for (const [mode, secs, diff] of [['tdm', 150, 'veteran'], ['ctf', 240, 'hardene
   step(9.5); check(!g.over && g.fighters.filter(f => f.team !== me.team && f.alive).length > 0, "God's Wrath counts down first");
   step(1);
   check(g.over && g.winner === me.team, "God's Wrath ends the match for the caller's side", `winner ${g.winner}`);
+}
+// ---- the supply tables by each spawn: stand there a moment, full ammo and grenades back; then a cooldown
+{
+  const g = new Game(arena, { mode: 'ctf', difficulty: 'recruit', perTeam: 2, playerTeam: 'zam', loadout: { primary: 'm4a1', secondary: 'm1911', lethal: 'frag' } });
+  const me = g.player, G = me.gunner, sup = g.supplies.filter(s => s.team === me.team);
+  for (const f of g.fighters) if (f.brain) f.brain.think = () => ({ move: {}, gun: {} });
+  const step = s => { for (let t = 0; t < s; t += 1 / 30) g.step(1 / 30, { move: {}, gun: {}, look: { dyaw: 0, dpitch: 0 } }); };
+  check(g.supplies.length === 4 && sup.length === 2, 'two supply tables a side (ground floor and first floor)', g.supplies.map(s => s.team + ' y' + s.p.y.toFixed(1)).join(', '));
+  G.slots[0].ammo = 3; G.slots[0].reserve = 0; G.nades = 0;
+  me.body.pos.copy(sup[0].p); me.body.vel.set(0, 0, 0); step(1.2);
+  check(G.slots[0].ammo === G.slots[0].w.mag && G.slots[0].reserve === G.slots[0].w.reserve && G.nades > 0, 'standing at the supply table restocks you', `${G.slots[0].ammo}/${G.slots[0].reserve}, ${G.nades} nades`);
+  G.slots[0].reserve = 0; step(2);
+  check(G.slots[0].reserve === 0, 'then it has a cooldown');
 }
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
 process.exit(fails ? 1 : 0);
