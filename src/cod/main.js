@@ -7,7 +7,7 @@ import { Game, MODES, STREAKS } from './game.js';
 import { DIFFICULTY } from './bots.js';
 import { WEAPONS, LETHALS, CLASSES, stats } from './weapons.js';
 import { ViewModel } from './viewmodel.js';
-import { gunEnvironment, withGunPass } from './guns.js';
+import { gunEnvironment, withGunPass, buildGun } from './guns.js';
 import { Avatar, preloadTeam } from './soldier.js';
 import { CodHud } from './hud.js';
 import { Sfx } from './sfx.js';
@@ -104,6 +104,7 @@ async function main() {
   tracers.frustumCulled = false; scene.add(tracers);
   const fx = [];
   const puffGeo = new THREE.SphereGeometry(1, 6, 4);
+  const nades = new Map();                                        // live grenade -> its model in the world
   const puff = (p, col, size, life, vel = new THREE.Vector3(), add = false) => {
     const m = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.8, depthWrite: false, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending }));
     m.position.copy(p); m.scale.setScalar(size); scene.add(m); fx.push({ m, t: 0, life, vel, size });
@@ -120,6 +121,7 @@ async function main() {
   async function startMatch() {
     $('menu').style.display = 'none'; $('loading').style.display = 'flex'; status('summoning soldiers...');
     await pKits;
+    for (const m of nades.values()) scene.remove(m); nades.clear();
     if (game) for (const a of avatars.values()) { scene.remove(a.group); a.dispose(); }   // (last match's bodies: free their GPU buffers)
     vm?.dispose();
     avatars.clear();
@@ -193,7 +195,7 @@ async function main() {
         const d = distOf(e.p); sfx.boom(d, panOf(e.p)); shake = Math.max(shake, Math.max(0, 1 - d / 25));
         break;
       }
-      case 'bounce': if (distOf(e.p) < 20) sfx.bounce(); break;
+      case 'bounce': if (distOf(e.p) < 20) sfx.bounce(); for (let i = 0; i < 3; i++) puff(e.p, 0x8a7a5a, 0.18, 0.6, new THREE.Vector3((Math.random() - 0.5) * 1.5, 0.8 + Math.random(), (Math.random() - 0.5) * 1.5)); break;   // (a kick of dust where it lands)
       case 'stuck': if (e.f === me) hud.point('STUCK!', '#ff0'); if (e.v === me) hud.message('STUCK!', '#f55', 'semtex on you', 1.5); break;
       case 'flag': {
         const ours = me && e.fl.team === me.team, by = e.f === me ? 'You' : e.f?.name || '';
@@ -314,6 +316,14 @@ async function main() {
       tp.set([mid.x, mid.y, mid.z, t.to.x, t.to.y, t.to.z], n * 6); n++;
     }
     tracerGeo.setDrawRange(0, n * 2); tracerGeo.attributes.position.needsUpdate = true;
+    // grenades in the air: the model (3x so you can follow it), tumbling end over end, trailing a thin smoke line
+    for (const g of game.grenades) {
+      let m = nades.get(g);
+      if (!m) { m = buildGun(g.L.sticky ? 'semtex' : 'frag').group; m.scale.setScalar(3); m.userData.trail = 0; scene.add(m); nades.set(g, m); }
+      m.position.copy(g.p);
+      if (!g.rest && !g.stuck && !g.stuckWall) { m.rotation.x += dt * 13; m.rotation.z += dt * 4; if ((m.userData.trail += dt) > 0.025 && g.p.distanceTo(g.f.eye(_v)) > 2.5) { m.userData.trail = 0; puff(g.p, 0xcfcabb, 0.08, 0.6); } }   // (not in the thrower's face)
+    }
+    for (const [g, m] of nades) if (!game.grenades.includes(g)) { scene.remove(m); nades.delete(g); }
     // puffs
     for (let i = fx.length - 1; i >= 0; i--) {
       const p = fx[i]; p.t += dt; const u = p.t / p.life;

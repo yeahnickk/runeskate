@@ -66,6 +66,21 @@ export const LETHALS = { frag: { name: 'Frag', fuse: 3.5, radius: 9, dmg: 150, c
 // melee: the knife takes anyone in reach out in one hit (a lunge closes the last couple of units)
 export const KNIFE = { dmg: 150, reach: 2.2, lunge: 3.2, time: 0.6 };
 
+// a thrown grenade: a COD overarm throw (~22 m/s, lofted) under a lighter-than-real gravity so it carries ~20 m
+// thrown flat and the length of the arena lobbed high; the client draws the same arc
+export const NADE = { speed: 22, lift: 4.5, g: 12 };
+/** the pitch to lob a grenade a horizontal distance D to a point dy above the hand (bots) */
+export function lobPitch(D, dy) {
+  let best = 0.2, err = 1e9;
+  for (let th = -0.5; th <= 1.1; th += 0.01) {
+    const vx = Math.cos(th) * NADE.speed, vy = Math.sin(th) * NADE.speed + NADE.lift, q = vy * vy - 2 * NADE.g * dy;
+    if (q < 0) continue;
+    const e = Math.abs(vx * (vy + Math.sqrt(q)) / NADE.g - D);
+    if (e < err) { err = e; best = th; }
+  }
+  return best;
+}
+
 /** the five fixed classes the player picks from (no create-a-class: one clear role each) */
 export const CLASSES = [
   { name: 'ASSAULT', primary: 'm4a1', secondary: 'm1911', lethal: 'frag', blurb: 'all-rounder, good at every range' },

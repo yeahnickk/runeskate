@@ -7,6 +7,7 @@
 // Four difficulties, Call of Duty's names: Recruit, Regular, Hardened, Veteran.
 import * as THREE from 'three';
 import { Arena } from './arena.js';
+import { lobPitch } from './weapons.js';
 
 export const DIFFICULTY = {
   recruit: { name: 'RECRUIT', react: 0.75, err: 9, settle: 1.6, turn: 3.0, head: 0.08, fov: 0.45, hear: 22, strafe: 0.3, burst: [0.15, 0.45], nade: 0, fireCone: 2.6, spot: 0.5 },
@@ -137,10 +138,15 @@ export class Brain {
     this.nadeT -= dt;
     if (this.known && game.t - this.knownT < 3 && this.nadeT <= 0 && G.nades > 0 && Math.random() < D.nade) {
       const d = this.known.distanceTo(b.pos);
-      if (d > 8 && d < 22) { this.nadeT = 14 + Math.random() * 10; this.aimAtPoint(this.known, 0.25); gun.nade = true; this.cooking = 0.2; }
+      if (d > 8 && d < 34) { this.nadeT = 14 + Math.random() * 10; this.lob = this.known.clone(); gun.nade = true; this.cooking = 0.45; }
       else this.nadeT = 3;
     }
-    if (this.cooking > 0) { this.cooking -= dt; gun.nade = this.cooking > 0; return { move, gun }; }
+    if (this.cooking > 0) {                                              // (turn onto the lob while cooking, then let go)
+      const eye = f.eye(_e), hd = Math.hypot(this.lob.x - eye.x, this.lob.z - eye.z), dy = this.lob.y + 0.2 - eye.y;
+      const yaw = Math.atan2(-(this.lob.x - eye.x), -(this.lob.z - eye.z)), r = D.turn * dt * 1.5;
+      b.yaw += Math.max(-r, Math.min(r, angWrap(yaw - b.yaw))); b.pitch += Math.max(-r, Math.min(r, lobPitch(hd, dy) - b.pitch));
+      this.cooking -= dt; gun.nade = this.cooking > 0; return { move, gun };
+    }
     // where to go
     let goal = this.objective(game);
     if (this.known && game.t - this.knownT < 6 && (this.role === 'defend' || game.modeId !== 'ctf') && this.role !== 'snipe' && !f.carrying && this.knownWho?.alive) goal = this.known;   // chase the last sighting (in CTF only defenders do: attackers stay on the flag)

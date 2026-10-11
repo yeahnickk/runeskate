@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { Arena, S } from './arena.js';
 import { Body, MOVE } from './body.js';
 import { Gunner } from './gunner.js';
-import { WEAPONS, LETHALS, CLASSES, KNIFE, HP, REGEN_DELAY, REGEN_RATE, damageAt } from './weapons.js';
+import { WEAPONS, LETHALS, CLASSES, NADE, KNIFE, HP, REGEN_DELAY, REGEN_RATE, damageAt } from './weapons.js';
 import { Brain, BOT_NAMES } from './bots.js';
 import { rayCapsule } from './soldier.js';
 
@@ -308,7 +308,7 @@ export class Game {
   // ------------------------------------------------------------------ grenades
   throwNade(f, cook) {
     const L = LETHALS[f.gunner.lethal], d = f.body.look(new THREE.Vector3());
-    const v = d.clone().multiplyScalar(17).add(new THREE.Vector3(0, 3.2, 0)).add(_v.set(f.body.vel.x, 0, f.body.vel.z).multiplyScalar(0.5));
+    const v = d.clone().multiplyScalar(NADE.speed).add(new THREE.Vector3(0, NADE.lift, 0)).add(_v.set(f.body.vel.x, 0, f.body.vel.z).multiplyScalar(0.5));
     const p = f.eye(new THREE.Vector3()).addScaledVector(d, 0.5);
     this.grenades.push({ p, v, fuse: L.fuse - cook, f, L, stuck: null, id: Math.random() });
     this.emit({ t: 'nade', f });
@@ -319,7 +319,8 @@ export class Game {
       g.fuse -= dt;
       if (g.stuck) { if (g.stuck.alive) g.p.copy(g.stuck.body.pos).add(_v.set(0, 1.1, 0)); }
       else {
-        g.v.y -= 20 * dt;
+        g.v.y -= NADE.g * dt; g.air = (g.air || 0) + dt;
+        if (g.rest) g.v.y = 0;                                           // (lying on the floor: gravity doesn't drag it through)
         const step = g.v.length() * dt;
         if (step > 0) {
           _d.copy(g.v).normalize();
@@ -327,8 +328,13 @@ export class Game {
           if (h) {
             g.p.copy(h.point).addScaledVector(h.normal, 0.06);
             if (g.L.sticky) { g.v.set(0, 0, 0); g.stuckWall = true; }
-            else { const vn = h.normal.clone().multiplyScalar(g.v.dot(h.normal)); g.v.sub(vn.multiplyScalar(1.45)).multiplyScalar(0.55); this.emit({ t: 'bounce', p: g.p.clone() }); }
-          } else if (!g.stuckWall) g.p.addScaledVector(g.v, dt);
+            else {
+              const vn = h.normal.clone().multiplyScalar(g.v.dot(h.normal)); g.v.sub(vn.multiplyScalar(1.4)).multiplyScalar(0.5);
+              if (h.normal.y > 0.7 && g.v.length() < 1.2) g.v.set(0, 0, 0), g.rest = true;   // (settled: lie still instead of buzzing on the floor)
+              else this.emit({ t: 'bounce', p: g.p.clone() });
+              g.air = 0;
+            }
+          } else if (!g.stuckWall) { g.p.addScaledVector(g.v, dt); g.rest = false; }
         }
         if (g.L.sticky && !g.stuckWall) for (const e of this.fighters) if (e.alive && e !== g.f && e.body.pos.distanceTo(g.p) < 0.9 + (g.p.y - e.body.pos.y < 2 ? 0.3 : 0) && g.p.y > e.body.pos.y - 0.2 && g.p.y < e.body.pos.y + 2) { g.stuck = e; this.emit({ t: 'stuck', f: g.f, v: e }); }
         if (!this.arena.inBounds(g.p.x, g.p.z, 0)) { g.v.x *= -0.5; g.v.z *= -0.5; }
