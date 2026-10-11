@@ -5,7 +5,7 @@ import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { loadArena, Arena } from './arena.js';
 import { Game, MODES, STREAKS } from './game.js';
 import { DIFFICULTY } from './bots.js';
-import { WEAPONS, PRIMARIES, SECONDARIES, LETHALS, DEFAULT_CLASSES, stats } from './weapons.js';
+import { WEAPONS, LETHALS, CLASSES, stats } from './weapons.js';
 import { ViewModel } from './viewmodel.js';
 import { gunEnvironment, withGunPass } from './guns.js';
 import { Avatar, preloadTeam } from './soldier.js';
@@ -23,7 +23,7 @@ const $ = id => document.getElementById(id);
 const status = t => { const e = $('status'); if (e) e.textContent = t; };
 const TOUCH = matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints > 0 && !matchMedia('(pointer: fine)').matches);
 const FOG = 0xb9cbe0;
-const CLASS_KEY = 'codscape.classes', SETUP_KEY = 'codscape.setup';
+const SETUP_KEY = 'codscape.setup';
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 
@@ -114,7 +114,7 @@ async function main() {
   // ---------------- the match
   let game = null, vm = null, me = null, paused = false, inMatch = false, aimedAt = null, deathCam = 0;
   const avatars = new Map();
-  let classes = load(CLASS_KEY, null) || DEFAULT_CLASSES.map(c => ({ ...c }));
+  const classes = CLASSES;
   let setup = { mode: 'tdm', difficulty: 'regular', perTeam: 6, team: 'sara', cls: 0, ...load(SETUP_KEY, {}) };
 
   async function startMatch() {
@@ -241,12 +241,12 @@ async function main() {
   }
 
   // ---------------- the loop
-  let last = performance.now(), fpsT = 0, frames = 0, swayT = 0, breath = 0, breathT = 0, prevYaw = 0, prevPitch = 0;
+  let pauseFrame = false, last = performance.now(), fpsT = 0, frames = 0, swayT = 0, breath = 0, breathT = 0, prevYaw = 0, prevPitch = 0;
   function resize() {
     const w = innerWidth, h = innerHeight;
     renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); vm?.resize(w / h); hud.resize();
   }
-  addEventListener('resize', resize); resize();
+  addEventListener('resize', () => { resize(); pauseFrame = false; }); resize();
 
   function frame(now) {
     requestAnimationFrame(frame);
@@ -260,7 +260,8 @@ async function main() {
     const zoom = w.zoom || 1;
     const inp = input.read(dt, zoom, G.ads);
     if (!game.over && (inp.pause || (inp.unlocked && !paused))) setPaused(inp.pause ? !paused : true);   // (ESC also drops the pointer lock: pause once, not twice)
-    if (paused) { draw(0, inp); return; }
+    // paused: the menus sit over a frozen frame (drawn once); nothing renders behind them
+    if (paused) { if (!pauseFrame) { draw(0, inp); pauseFrame = true; } return; }
     if (!me.alive && inp.respawn && me.respawnT <= 0) inp.respawn = true; else if (me.alive) inp.respawn = false;
     // hold breath while scoped (a few seconds, then you have to breathe)
     const scoped = w.scope && G.ads > 0.9;
@@ -274,7 +275,7 @@ async function main() {
   }
 
   function setPaused(p) {
-    paused = p;
+    paused = p; pauseFrame = false; fpsT = 0; frames = 0;            // (the resolution scaler starts counting afresh)
     $('pause').style.display = p ? 'flex' : 'none';
     if (p) input.unlock(); else if (input.device === 'kbm') input.lock();
     if (input.touch) input.touch.show(!p);
@@ -365,7 +366,7 @@ async function main() {
     // HUD
     const spreadDeg = G.spreadDeg(Math.hypot(b.vel.x, b.vel.z) / MOVE.walk, !b.onGround, b.crouch > 0.5);
     const spreadPx = Math.tan(spreadDeg * Math.PI / 180) / Math.tan(vfov / 2) * hud.c.height / 2;
-    hud.draw(dt, game, me, camera, { spreadPx, ads: G.ads, scope: scoped, scopeSway: sway, breath: scoped ? breath : undefined, board: inp.board, sprint: b.sprinting, aimedAt, touch: input.device === 'touch' });
+    hud.draw(dt, game, me, camera, { spreadPx, ads: G.ads, scope: scoped, scopeSway: sway, breath: scoped ? breath : undefined, board: inp.board, sprint: b.sprinting, aimedAt, touch: input.device === 'touch', clickToAim: input.device === 'kbm' && !input.locked && !paused });
   }
 
   // the menu backdrop: a slow flight round the arena
@@ -386,7 +387,7 @@ async function main() {
       box.innerHTML = `<div class="title">CODSCAPE</div><div class="sub">Castle Wars. Live rounds. Saradomin vs Zamorak.</div>
         <div class="col">
           <button id="m-play">PLAY</button>
-          <button id="m-class">CREATE A CLASS</button>
+          <button id="m-class">CLASSES</button>
           <button id="m-settings">SETTINGS</button>
           <button id="m-controls" class="small">CONTROLS</button>
           <a href="index.html" class="small back">ALL GAMES</a>
@@ -412,19 +413,13 @@ async function main() {
       $('m-go').onclick = () => { sfx.start(); startMatch(); };
       $('m-back').onclick = () => showMenu('main');
     } else if (page === 'class') {
-      const ci = setup.cls, c = classes[ci] || classes[0];
-      const bars = id => { const s = stats(WEAPONS[id]); return `<div class="bars">${[['DAMAGE', s.dmg], ['RANGE', s.range], ['FIRE RATE', s.rate], ['MOBILITY', s.mob], ['HANDLING', s.hand]].map(([n, v]) => `<div class="bar"><span>${n}</span><i style="width:${Math.round(v * 100)}%"></i></div>`).join('')}</div>`; };
-      const pick = (slot, list) => `<div class="seg wrap">${list.map(id => `<button data-slot="${slot}" data-v="${id}" class="${c[slot] === id ? 'sel' : ''}">${slot === 'lethal' ? LETHALS[id].name : WEAPONS[id].name}</button>`).join('')}</div>`;
-      box.innerHTML = `<div class="title sm">CREATE A CLASS</div>
-        <div class="seg">${classes.map((x, i) => `<button data-cls="${i}" class="${i === ci ? 'sel' : ''}">${x.name}</button>`).join('')}</div>
-        <div class="lab2">PRIMARY · ${WEAPONS[c.primary].cls}</div>${pick('primary', PRIMARIES)}${bars(c.primary)}
-        <div class="lab2">SECONDARY</div>${pick('secondary', SECONDARIES)}
-        <div class="lab2">LETHAL</div>${pick('lethal', Object.keys(LETHALS))}
-        <div class="col"><button id="m-reset" class="small">RESET CLASSES</button><button id="m-back" class="small">BACK</button></div>`;
-      for (const b of box.querySelectorAll('[data-cls]')) b.onclick = () => { setup.cls = +b.dataset.cls; save(SETUP_KEY, setup); showMenu('class'); };
-      for (const b of box.querySelectorAll('[data-slot]')) b.onclick = () => { c[b.dataset.slot] = b.dataset.v; save(CLASS_KEY, classes); showMenu('class'); };
-      $('m-reset').onclick = () => { classes = DEFAULT_CLASSES.map(x => ({ ...x })); save(CLASS_KEY, classes); showMenu('class'); };
-      $('m-back').onclick = () => { if (!inMatch) return showMenu('main'); menu.style.display = 'none'; me.loadout = { ...classes[setup.cls] }; setPaused(true); hud.message('CLASS SET', '#ff0', 'next time you spawn', 2); };
+      const ci = classes[setup.cls] ? setup.cls : 0, bars = id => { const s = stats(WEAPONS[id]); return `<div class="bars">${[['DAMAGE', s.dmg], ['RANGE', s.range], ['FIRE RATE', s.rate], ['MOBILITY', s.mob]].map(([n, v]) => `<div class="bar"><span>${n}</span><i style="width:${Math.round(v * 100)}%"></i></div>`).join('')}</div>`; };
+      box.innerHTML = `<div class="title sm">SELECT CLASS</div>
+        <div class="classes">${classes.map((c, i) => `<button data-cls="${i}" class="cls${i === ci ? ' sel' : ''}"><b>${c.name}</b><span>${WEAPONS[c.primary].name} · ${WEAPONS[c.secondary].name} · ${LETHALS[c.lethal].name}</span><em>${c.blurb}</em>${bars(c.primary)}</button>`).join('')}</div>
+        <div class="col"><button id="m-back" class="small">BACK</button></div>`;
+      const done = () => { if (!inMatch) return showMenu('main'); menu.style.display = 'none'; me.loadout = { ...classes[setup.cls] }; setPaused(true); };
+      for (const b of box.querySelectorAll('[data-cls]')) b.onclick = () => { setup.cls = +b.dataset.cls; save(SETUP_KEY, setup); if (inMatch) { done(); hud.message(classes[setup.cls].name, '#ff0', 'next time you spawn', 2); } else showMenu('class'); };
+      $('m-back').onclick = done;
     } else if (page === 'settings') {
       const sl = (k, label, min, max, step) => `<div class="row"><span class="lab">${label}</span><input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${settings[k]}"><span class="val" id="v-${k}">${settings[k]}</span></div>`;
       const tg = (k, label) => `<div class="row"><span class="lab">${label}</span><div class="seg"><button data-t="${k}" class="${settings[k] ? 'sel' : ''}">ON</button><button data-t="${k}" data-off="1" class="${settings[k] ? '' : 'sel'}">OFF</button></div></div>`;
@@ -466,7 +461,7 @@ async function main() {
   showMenu(new URLSearchParams(location.search).has('play') ? 'play' : 'main');
   requestAnimationFrame(frame);
   // test hook (headless screenshots)
-  window.COD = { get game() { return game; }, startMatch, setup, arena, camera, showMenu, settings, input, get me() { return me; }, get paused() { return paused; }, get vm() { return vm; }, get classes() { return classes; } };
+  window.COD = { renderer, scene, get game() { return game; }, startMatch, setup, arena, camera, showMenu, settings, input, get me() { return me; }, get paused() { return paused; }, get vm() { return vm; }, get classes() { return classes; } };
   document.title = 'CODScape';
 }
 

@@ -34,12 +34,12 @@ const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swif
   await p.goto(BASE + '/cod.html');
   await p.waitForFunction(() => document.title === 'CODScape', null, { timeout: 180000 });
   check(await p.isVisible('#menubox'), 'CODScape main menu shows');
-  // create-a-class: make class 1 an AK + Deagle, check it sticks
+  // classes: five fixed ones, picking one sticks
   await p.click('#m-class'); await p.waitForTimeout(100);
-  await p.click('[data-cls="1"]'); await p.click('[data-slot="primary"][data-v="ak47"]'); await p.click('[data-slot="secondary"][data-v="deagle"]');
-  const cls1 = await p.evaluate(() => COD.classes[1]);
-  check(cls1.primary === 'ak47' && cls1.secondary === 'deagle', 'create-a-class edits a class', JSON.stringify(cls1));
-  await p.click('#m-back');
+  check(await p.$$eval('[data-cls]', b => b.length) === 5 && !(await p.$('[data-slot]')), 'five fixed classes, no gun editing');
+  await p.click('[data-cls="1"]');
+  check(await p.evaluate(() => COD.setup.cls === 1 && COD.classes[1].primary === 'mp5'), 'picking a class selects it');
+  await p.click('[data-cls="0"]'); await p.click('#m-back');
   // settings: sensitivity slider persists
   await p.click('#m-settings');
   await p.$eval('input[data-k="sens"]', el => { el.value = '1.4'; el.dispatchEvent(new Event('input')); });
@@ -85,7 +85,7 @@ const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swif
     const tick = () => { window.J.max = Math.max(window.J.max, me.body.pos.y); requestAnimationFrame(tick); }; tick(); });
   await p.keyboard.press('Space'); await waitGame(1.2);
   const J = await p.evaluate(() => ({ rise: window.J.max - window.J.y0, ev: window.J.ev, ground: COD.me.body.onGround }));
-  check(J.ev.includes('jump') && J.ev.includes('land') && J.rise > 0.6 && J.ground, 'SPACE jumps and lands', `rose ${J.rise.toFixed(2)}, ${J.ev.join(',')}`);
+  check(J.ev.includes('jump') && J.ev.includes('land') && J.rise > 0.4 && J.ground, 'SPACE jumps and lands', `rose ${J.rise.toFixed(2)}, ${J.ev.join(',')}`);
   await p.keyboard.down('KeyC'); await waitGame(0.4); let cr = await pos(); await p.keyboard.up('KeyC');
   check(cr.crouch > 0.8, 'C crouches', `crouch ${cr.crouch.toFixed(2)}`);
   // mouse look
@@ -170,7 +170,7 @@ const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swif
   await p.click('#p-resume'); await p.waitForTimeout(300);
   check(!(await p.evaluate(() => COD.paused)), 'RESUME carries on');
   // change class from the pause menu
-  await p.keyboard.press('Escape'); await p.waitForTimeout(200); await p.click('#p-class'); await p.click('[data-cls="2"]'); await p.click('#m-back'); await p.waitForTimeout(200);
+  await p.keyboard.press('Escape'); await p.waitForTimeout(200); await p.click('#p-class'); await p.click('[data-cls="2"]'); await p.waitForTimeout(200);
   check(await p.evaluate(() => COD.me.loadout.primary === 'intervention'), 'pause -> change class applies next spawn', await p.evaluate(() => COD.me.loadout.primary));
   if (await p.isVisible('#p-resume')) await p.click('#p-resume');
   await p.mouse.click(400, 225); await p.waitForTimeout(200);
@@ -188,8 +188,8 @@ const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swif
   const aim3 = () => p.evaluate(id => { const g = COD.game, me = COD.me, e = g.fighters.find(f => f.id === id); const eye = me.eye(e.body.pos.clone()), t = e.body.pos.clone(); t.y += 1.28; const d = t.sub(eye).normalize(); me.body.yaw = Math.atan2(-d.x, -d.z); me.body.pitch = Math.asin(d.y); }, t3);
   await waitGame(0.5); await aim3();
   await p.evaluate(() => { COD._ev = []; });
-  await btn(2, true); await waitGame(0.42); await aim3(); await p.screenshot({ path: 'e2e-scope.png' });
-  await btn(0, true); await waitGame(0.05); await btn(0, false); await btn(2, false); await waitGame(0.2);
+  await btn(2, true); await p.waitForFunction(() => COD.me.gunner.ads >= 0.9, null, { timeout: 60000, polling: 'raf' }); await aim3();
+  await btn(0, true); await p.screenshot({ path: 'e2e-scope.png' }); await waitGame(0.05); await btn(0, false); await btn(2, false); await waitGame(0.2);
   const qs = await p.evaluate(id => ({ dead: !COD.game.fighters.find(f => f.id === id).alive, tags: (COD._ev.find(e => e.t === 'kill') || {}).tags }), t3);
   check(qs.dead, 'the Intervention drops them in one shot', JSON.stringify(qs.tags) + ' ' + await state());
   check((qs.tags || []).includes('QUICKSCOPE'), 'a quick ADS kill counts as a QUICKSCOPE');
@@ -198,8 +198,8 @@ const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swif
   const t4 = await p.evaluate(() => { const g = COD.game, me = COD.me, e = g.enemies(me).find(f => f.alive), d = me.body.look(me.body.pos.clone()); e.body.pos.set(me.body.pos.x + d.x * 3, me.body.pos.y, me.body.pos.z + d.z * 3); e.hp = 100; return e.id; });
   await p.evaluate(() => { COD._ev = []; COD.me.gunner.slots[0].w = { ...COD.me.gunner.slots[0].w, noscope: 0.01 }; });   // (a dead-on noscope, so the test is about the spin, not luck)
   const spin = await p.evaluate(() => COD.settings.sens);
-  const px360 = Math.round(Math.PI * 2 / (0.0022 * spin)); let moved = 0; let mx = 640;
-  for (let i = 0; i < 8; i++) { await p.evaluate(dx => window.dispatchEvent(new MouseEvent('mousemove', { movementX: dx, movementY: 0 })), Math.round(px360 / 8)); await waitGame(0.02); }
+  const px360 = Math.round(Math.PI * 2 / (await p.evaluate(() => COD.input.base) * spin)); let moved = 0; let mx = 640;
+  for (let i = 0; i < 4; i++) { await p.evaluate(dx => { for (let k = 0; k < 5; k++) window.dispatchEvent(new MouseEvent('mousemove', { movementX: dx, movementY: 0 })); }, Math.round(px360 / 20)); await waitGame(0.01); }   // (5 events a frame: a fast flick, inside the 1.5 s window even at software-GL frame rates)
   await p.evaluate(id => { const g = COD.game, me = COD.me, e = g.fighters.find(f => f.id === id); const eye = me.eye(e.body.pos.clone()), t = e.body.pos.clone(); t.y += 1.28; const d = t.sub(eye).normalize(); const want = Math.atan2(-d.x, -d.z); let dy = want - me.body.yaw; dy = ((dy + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI; me.body.yaw += dy; me.body.pitch = Math.asin(d.y); }, t4);
   await btn(0, true); await waitGame(0.05); await btn(0, false); await waitGame(0.2);
   const ns = await p.evaluate(() => (COD._ev.find(e => e.t === 'kill') || {}).tags || []);

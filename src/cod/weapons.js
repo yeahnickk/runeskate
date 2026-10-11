@@ -66,12 +66,13 @@ export const LETHALS = { frag: { name: 'Frag', fuse: 3.5, radius: 9, dmg: 150, c
 // melee: the knife takes anyone in reach out in one hit (a lunge closes the last couple of units)
 export const KNIFE = { dmg: 150, reach: 2.2, lunge: 3.2, time: 0.6 };
 
-export const DEFAULT_CLASSES = [
-  { name: 'ASSAULT', primary: 'm4a1', secondary: 'm1911', lethal: 'frag' },
-  { name: 'RUN & GUN', primary: 'mp5', secondary: 'g18', lethal: 'semtex' },
-  { name: 'SNIPER', primary: 'intervention', secondary: 'deagle', lethal: 'frag' },
-  { name: 'HEAVY', primary: 'm249', secondary: 'm1911', lethal: 'frag' },
-  { name: 'CQB', primary: 'r870', secondary: 'deagle', lethal: 'semtex' },
+/** the five fixed classes the player picks from (no create-a-class: one clear role each) */
+export const CLASSES = [
+  { name: 'ASSAULT', primary: 'm4a1', secondary: 'm1911', lethal: 'frag', blurb: 'all-rounder, good at every range' },
+  { name: 'SMG', primary: 'mp5', secondary: 'm1911', lethal: 'semtex', blurb: 'fast and mobile, wins up close' },
+  { name: 'SNIPER', primary: 'intervention', secondary: 'deagle', lethal: 'frag', blurb: 'one-shot chest kills at range' },
+  { name: 'LMG', primary: 'm249', secondary: 'm1911', lethal: 'frag', blurb: 'big mag, holds lanes, slow' },
+  { name: 'SHOTGUN', primary: 'r870', secondary: 'deagle', lethal: 'semtex', blurb: 'one-shot up close, useless far' },
 ];
 
 /** damage of one bullet/pellet at distance d hitting body zone z */

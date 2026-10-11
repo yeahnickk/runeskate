@@ -151,6 +151,7 @@ export class CodHud {
       const t = Math.max(0, me.respawnT);
       this.T(t > 0 ? `Respawn in ${t.toFixed(1)}` : (st.touch ? 'TAP TO RESPAWN' : 'PRESS SPACE / CLICK / A TO RESPAWN'), W / 2, H * 0.36 + 48 * k, '#fff', 'c', k, 'p12');
     }
+    if (st.clickToAim && me?.alive) { this.panel(W / 2 - 90 * k, H * 0.42, 180 * k, 22 * k, 0.9); this.T('CLICK TO AIM', W / 2, H * 0.42 + 5 * k, '#ff0', 'c', k); }
     if (st.board || g.over) this.scoreboard(g, me);
   }
 

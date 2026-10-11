@@ -9,12 +9,16 @@ export const DEFAULTS = { sens: 1.0, adsSens: 0.75, padSens: 1.0, invert: false,
 export function loadSettings() { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { return { ...DEFAULTS }; } }
 export function saveSettings(s) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch {} }
 
+// mouse: radians per count at sensitivity 1. 0.0008 = a 360 in ~7850 counts, ~25 cm at 800 DPI: the middle of
+// where COD players sit (the settings slider runs 0.2x..3x)
+export const MOUSE_RAD = 0.0008;
+
 const PAD = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, BACK: 8, START: 9, L3: 10, R3: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
 const dz = (v, d = 0.14) => Math.abs(v) < d ? 0 : Math.sign(v) * (Math.abs(v) - d) / (1 - d);
 
 export class Input {
   constructor(canvas, settings) {
-    this.c = canvas; this.s = settings;
+    this.c = canvas; this.s = settings; this.base = MOUSE_RAD;
     this.keys = new Set(); this.edges = new Set(); this.mouse = { dx: 0, dy: 0, l: false, r: false }; this.locked = false;
     this.device = matchMedia('(pointer: coarse)').matches ? 'touch' : 'kbm';
     this.adsToggled = false; this.padPrev = []; this.wheel = 0; this.enabled = false;
@@ -67,7 +71,7 @@ export class Input {
     if (s.toggleAds) { if (this.edge('Mouse2')) this.adsToggled = !this.adsToggled; g.ads = this.adsToggled; } else g.ads = this.mouse.r;
     out.board = K.has('Tab'); out.pause = this.edge('Escape') || this.edge('KeyP'); out.unlocked = this.edge('Unlocked');
     out.respawn = this.edge('Space') || this.edge('Mouse0') || this.edge('Click');
-    const msens = 0.0022 * s.sens * (1 - adsAmt + adsAmt * s.adsSens / zoom);
+    const msens = MOUSE_RAD * s.sens * (1 - adsAmt + adsAmt * s.adsSens / zoom);   // aimed: slower by the zoom, like COD's relative ADS
     out.look.dyaw -= this.mouse.dx * msens; out.look.dpitch -= this.mouse.dy * msens * (s.invert ? -1 : 1);
     this.mouse.dx = this.mouse.dy = 0; this.wheel = 0;
     // ---- gamepad

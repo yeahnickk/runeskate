@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { Arena, S } from './arena.js';
 import { Body, MOVE } from './body.js';
 import { Gunner } from './gunner.js';
-import { WEAPONS, LETHALS, KNIFE, HP, REGEN_DELAY, REGEN_RATE, damageAt } from './weapons.js';
+import { WEAPONS, LETHALS, CLASSES, KNIFE, HP, REGEN_DELAY, REGEN_RATE, damageAt } from './weapons.js';
 import { Brain, BOT_NAMES } from './bots.js';
 import { rayCapsule } from './soldier.js';
 
@@ -386,13 +386,6 @@ export class Game {
   }
 }
 
-// what the bots carry: every class shows up
-export const BOT_LOADOUTS = [
-  { primary: 'm4a1', secondary: 'm1911', lethal: 'frag' }, { primary: 'ak47', secondary: 'deagle', lethal: 'frag' },
-  { primary: 'scar', secondary: 'm1911', lethal: 'semtex' }, { primary: 'famas', secondary: 'g18', lethal: 'frag' },
-  { primary: 'mp5', secondary: 'm1911', lethal: 'semtex' }, { primary: 'mp7', secondary: 'g18', lethal: 'frag' },
-  { primary: 'ump45', secondary: 'm1911', lethal: 'frag' }, { primary: 'm249', secondary: 'deagle', lethal: 'frag' },
-  { primary: 'intervention', secondary: 'deagle', lethal: 'frag' }, { primary: 'barrett', secondary: 'm1911', lethal: 'semtex' },
-  { primary: 'r870', secondary: 'deagle', lethal: 'semtex' }, { primary: 'm4a1', secondary: 'g18', lethal: 'frag' },
-];
+// what the bots carry: the player's five classes, weighted like a real lobby (lots of ARs/SMGs, few snipers)
+export const BOT_LOADOUTS = [0, 0, 0, 1, 1, 1, 2, 3, 4].map(i => CLASSES[i]);
 export { S };
