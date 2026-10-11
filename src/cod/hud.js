@@ -179,8 +179,7 @@ export class CodHud {
     const w = 190 * k, x = W / 2 - w / 2, y = 6 * k, h = 30 * k;
     this.panel(x, y, w, h);
     const m = Math.max(0, Math.floor(g.timeLeft / 60)), s = Math.max(0, Math.floor(g.timeLeft % 60));
-    this.T(`${m}:${String(s).padStart(2, '0')}`, W / 2, y + 4 * k, g.timeLeft < 30 ? '#f44' : '#fff', 'c', k);
-    this.T(g.mode.short, W / 2, y + 17 * k, '#ff981f', 'c', Math.max(1, k - 1), 'p12');
+    this.T(`${m}:${String(s).padStart(2, '0')}`, W / 2, y + 9 * k, g.timeLeft < 30 ? '#f44' : '#fff', 'c', k);
     if (g.mode.teams) {
       const mine = me?.team || 'sara', other = mine === 'sara' ? 'zam' : 'sara';
       for (const [team, side] of [[mine, -1], [other, 1]]) {

@@ -7,6 +7,7 @@ import { Game, MODES, STREAKS } from './game.js';
 import { DIFFICULTY } from './bots.js';
 import { WEAPONS, PRIMARIES, SECONDARIES, LETHALS, DEFAULT_CLASSES, stats } from './weapons.js';
 import { ViewModel } from './viewmodel.js';
+import { gunEnvironment, withGunPass } from './guns.js';
 import { Avatar, preloadTeam } from './soldier.js';
 import { CodHud } from './hud.js';
 import { Sfx } from './sfx.js';
@@ -48,6 +49,7 @@ async function main() {
   const sun = new THREE.DirectionalLight(0xfff0d8, 1.3); sun.position.set(-30, 60, 40); scene.add(sun);
   const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 400);
 
+  const gunEnv = gunEnvironment(renderer); scene.environment = gunEnv;   // (the world is unlit vertex colour: only the guns pick this up)
   const arena = await pArena;
   scene.add(arena.group);
   status('mapping the castle for the bots...');
@@ -123,7 +125,7 @@ async function main() {
     const cls = classes[setup.cls] || classes[0];
     game = new Game(arena, { mode: setup.mode, difficulty: setup.difficulty, perTeam: setup.perTeam, playerTeam: setup.team, loadout: { primary: cls.primary, secondary: cls.secondary, lethal: cls.lethal }, name: localStorage.getItem('codscape.name') || 'You' });
     me = game.player;
-    vm = new ViewModel(Arena.TEAMS[me.team]?.hex ?? 0x6a6a6a); vm.resize(innerWidth / innerHeight);
+    vm = new ViewModel(Arena.TEAMS[me.team]?.hex ?? 0x6a6a6a); vm.resize(innerWidth / innerHeight); vm.scene.environment = gunEnv;
     let vi = 0;
     for (const f of game.fighters) {
       const team = f.team === 'zam' || f.team === 'sara' ? f.team : (f.id % 2 ? 'zam' : 'sara');
@@ -136,7 +138,7 @@ async function main() {
     if (input.device === 'kbm') input.lock();
     if (input.touch) input.touch.show(true);
     document.body.classList.add('playing');
-    hud.message(game.mode.name, '#ff981f', TOUCH ? 'left thumb: move · drag right: aim · FIRE' : (game.modeId === 'ctf' ? "Take their standard from their tower. Bring it home." : game.mode.desc), 4);
+    hud.message(game.mode.name, '#ff981f', TOUCH ? 'left thumb: move · drag right: aim · FIRE' : (game.modeId === 'ctf' ? "Take their standard from their tower. Bring it home." : game.mode.desc), 2.5);   // once, at the start
   }
 
   function endMatch() {
@@ -358,7 +360,7 @@ async function main() {
       vm.update(dt, { gunner: G, ads: G.ads, scoped, sprint: b.sprinting, speed: Math.hypot(b.vel.x, b.vel.z) / MOVE.walk, onGround: b.onGround, look, slide: b.slide > 0, landed: b.landed, dead: false });
       b.landed = 0;
       vm.camera.fov = Math.max(40, 54 - G.ads * 8); vm.camera.updateProjectionMatrix();
-      renderer.clearDepth(); renderer.render(vm.scene, vm.camera);
+      renderer.clearDepth(); withGunPass(renderer, () => renderer.render(vm.scene, vm.camera));
     } else if (me.alive) vm.update(dt, { gunner: G, ads: G.ads, sprint: false, speed: 0, onGround: true, look: { dx: 0, dy: 0 }, dead: false });
     prevYaw = b.yaw; prevPitch = b.pitch;
     // HUD

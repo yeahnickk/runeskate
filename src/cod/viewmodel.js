@@ -37,7 +37,7 @@ export class ViewModel {
     this.gunHolder = new THREE.Group(); this.gunHolder.scale.setScalar(VS); this.scene.add(this.gunHolder);
     this.models = new Map(); this.cur = null; this.curId = null;
     // arms: sleeve (team colour) + glove, from an elbow off screen to each hand
-    const sleeve = gunMat(teamHex, 0.42), glove = gunMat(0x26262a), skin = gunMat(0xc89a74);
+    const sleeve = camo(teamHex), glove = gunMat(0x26262a), skin = gunMat(0xc89a74);
     const arm = () => {
       const g = new THREE.Group(), fore = new THREE.Mesh(BOX, sleeve), cuff = new THREE.Mesh(BOX, skin), hand = new THREE.Group();
       fore.scale.set(0.042, 0.042, 1); cuff.scale.set(0.034, 0.034, 0.018);
@@ -121,7 +121,7 @@ export class ViewModel {
     // ---- base pose: hip <-> sights
     const pistol = m.len < 0.3;
     const long = Math.max(0, m.len - 0.9) * 0.4;
-    const hip = pistol ? V(0.09, -0.078, -0.3) : V(0.1 + long * 0.1, -0.1, -0.23 - long), aim = V(0, -m.sightY * VS, m.scope ? -0.1 : pistol ? -0.26 : -0.15);
+    const hip = pistol ? V(0.085, -0.07, -0.3) : V(0.085 + long * 0.1, -0.088, -0.22 - long), aim = V(0, -m.sightY * VS, pistol ? -0.26 : -(m.rearZ * VS) - (m.scope ? 0.05 : 0.075));
     const pos = hip.clone().lerp(aim, ads);
     let rx = 0, ry = 0.07 * (1 - ads), rz = 0;                 // hip: turned in toward the crosshair (you see its flank)
     pos.x += this.sprint * 0.02; pos.y -= this.sprint * 0.05; pos.z += this.sprint * 0.05;
@@ -201,7 +201,7 @@ export class ViewModel {
     if (style === 'shells') {
       const st = G.stage, port = m.port || V(0, -0.035, -0.06);
       const tilt = st === 'start' ? ease(f) : st === 'end' ? 1 - ease(f) : 1;
-      out.rz = -0.95 * tilt; out.ry = 0.35 * tilt; out.rx = 0.1 * tilt; out.dy = 0.1 * tilt; out.dx = -0.08 * tilt; out.dz = -0.12 * tilt;   // rolled over: the loading port to the left hand
+      out.rz = -0.7 * tilt; out.ry = 0.25 * tilt; out.rx = 0.16 * tilt; out.dy = 0.08 * tilt; out.dx = -0.06 * tilt; out.dz = -0.2 * tilt;   // rolled over: the loading port to the left hand
       const pouch = port.clone().add(V(-0.06, -0.2, 0.08));
       if (st === 'start') out.L = fore.clone().lerp(pouch, ease(f));
       else if (st === 'shell') {
@@ -307,3 +307,15 @@ export class ViewModel {
   }
 }
 const BOX = new THREE.BoxGeometry(1, 1, 1);
+
+/** a woodland camo sleeve in the side's tint (canvas texture) */
+function camo(teamHex) {
+  const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+  const t = new THREE.Color(teamHex), base = [[0.32, 0.3, 0.22], [0.2, 0.22, 0.14], [0.14, 0.12, 0.09], [0.42, 0.38, 0.28]];
+  const css = ([r, g, b]) => `rgb(${Math.round((r * 0.75 + t.r * 0.25) * 255)},${Math.round((g * 0.75 + t.g * 0.25) * 255)},${Math.round((b * 0.75 + t.b * 0.25) * 255)})`;
+  x.fillStyle = css(base[0]); x.fillRect(0, 0, 128, 128);
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 46; i++) { x.fillStyle = css(base[1 + (i % 3)]); x.beginPath(); const cx = rnd() * 128, cy = rnd() * 128; for (let a = 0; a < 7; a++) { const r = 6 + rnd() * 12; x[a ? 'lineTo' : 'moveTo'](cx + Math.cos(a) * r * 1.6, cy + Math.sin(a) * r); } x.fill(); }
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(1, 3);
+  return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, metalness: 0 });
+}
