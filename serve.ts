@@ -151,7 +151,7 @@ const MAP_STATIC = (() => {
 // Fast public loading: pre-compressed .br/.gz siblings (tools/compress.ts), on-the-fly gzip for the small
 // source files, and an ETag on everything so a returning player revalidates (a 304) instead of
 // re-downloading the world. vendor/ never changes, so the browser may keep it for a day.
-const TYPES: Record<string, string> = { js: 'text/javascript; charset=utf-8', json: 'application/json', html: 'text/html; charset=utf-8', bin: 'application/octet-stream', png: 'image/png', css: 'text/css' };
+const TYPES: Record<string, string> = { js: 'text/javascript; charset=utf-8', json: 'application/json', html: 'text/html; charset=utf-8', bin: 'application/octet-stream', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', css: 'text/css' };
 const gzCache = new Map<string, { m: number; buf: Uint8Array }>();
 async function sendFile(req: Request, full: string) {
   let st; try { st = statSync(full); } catch { return new Response('not found', { status: 404 }); }

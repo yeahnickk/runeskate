@@ -70,6 +70,7 @@ export class ViewModel {
     this.dropped = false; this.ejected = 0;
   }
 
+  dispose() { this.armR.fore.material.map?.dispose(); this.armR.fore.material.dispose(); }
   resize(aspect) { this.camera.aspect = aspect; this.camera.updateProjectionMatrix(); }
 
   setGun(id, model) {

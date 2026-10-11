@@ -185,12 +185,10 @@ export class Arena {
     const u = Math.min(1, Math.max(0, fx - tx)), v = Math.min(1, Math.max(0, fz - tz)), o = (tx * p.h + tz) * 4, g = p.ground;
     return (g[o] * (1 - u) + g[o + 1] * u) * (1 - v) + (g[o + 3] * (1 - u) + g[o + 2] * u) * v;
   }
-  /** can a body stand at (x, z) with its feet at y? inside the walls, and out of the river unless on a bridge */
-  standable(x, y, z) {
-    if (!this.inBounds(x, z)) return false;
-    if (this.tileKind(x, z) !== 2) return true;
-    return this.floor(x, y, z, 0.8, 30) > this.ground(x, z) + 0.25;     // the floor there, not our height: off a bridge's edge is the river
-  }
+  /** can a body stand at (x, z)? anywhere inside the walls (the river is shallow: you wade it, src/cod/body.js) */
+  standable(x, y, z) { return this.inBounds(x, z); }
+  /** feet in the river (not on a bridge or a stepping stone)? */
+  inWater(x, y, z) { return this.tileKind(x, z) === 2 && y < this.ground(x, z) + 0.2; }
 
   /**
    * The bots' map: walkable spots every half tile, on every level (ground, wall walks, castle tiers, tower
@@ -209,7 +207,7 @@ export class Arena {
       for (let k = 0; k < 6; k++) {
         const h = this.ray(o.set(x, top, z), d, 60); if (!h) break;
         const y = h.point.y;
-        if (Math.abs(h.normal.y) > 0.6 && ceil - y >= 1.45 && this.standable(x, y, z)) here.push(nodes.length), nodes.push({ x, y, z, i, j, n: [] });
+        if (Math.abs(h.normal.y) > 0.6 && ceil - y >= 1.45 && this.standable(x, y, z)) here.push(nodes.length), nodes.push({ x, y, z, i, j, n: [], water: this.inWater(x, y, z) });
         ceil = y; top = y - 0.06;
       }
       cell[i * nz + j] = here;
@@ -278,11 +276,33 @@ export class Arena {
       if (done[k]) continue; done[k] = 1;
       for (const m of N[k].n) {
         if (!N[m].ok || done[m]) continue;
-        const ng = g[k] + Math.hypot(N[m].x - N[k].x, (N[m].y - N[k].y) * 2, N[m].z - N[k].z);
+        const ng = g[k] + Math.hypot(N[m].x - N[k].x, (N[m].y - N[k].y) * 2, N[m].z - N[k].z) * (N[m].water ? 4 : 1);   // wading is slow: bridges and stones first
         if (ng < g[m]) { g[m] = ng; from[m] = k; heap.push(ng + h(m), m); }
       }
     }
     return null;
+  }
+
+  /** can a body walk straight from p (feet) to node n? nothing across the line at the knee or the chest */
+  walkLine(p, n) {
+    const dx = n.x - p.x, dz = n.z - p.z, L = Math.hypot(dx, dz); if (L < 0.05) return true;
+    for (const up of [0.6, 1.25]) {
+      const dy = n.y - p.y, LL = Math.hypot(dx, dy, dz);
+      if (this.ray(_o.set(p.x, p.y + up, p.z), _dir.set(dx / LL, dy / LL, dz / LL), LL)) return false;
+    }
+    return true;
+  }
+
+  /** the furthest point along a path (from index i) a body at p can head straight for, within reach */
+  lookahead(path, i, p, reach = 1.6) {
+    const N = this.nav.nodes; let k = i, acc = 0;
+    while (k + 1 < path.length) {
+      const a = N[path[k]], b = N[path[k + 1]];
+      acc += Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+      if (acc > reach || !this.walkLine(p, b)) break;
+      k++;
+    }
+    return k;
   }
 
   /** nav nodes inside a world-tile rectangle [x0, z0, x1, z1] (spawns, objectives) */

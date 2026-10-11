@@ -6,6 +6,7 @@ import * as THREE from 'three';
 
 export const MOVE = {
   walk: 6.0, sprint: 9.2, crouch: 0.5, ads: 0.55, accel: 70, airAccel: 14, friction: 12,
+  wade: 0.5, wadeSink: 0.45,
   jump: 6.6, gravity: 20, step: 0.78, radius: 0.32, height: 1.62, crouchHeight: 1.1,
   eye: 1.5, crouchEye: 0.98, slideEye: 0.78, slideSpeed: 12, slideTime: 0.75, slideFriction: 2.8,
 };
@@ -34,11 +35,12 @@ export class Body {
     const ev = [];
     let ix = inp.x || 0, iz = inp.z || 0; const il = Math.hypot(ix, iz); if (il > 1) { ix /= il; iz /= il; }
     // sprint: forward only, not aiming, not crouched
-    const wantSprint = inp.sprint && iz > 0.5 && !inp.ads && this.slide <= 0;
+    this.wading = this.onGround && arena.inWater(this.pos.x, this.pos.y, this.pos.z);
+    const wantSprint = inp.sprint && iz > 0.5 && !inp.ads && this.slide <= 0 && !this.wading;
     if (wantSprint && this.onGround) this.sprinting = true;
     if (!wantSprint || iz < 0.3) this.sprinting = false;
     // slide: crouch out of a sprint
-    if (inp.crouchEdge && this.sprinting && this.onGround && this.slide <= 0) {
+    if (inp.crouchEdge && this.sprinting && this.onGround && this.slide <= 0 && !this.wading) {
       this.slide = MOVE.slideTime; this.sprinting = false; ev.push('slide');
       const sp = Math.max(MOVE.slideSpeed * scale, Math.hypot(this.vel.x, this.vel.z) * 1.15);
       this.vel.x = -Math.sin(this.yaw) * sp; this.vel.z = -Math.cos(this.yaw) * sp;
@@ -47,7 +49,7 @@ export class Body {
     this.crouch += ((crouching ? 1 : 0) - this.crouch) * Math.min(1, dt * 12);
     if (!crouching && this.crouch > 0.01 && this.blockedAbove(arena)) this.crouch = Math.max(this.crouch, 0.99);   // can't stand up under a ledge
     // target velocity on the ground plane
-    const sp = (this.sprinting ? MOVE.sprint : MOVE.walk) * scale * (1 - (1 - MOVE.ads) * (inp.ads || 0)) * (1 - (1 - MOVE.crouch) * this.crouch * (this.slide > 0 ? 0 : 1));
+    const sp = (this.sprinting ? MOVE.sprint : MOVE.walk) * scale * (this.wading ? MOVE.wade : 1) * (1 - (1 - MOVE.ads) * (inp.ads || 0)) * (1 - (1 - MOVE.crouch) * this.crouch * (this.slide > 0 ? 0 : 1));
     const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
     const wx = (ix * c - iz * s) * sp, wz = (-ix * s - iz * c) * sp;
     if (this.slide > 0) {
@@ -66,10 +68,21 @@ export class Body {
     const ox = this.pos.x, oz = this.pos.z;
     const L = Math.hypot(this.vel.x, this.vel.z) * dt, n = Math.max(1, Math.ceil(L / 0.25));
     for (let i = 0; i < n; i++) {
-      const px = this.pos.x, pz = this.pos.z;
-      this.pos.x += this.vel.x * dt / n; this.pos.z += this.vel.z * dt / n;
+      const px = this.pos.x, pz = this.pos.z, py = this.pos.y, mx = this.vel.x * dt / n, mz = this.vel.z * dt / n, want = Math.hypot(mx, mz);
+      this.pos.x += mx; this.pos.z += mz;
       this.pushOut(arena);
       if (!arena.standable(this.pos.x, this.pos.y, this.pos.z)) { this.pos.x = px; this.pos.z = pz; }
+      // step-up: blocked on the ground (a stair's top landing, a kerb, a stone)? try the move a step higher and
+      // settle onto whatever floor is there; keep it if it got further
+      const got = ((this.pos.x - px) * mx + (this.pos.z - pz) * mz) / (want || 1);
+      if (this.onGround && want > 1e-4 && got < want * 0.6) {
+        const sx = this.pos.x, sz = this.pos.z;
+        this.pos.set(px + mx, py + MOVE.step, pz + mz);
+        this.pushOut(arena);
+        const fy = this.floorAt(arena, this.pos.x, py + MOVE.step * 0.98, this.pos.z), got2 = ((this.pos.x - px) * mx + (this.pos.z - pz) * mz) / want;
+        if (fy > py + 0.02 && fy <= py + MOVE.step + 0.02 && got2 > got + want * 0.2 && arena.standable(this.pos.x, fy, this.pos.z)) this.pos.y = fy;
+        else this.pos.set(sx, py, sz);
+      }
     }
     // what we actually moved is our speed (walls eat it)
     if (dt > 0 && this.onGround) { this.vel.x = (this.pos.x - ox) / dt; this.vel.z = (this.pos.z - oz) / dt; }
@@ -93,7 +106,7 @@ export class Body {
     }
     if (this.pos.y < -20) this.pos.y = 5;                   // (never fall out of the world)
     // the eye follows the stance (and eases stairs instead of popping up them)
-    const want = this.slide > 0 ? MOVE.slideEye : MOVE.eye + (MOVE.crouchEye - MOVE.eye) * this.crouch;
+    const want = (this.slide > 0 ? MOVE.slideEye : MOVE.eye + (MOVE.crouchEye - MOVE.eye) * this.crouch) - (this.wading ? MOVE.wadeSink : 0);   // waist deep in the river
     this.eyeY += (want - this.eyeY) * Math.min(1, dt * 14);
     this.stepT += Math.hypot(this.vel.x, this.vel.z) * dt * (this.onGround ? 1 : 0);
     return ev;

@@ -49,10 +49,11 @@ export class Gunner {
         else if (this.phase === 'cycle') { g.chambered = true; this.phase = 'idle'; }
         else this.phase = 'idle';
       }
-      if (this.phase === 'cycle' && this.t > this.dur * 0.35 && !this.ejected) { this.ejected = true; ev.push('bolt'); }
+      if (this.phase === 'cycle' && this.t > this.dur * 0.35 && !this.ejected) { this.ejected = true; ev.push(w.kind === 'pump' ? 'pump' : 'bolt'); }
     }
     // grenade: hold to cook, let go to throw
-    if (want.nade && this.cook < 0 && this.nades > 0 && !['throw', 'knife', 'swap'].includes(this.phase)) { this.cook = 0; this.abortReload(); ev.push('pin'); }
+    if (want.sprinting) this.burstLeft = 0;                 // (a burst never finishes itself later)
+    if (want.nade && this.cook < 0 && this.nades > 0 && !['throw', 'knife', 'swap'].includes(this.phase)) { this.cook = 0; this.burstLeft = 0; this.abortReload(); ev.push('pin'); }
     if (this.cook >= 0) {
       this.cook += dt;
       if (!want.nade || this.cook >= LETHALS[this.lethal].fuse - 0.05) {
@@ -62,10 +63,10 @@ export class Gunner {
       return ev;
     }
     if (want.knife && !['knife', 'throw'].includes(this.phase)) {
-      this.abortReload(); this.phase = 'knife'; this.t = 0; this.dur = KNIFE.time; ev.push('knife'); return ev;
+      this.abortReload(); this.burstLeft = 0; this.phase = 'knife'; this.t = 0; this.dur = KNIFE.time; ev.push('knife'); return ev;
     }
     if (want.swap && !['swap', 'knife', 'throw'].includes(this.phase) && this.slots[1 - this.cur]) {
-      this.abortReload(); this.phase = 'swap'; this.swapped = false; this.t = 0; this.dur = SWAP_TIME - RAISE; this.ads = 0; ev.push('swap'); return ev;
+      this.abortReload(); this.burstLeft = 0; this.phase = 'swap'; this.swapped = false; this.t = 0; this.dur = SWAP_TIME - RAISE; this.ads = 0; ev.push('swap'); return ev;
     }
     // reload: by hand, or by itself when you pull the trigger on an empty mag
     const canReload = g.ammo < w.mag && g.reserve > 0;
@@ -75,6 +76,10 @@ export class Gunner {
       this.phase = 'swap'; this.swapped = false; this.t = 0; this.dur = SWAP_TIME - RAISE; ev.push('swap');   // out of everything: to the sidearm
     }
 
+    // a bolt / pump left open (a swap, the knife or a grenade cut the cycle short): finish working the action
+    if (this.phase === 'idle' && !g.chambered && g.ammo > 0 && (w.kind === 'bolt' || w.kind === 'pump')) {
+      this.phase = 'cycle'; this.t = 0; this.dur = w.kind === 'bolt' ? w.bolt : w.pump; this.ejected = false; ev.push('cycle');
+    }
     // the trigger
     const ready = (this.phase === 'idle' || (this.phase === 'reload' && w.shells && g.ammo > 0)) && this.sprintT >= w.sprintOut && this.cool <= 0;
     const pressed = want.fire && !this.trig;

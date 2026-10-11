@@ -144,6 +144,8 @@ export class Avatar {
   }
 
   shot() { this.flashT = 0.05; }
+  /** free this body's own GPU buffers (the gun meshes share the armoury's) */
+  dispose() { this.m.geo.dispose(); this.m.mesh.material.dispose(); this.flash.geometry.dispose(); this.flash.material.dispose(); }
 
   /** world-space joints (after update) */
   worldJoints() {
@@ -161,14 +163,20 @@ export class Avatar {
    */
   hit(o, d, far) {
     const W = this.worldJoints(); if (!W) return null;
-    let best = null;
-    const test = (a, b, r, zone) => { const t = rayCapsule(o, d, a, b, r); if (t !== null && t < far && (!best || t < best.t)) best = { t, zone }; };
+    let best = null; const all = [];
+    const test = (a, b, r, zone) => { const t = rayCapsule(o, d, a, b, r); if (t !== null && t < far) { all.push({ t, zone }); if (!best || t < best.t) best = { t, zone }; } };
     const head = W[J.head], neck = W[J.neck], pel = W[J.pelvis], mid = neck.clone().lerp(pel, 0.45);
     test(head, head, 0.15, 'head');
     test(neck.clone().lerp(pel, 0.08), mid, 0.2, 'chest');
     test(mid, pel, 0.19, 'stomach');
     for (const [a, b] of [[J.lSh, J.lEl], [J.lEl, J.lHa], [J.rSh, J.rEl], [J.rEl, J.rHa]]) test(W[a], W[b], 0.075, 'limb');
     for (const [a, b] of [[J.lHip, J.lKn], [J.lKn, J.lFt], [J.rHip, J.rKn], [J.rKn, J.rFt]]) test(W[a], W[b], 0.095, 'limb');
+    // a round through the arms (they hold the gun across the chest) carries on into what's behind: the torso or
+    // the head right behind a limb takes the hit, like COD's damage zones
+    if (best && best.zone === 'limb') {
+      const behind = all.filter(h => h.zone !== 'limb' && h.t < best.t + 0.45).sort((x, y) => x.t - y.t)[0];
+      if (behind) best = { t: best.t, zone: behind.zone };
+    }
     return best;
   }
 

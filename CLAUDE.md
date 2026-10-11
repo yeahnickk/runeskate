@@ -11,6 +11,9 @@ bun test/sim.js                   # headless physics/world checks — run after 
 bun test/net.js                   # boots the server on a spare port: S.K.A.T.E., parks, spot claims
 bun tools/spot-check.ts           # every challenge spot reachable from spawn
 bun tools/pocket-check.ts         # spawn + teleport drops aren't trapped pockets (needs the near/far split)
+bun test/cod.js                   # CODScape: gun numbers, gunner timelines, headless bot matches (TDM/CTF/FFA)
+bun test/stairs.js                # CODScape: every staircase walked up + down, wading, stepping stones
+node test/cod-e2e.cjs [base]      # CODScape in a real browser (needs playwright; server on base, default :8199)
 ```
 
 The owner doesn't want CI or npm-script plumbing; just run the scripts above directly.
@@ -28,6 +31,16 @@ The owner doesn't want CI or npm-script plumbing; just run the scripts above dir
 - `serve.ts` — static files (+ `.br`/`.gz`), accounts in `data/*.json`, WebSocket relay, S.K.A.T.E., XP rate limits.
 - `tools/` — world rebuild pipeline from the 2004 cache (see README). `assets/` is already built (~800 MB); only
   rebuild when changing the map itself.
+
+## CODScape (cod.html, src/cod/)
+
+A first-person COD-style shooter vs bots in the Castle Wars arena; the home page opens on a game picker.
+- `arena.js` loads `assets/cw_arena.*` (cut by `tools/cw-arena.py`), builds the BVH collider, perimeter wall, nav graph.
+- `body.js` movement (capsule vs BVH, step-up, slide, wading), `gunner.js` gun timelines, `weapons.js` stats,
+  `game.js` match rules (pure, runs headless), `bots.js` AI, `soldier.js` third-person RS bodies + hit zones,
+  `guns.js` procedural gun models (mm side profiles), `viewmodel.js` first-person arms/reloads, `hud.js`, `input.js`.
+- The world renders 1:1 linear like the skate game; the gun pass uses sRGB + filmic (`withGunPass`).
+- Dev pages: `test/guns.html` (armoury gallery), `test/vmsheet.html?gun=..&what=reload|empty|sights` (reload sheets).
 
 ## Conventions
 

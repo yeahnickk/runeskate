@@ -33,7 +33,7 @@ export class Brain {
     this.target = null; this.seenT = 0; this.lostT = 0; this.known = null; this.knownT = -99;
     this.path = null; this.pi = 0; this.goal = -1; this.goalT = 0; this.stuck = 0; this.best = Infinity; this.repaths = 0;
     this.errX = 0; this.errY = 0; this.strafe = 0; this.strafeT = 0; this.fireT = 0; this.pauseT = 0; this.crouch = false;
-    this.lookT = 0; this.nadeT = 8 + Math.random() * 8; this.checkT = 0; this.holdYaw = null; this.perch = null;
+    this.lookT = 0; this.nadeT = 8 + Math.random() * 8; this.checkT = 0; this.holdYaw = null; this.perch = null; this.cooking = 0; this.turnTo = null; this.next = null;
   }
 
   /** a shot or a hit told us where someone is */
@@ -77,6 +77,13 @@ export class Brain {
     }
     if (this.target && !this.target.alive) this.target = null;
 
+    // ---- a flag runner runs: sprint home, only fight someone right on top of you
+    if (f.carrying && (!this.target || this.target.body.pos.distanceTo(b.pos) > 9)) {
+      this.navigate(dt, game, move, this.flagGoal(game));
+      move.sprint = move.z > 0.5; gun.ads = false;
+      if (this.next) { const dx = this.next.x - b.pos.x, dz = this.next.z - b.pos.z; if (Math.hypot(dx, dz) > 0.2) b.yaw += angWrap(Math.atan2(-dx, -dz) - b.yaw) * Math.min(1, dt * 10); b.pitch *= 0.9; }
+      return { move, gun };
+    }
     // ---- fight
     if (this.target) {
       const e = this.target, eye = f.eye(_e);
@@ -216,11 +223,10 @@ export class Brain {
     }
     if (!this.path) { this.next = null; return; }
     if (this.pi >= this.path.length) { this.next = null; this.path = null; return; }
-    let k = this.pi, acc = 0;
-    while (k + 1 < this.path.length && (acc += Math.hypot(N[this.path[k + 1]].x - N[this.path[k]].x, N[this.path[k + 1]].y - N[this.path[k]].y, N[this.path[k + 1]].z - N[this.path[k]].z)) < 1.6) k++;
+    const k = A.lookahead(this.path, this.pi, b.pos);                     // head for the furthest point in plain line
     const n = N[this.path[k]];
     this.next = n;
-    if (Math.hypot(n.x - b.pos.x, n.z - b.pos.z) < 0.7 && Math.abs(n.y - b.pos.y) < 0.8) this.pi = k + 1;
+    if (Math.hypot(n.x - b.pos.x, n.z - b.pos.z) < 0.7 && Math.abs(n.y - b.pos.y) < 0.45) this.pi = k + 1;
     // steer: the stick in the body's own frame
     const dx = n.x - b.pos.x, dz = n.z - b.pos.z, L = Math.hypot(dx, dz) || 1;
     const s = Math.sin(b.yaw), c = Math.cos(b.yaw);

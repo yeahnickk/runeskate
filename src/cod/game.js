@@ -138,7 +138,6 @@ export class Game {
     for (const f of this.fighters) {
       if (!f.alive) {
         f.respawnT -= dt;
-        if (f.avatar?.rag) f.avatar.updateRag(dt);
         if (f.respawnT <= 0 && !(f.player && inp && !inp.respawn && f.respawnT > -10)) this.spawn(f);
         continue;
       }
@@ -263,7 +262,7 @@ export class Game {
       if (v.carrying) { tags.push('CARRIER KILL'); f.score += 100; }
       if (this.mode.teams) { if (this.modeId === 'tdm') this.score[f.team]++; }
       // assists: anyone else who hurt them
-      for (const [o, d] of v.hurtBy) if (o !== f && d >= 30) { o.assists++; o.score += 50; this.emit({ t: 'assist', f: o, v }); }
+      for (const [o, d] of v.hurtBy) if (o !== f && o !== v && d >= 30) { o.assists++; o.score += 50; this.emit({ t: 'assist', f: o, v }); }
       for (const s of STREAKS) if (f.streak === s.n) this.reward(f, s);
     }
     if (v.carrying) this.dropFlag(v);

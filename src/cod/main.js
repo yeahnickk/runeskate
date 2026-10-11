@@ -120,7 +120,8 @@ async function main() {
   async function startMatch() {
     $('menu').style.display = 'none'; $('loading').style.display = 'flex'; status('summoning soldiers...');
     await pKits;
-    if (game) for (const a of avatars.values()) scene.remove(a.group);
+    if (game) for (const a of avatars.values()) { scene.remove(a.group); a.dispose(); }   // (last match's bodies: free their GPU buffers)
+    vm?.dispose();
     avatars.clear();
     const cls = classes[setup.cls] || classes[0];
     game = new Game(arena, { mode: setup.mode, difficulty: setup.difficulty, perTeam: setup.perTeam, playerTeam: setup.team, loadout: { primary: cls.primary, secondary: cls.secondary, lethal: cls.lethal }, name: localStorage.getItem('codscape.name') || 'You' });
@@ -160,9 +161,8 @@ async function main() {
         break;
       }
       case 'gun': if (e.f !== me) break;
-        if (e.e === 'mag-out') sfx.magOut(); else if (e.e === 'mag-in') sfx.magIn(); else if (e.e === 'bolt') sfx.bolt(); else if (e.e === 'cycle' && e.w.kind === 'pump') sfx.pump();
+        if (e.e === 'mag-out') sfx.magOut(); else if (e.e === 'mag-in') sfx.magIn(); else if (e.e === 'bolt') sfx.bolt(); else if (e.e === 'pump') sfx.pump();
         else if (e.e === 'shell') sfx.shell(); else if (e.e === 'dry') sfx.dry(); else if (e.e === 'swap') sfx.swap(); else if (e.e === 'knife') sfx.knife(); else if (e.e === 'pin') sfx.pin();
-        else if (e.e === 'cycle' && e.w.kind === 'bolt') setTimeout(() => sfx.bolt(), e.w.bolt * 300);
         break;
       case 'hit': {
         if (e.f === me && e.v !== me) { hud.hit(e.kill, e.zone === 'head'); sfx.hitmarker(e.kill); if (e.zone === 'head') sfx.headshot(); hud.splatAt(e.at || e.v.body.pos.clone().add(new THREE.Vector3(0, 1.4, 0)), e.dmg, e.kill); }
@@ -259,7 +259,7 @@ async function main() {
     const G = me.gunner, w = G.w;
     const zoom = w.zoom || 1;
     const inp = input.read(dt, zoom, G.ads);
-    if (inp.pause && !game.over) { setPaused(!paused); }
+    if (!game.over && (inp.pause || (inp.unlocked && !paused))) setPaused(inp.pause ? !paused : true);   // (ESC also drops the pointer lock: pause once, not twice)
     if (paused) { draw(0, inp); return; }
     if (!me.alive && inp.respawn && me.respawnT <= 0) inp.respawn = true; else if (me.alive) inp.respawn = false;
     // hold breath while scoped (a few seconds, then you have to breathe)
@@ -285,10 +285,9 @@ async function main() {
     // avatars
     for (const [f, a] of avatars) {
       if (!f.alive) { a.updateRag(dt); continue; }
-      a.group.visible = f !== me;
-      if (f === me) continue;
-      if (a.gunId !== G.w && a.gunId !== f.gunner.g.id) a.setGun(f.gunner.g.id);
-      a.update(dt, { pos: f.body.pos, yaw: f.body.yaw, pitch: f.body.pitch, vel: f.body.vel, crouch: f.body.crouch, onGround: f.body.onGround, sprinting: f.body.sprinting, reloading: f.gunner.reloading });
+      a.group.visible = f !== me;                              // (yours is posed too, unseen, so you fall as a ragdoll)
+      if (a.gunId !== f.gunner.g.id) a.setGun(f.gunner.g.id);
+      a.update(dt, { pos: f.body.wading ? _v.copy(f.body.pos).setY(f.body.pos.y - MOVE.wadeSink) : f.body.pos, yaw: f.body.yaw, pitch: f.body.pitch, vel: f.body.vel, crouch: f.body.crouch, onGround: f.body.onGround, sprinting: f.body.sprinting, reloading: f.gunner.reloading });
     }
     // flags
     const tt = performance.now() / 1000;
@@ -390,7 +389,7 @@ async function main() {
           <button id="m-class">CREATE A CLASS</button>
           <button id="m-settings">SETTINGS</button>
           <button id="m-controls" class="small">CONTROLS</button>
-          <a href="index.html" class="small back">BACK TO RUNESKATE</a>
+          <a href="index.html" class="small back">ALL GAMES</a>
         </div>`;
       $('m-play').onclick = () => showMenu('play'); $('m-class').onclick = () => showMenu('class'); $('m-settings').onclick = () => showMenu('settings'); $('m-controls').onclick = () => showMenu('controls');
     } else if (page === 'play') {
@@ -425,7 +424,7 @@ async function main() {
       for (const b of box.querySelectorAll('[data-cls]')) b.onclick = () => { setup.cls = +b.dataset.cls; save(SETUP_KEY, setup); showMenu('class'); };
       for (const b of box.querySelectorAll('[data-slot]')) b.onclick = () => { c[b.dataset.slot] = b.dataset.v; save(CLASS_KEY, classes); showMenu('class'); };
       $('m-reset').onclick = () => { classes = DEFAULT_CLASSES.map(x => ({ ...x })); save(CLASS_KEY, classes); showMenu('class'); };
-      $('m-back').onclick = () => showMenu(inMatch ? 'paused' : 'main');
+      $('m-back').onclick = () => { if (!inMatch) return showMenu('main'); menu.style.display = 'none'; me.loadout = { ...classes[setup.cls] }; setPaused(true); hud.message('CLASS SET', '#ff0', 'next time you spawn', 2); };
     } else if (page === 'settings') {
       const sl = (k, label, min, max, step) => `<div class="row"><span class="lab">${label}</span><input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${settings[k]}"><span class="val" id="v-${k}">${settings[k]}</span></div>`;
       const tg = (k, label) => `<div class="row"><span class="lab">${label}</span><div class="seg"><button data-t="${k}" class="${settings[k] ? 'sel' : ''}">ON</button><button data-t="${k}" data-off="1" class="${settings[k] ? '' : 'sel'}">OFF</button></div></div>`;
@@ -436,7 +435,7 @@ async function main() {
         <div class="col"><button id="m-back" class="small">BACK</button></div>`;
       for (const r of box.querySelectorAll('input[type=range]')) r.oninput = () => { settings[r.dataset.k] = +r.value; $('v-' + r.dataset.k).textContent = r.value; saveSettings(settings); sfx.setVolume(settings.volume); };
       for (const b of box.querySelectorAll('[data-t]')) b.onclick = () => { settings[b.dataset.t] = !b.dataset.off; saveSettings(settings); showMenu('settings'); };
-      $('m-back').onclick = () => showMenu(inMatch ? 'paused' : 'main');
+      $('m-back').onclick = () => { if (!inMatch) return showMenu('main'); menu.style.display = 'none'; setPaused(true); };
     } else if (page === 'controls') {
       box.innerHTML = `<div class="title sm">CONTROLS</div>
         <div class="keys"><b>WASD</b> move · <b>SHIFT</b> sprint (hold breath when scoped) · <b>SPACE</b> jump · <b>CTRL / C</b> crouch, slide out of a sprint<br>
@@ -452,9 +451,9 @@ async function main() {
     }
   }
   $('p-resume').onclick = () => setPaused(false);
-  $('p-class').onclick = () => { $('pause').style.display = 'none'; showMenu('class'); $('menubox').querySelector('#m-back').onclick = () => { menu.style.display = 'none'; me.loadout = { ...classes[setup.cls] }; setPaused(true); hud.message('CLASS SET', '#ff0', 'next time you spawn', 2); }; };
-  $('p-settings').onclick = () => { $('pause').style.display = 'none'; showMenu('settings'); $('menubox').querySelector('#m-back').onclick = () => { menu.style.display = 'none'; setPaused(true); }; };
-  $('p-quit').onclick = () => { setPaused(false); endMatch(); };
+  $('p-class').onclick = () => { $('pause').style.display = 'none'; showMenu('class'); };
+  $('p-settings').onclick = () => { $('pause').style.display = 'none'; showMenu('settings'); };
+  $('p-quit').onclick = () => { paused = false; $('pause').style.display = 'none'; endMatch(); };
   function showEnd() {
     input.unlock(); if (input.touch) input.touch.show(false);
     const e = $('endbox'); e.style.display = 'flex';
@@ -467,7 +466,7 @@ async function main() {
   showMenu(new URLSearchParams(location.search).has('play') ? 'play' : 'main');
   requestAnimationFrame(frame);
   // test hook (headless screenshots)
-  window.COD = { get game() { return game; }, startMatch, setup, arena, camera, showMenu, settings, get me() { return me; } };
+  window.COD = { get game() { return game; }, startMatch, setup, arena, camera, showMenu, settings, input, get me() { return me; }, get paused() { return paused; }, get vm() { return vm; }, get classes() { return classes; } };
   document.title = 'CODScape';
 }
 

@@ -111,7 +111,7 @@ export class CodHud {
       }
       for (let i = this.dmgDirs.length - 1; i >= 0; i--) {
         const d = this.dmgDirs[i]; d.t -= dt; if (d.t <= 0) { this.dmgDirs.splice(i, 1); continue; }
-        const yaw = me.body.yaw, from = Math.atan2(-d.d.x, -d.d.z) + Math.PI, a = from - yaw;          // 0 = in front
+        const yaw = me.body.yaw, from = Math.atan2(-d.d.x, -d.d.z), a = from - yaw;          // 0 = in front
         const r = Math.min(W, H) * 0.18, ang = -a - Math.PI / 2;
         c.strokeStyle = `rgba(255,30,20,${Math.min(1, d.t)})`; c.lineWidth = 6 * k;
         c.beginPath(); c.arc(W / 2, H / 2, r, ang - 0.32, ang + 0.32); c.stroke();

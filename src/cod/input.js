@@ -34,10 +34,17 @@ export class Input {
     });
     addEventListener('mouseup', e => { if (e.button === 0) this.mouse.l = false; if (e.button === 2) this.mouse.r = false; });
     canvas.addEventListener('contextmenu', e => e.preventDefault());
-    addEventListener('mousemove', e => { if (this.locked) { this.mouse.dx += e.movementX; this.mouse.dy += e.movementY; } });
+    // (Chrome reports a big bogus jump as the lock engages, and now and then on a busy frame: skip the first
+    // instant after locking and ignore any single event that moved further than a hand can)
+    addEventListener('mousemove', e => {
+      if (!this.locked || performance.now() - this.lockAt < 150) return;
+      if (Math.abs(e.movementX) > 600 || Math.abs(e.movementY) > 600) return;
+      this.mouse.dx += e.movementX; this.mouse.dy += e.movementY;
+    });
     addEventListener('wheel', e => { if (this.locked) this.wheel += Math.sign(e.deltaY); }, { passive: true });
     document.addEventListener('pointerlockchange', () => {
       const was = this.locked; this.locked = document.pointerLockElement === canvas;
+      if (this.locked && !was) { this.lockAt = performance.now(); this.mouse.dx = this.mouse.dy = 0; }
       if (was && !this.locked && this.enabled) this.edges.add('Unlocked');
     });
     this.touch = null;
@@ -48,7 +55,7 @@ export class Input {
 
   /** dt: the frame; zoom: the current FOV divisor (ADS slows the look in step with the zoom) */
   read(dt, zoom = 1, adsAmt = 0) {
-    const K = this.keys, s = this.s, out = { move: { x: 0, z: 0, sprint: false, crouch: false, crouchEdge: false, jump: false }, gun: { fire: false, ads: false, reload: false, swap: false, knife: false, nade: false }, look: { dyaw: 0, dpitch: 0 }, breath: false, board: false, pause: false, respawn: false, device: this.device, stick: { x: 0, y: 0 } };
+    const K = this.keys, s = this.s, out = { move: { x: 0, z: 0, sprint: false, crouch: false, crouchEdge: false, jump: false }, gun: { fire: false, ads: false, reload: false, swap: false, knife: false, nade: false }, look: { dyaw: 0, dpitch: 0 }, breath: false, board: false, pause: false, unlocked: false, respawn: false, device: this.device, stick: { x: 0, y: 0 } };
     const m = out.move, g = out.gun;
     // ---- keyboard + mouse
     m.x = (K.has('KeyD') ? 1 : 0) - (K.has('KeyA') ? 1 : 0); m.z = (K.has('KeyW') ? 1 : 0) - (K.has('KeyS') ? 1 : 0);
@@ -58,7 +65,7 @@ export class Input {
     g.fire = this.mouse.l; g.reload = this.edge('KeyR'); g.swap = this.edge('Digit1') || this.edge('Digit2') || this.edge('KeyQ') || this.wheel !== 0;
     g.knife = this.edge('KeyV') || this.edge('KeyF'); g.nade = K.has('KeyG');
     if (s.toggleAds) { if (this.edge('Mouse2')) this.adsToggled = !this.adsToggled; g.ads = this.adsToggled; } else g.ads = this.mouse.r;
-    out.board = K.has('Tab'); out.pause = this.edge('Escape') || this.edge('KeyP') || this.edge('Unlocked');
+    out.board = K.has('Tab'); out.pause = this.edge('Escape') || this.edge('KeyP'); out.unlocked = this.edge('Unlocked');
     out.respawn = this.edge('Space') || this.edge('Mouse0') || this.edge('Click');
     const msens = 0.0022 * s.sens * (1 - adsAmt + adsAmt * s.adsSens / zoom);
     out.look.dyaw -= this.mouse.dx * msens; out.look.dpitch -= this.mouse.dy * msens * (s.invert ? -1 : 1);
