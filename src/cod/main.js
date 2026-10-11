@@ -14,6 +14,7 @@ import { Sfx } from './sfx.js';
 import { Input, TouchControls, TOUCH_CSS, loadSettings, saveSettings } from './input.js';
 import { RSFont, loadHitsplat } from '../hud.js';
 import { MOVE } from './body.js';
+import { NetClient } from './netclient.js';
 
 THREE.ColorManagement.enabled = false;                    // hex colours as written, like the RS world's baked ones
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
@@ -113,38 +114,62 @@ async function main() {
   let shake = 0;
 
   // ---------------- the match
-  let game = null, vm = null, me = null, paused = false, inMatch = false, aimedAt = null, deathCam = 0;
+  let game = null, vm = null, me = null, paused = false, inMatch = false, aimedAt = null, deathCam = 0, net = null, respawnAsk = 0;
   const avatars = new Map();
   const classes = CLASSES;
   let setup = { mode: 'tdm', difficulty: 'regular', perTeam: 6, team: 'sara', cls: 0, ...load(SETUP_KEY, {}) };
 
   async function startMatch() {
+    net?.close(); net = null;
     $('menu').style.display = 'none'; $('loading').style.display = 'flex'; status('summoning soldiers...');
     await pKits;
+    const cls = classes[setup.cls] || classes[0];
+    await enterMatch(new Game(arena, { mode: setup.mode, difficulty: setup.difficulty, perTeam: setup.perTeam, playerTeam: setup.team, loadout: { primary: cls.primary, secondary: cls.secondary, lethal: cls.lethal }, name: localStorage.getItem('codscape.name') || 'You' }));
+  }
+  /** online: the always-on CTF match on the server */
+  async function startOnline() {
+    net?.close();
+    $('menu').style.display = 'none'; $('loading').style.display = 'flex'; status('joining the online match...');
+    await pKits;
+    const n = net = new NetClient(arena, {
+      welcome: g => { if (net === n) enterMatch(g, true); },
+      roster: (added, removed) => { if (net !== n) return; for (const f of removed) dropAvatar(f); for (const f of added) addAvatar(f); },
+      chat: (name, team, text) => hud.say(name, text, team === 'sara' ? '#7fb0ff' : team === 'zam' ? '#ff7a6a' : '#ff0'),
+      closed: why => { if (net !== n) return; net = null; if (inMatch) endMatch(); $('loading').style.display = 'none'; showMenu('main'); hud.message('OFFLINE', '#f55', why, 4); $('menubox').insertAdjacentHTML('afterbegin', `<div class="sub" style="color:#f88">${why}</div>`); },
+    });
+    n.connect(localStorage.getItem('codscape.name') || '', setup.cls);
+  }
+  let vi = 0;
+  async function addAvatar(f) {
+    const team = f.team === 'zam' || f.team === 'sara' ? f.team : (f.id % 2 ? 'zam' : 'sara');
+    const a = await Avatar.create(team, vi++);
+    if (!game || !game.fighters.includes(f)) { a.dispose(); return; }                 // (gone while it loaded)
+    f.avatar = a; avatars.set(f, a); scene.add(a.group); a.setGun(f.gunner.g.id);
+    if (!f.alive) a.group.visible = false;
+  }
+  function dropAvatar(f) { const a = avatars.get(f); if (a) { scene.remove(a.group); a.dispose(); avatars.delete(f); } }
+  async function enterMatch(g, online = false) {
+    $('endbox').style.display = 'none';
     for (const m of nades.values()) scene.remove(m); nades.clear();
-    if (game) for (const a of avatars.values()) { scene.remove(a.group); a.dispose(); }   // (last match's bodies: free their GPU buffers)
+    for (const a of avatars.values()) { scene.remove(a.group); a.dispose(); }   // (last match's bodies: free their GPU buffers)
     vm?.dispose();
     avatars.clear();
-    const cls = classes[setup.cls] || classes[0];
-    game = new Game(arena, { mode: setup.mode, difficulty: setup.difficulty, perTeam: setup.perTeam, playerTeam: setup.team, loadout: { primary: cls.primary, secondary: cls.secondary, lethal: cls.lethal }, name: localStorage.getItem('codscape.name') || 'You' });
-    me = game.player;
+    game = g; me = game.player; pick = null;
     vm = new ViewModel(Arena.TEAMS[me.team]?.hex ?? 0x6a6a6a); vm.resize(innerWidth / innerHeight); vm.scene.environment = gunEnv;
-    let vi = 0;
-    for (const f of game.fighters) {
-      const team = f.team === 'zam' || f.team === 'sara' ? f.team : (f.id % 2 ? 'zam' : 'sara');
-      const a = await Avatar.create(team, vi++);
-      f.avatar = a; avatars.set(f, a); scene.add(a.group); a.setGun(f.gunner.w === WEAPONS[f.loadout.primary] ? f.loadout.primary : f.loadout.primary);
-    }
+    await Promise.all(game.fighters.map(addAvatar));
+    if (game !== g) return;
     $('loading').style.display = 'none';
+    if (online && inMatch) { hud.message('NEW MATCH', '#ff981f', `you're ${me.team === 'sara' ? 'Saradomin' : 'Zamorak'}`, 3); return; }
     inMatch = true; paused = false; deathCam = 0;
     input.enabled = true; sfx.start();
     if (input.device === 'kbm') input.lock();
     if (input.touch) input.touch.show(true);
     document.body.classList.add('playing');
-    hud.message(game.mode.name, '#ff981f', TOUCH ? 'left thumb: move · drag right: aim · FIRE' : (game.modeId === 'ctf' ? "Take their standard from their tower. Bring it home." : game.mode.desc), 2.5);   // once, at the start
+    hud.message(online ? 'ONLINE: CAPTURE THE FLAG' : game.mode.name, '#ff981f', online ? `you're ${me.team === 'sara' ? 'Saradomin' : 'Zamorak'} · ENTER to chat` : TOUCH ? 'left thumb: move · drag right: aim · FIRE' : (game.modeId === 'ctf' ? "Take their standard from their tower. Bring it home." : game.mode.desc), 3);   // once, at the start
   }
 
   function endMatch() {
+    net?.close(); net = null; closeChat();
     inMatch = false; input.enabled = false; input.unlock(); if (input.touch) input.touch.show(false);
     document.body.classList.remove('playing');
     showMenu('main');
@@ -186,6 +211,7 @@ async function main() {
         break;
       }
       case 'assist': if (e.f === me) hud.point('+50  ASSIST', '#ccc'); break;
+      case 'confirm': hud.hit(true, e.head); sfx.hitmarker(true); break;
       case 'spawn': { const a = avatars.get(e.f); if (a) { a.revive(); a.setGun(e.f.loadout.primary); } if (e.f === me) { hud.dmgDirs.length = 0; } break; }
       case 'streak': if (e.f === me) { hud.message(e.s.name + ' READY', '#5f5', e.s.desc, 3); sfx.jingle(); } else if (game.mode.teams && e.f.team !== me.team) hud.message(`ENEMY ${e.s.name}`, '#f55', '', 2.5); else if (game.mode.teams) hud.message(`FRIENDLY ${e.s.name}`, '#5af', '', 2); break;
       case 'boom': {
@@ -196,6 +222,7 @@ async function main() {
         break;
       }
       case 'bounce': if (distOf(e.p) < 20) sfx.bounce(); for (let i = 0; i < 3; i++) puff(e.p, 0x8a7a5a, 0.18, 0.6, new THREE.Vector3((Math.random() - 0.5) * 1.5, 0.8 + Math.random(), (Math.random() - 0.5) * 1.5)); break;   // (a kick of dust where it lands)
+      case 'barrage': if (e.f !== me) hud.message(game.mode.teams && e.f.team !== me?.team ? 'ENEMY ICE BARRAGE' : 'FRIENDLY ICE BARRAGE', game.mode.teams && e.f.team !== me?.team ? '#f55' : '#9fe0ff', 'take cover', 2.5); break;
       case 'stuck': if (e.f === me) hud.point('STUCK!', '#ff0'); if (e.v === me) hud.message('STUCK!', '#f55', 'semtex on you', 1.5); break;
       case 'flag': {
         const ours = me && e.fl.team === me.team, by = e.f === me ? 'You' : e.f?.name || '';
@@ -206,7 +233,7 @@ async function main() {
         break;
       }
       case 'move': if (e.f === me) { if (e.e === 'land') sfx.land(me.body.landed); if (e.e === 'slide') sfx.burst?.(800, 0.4, 0.2); } break;
-      case 'end': hud.message(game.winner === 'draw' ? 'DRAW' : (game.mode.teams ? (game.winner === me.team ? 'VICTORY' : 'DEFEAT') : (game.winner === me ? 'VICTORY' : 'DEFEAT')), '#ff0', '', 6); input.unlock(); setTimeout(() => { if (game?.over) showEnd(); }, 3500); break;
+      case 'end': hud.message(game.winner === 'draw' ? 'DRAW' : (game.mode.teams ? (game.winner === me.team ? 'VICTORY' : 'DEFEAT') : (game.winner === me ? 'VICTORY' : 'DEFEAT')), '#ff0', '', 6); input.unlock(); { const g0 = game; setTimeout(() => { if (game === g0 && game.over) showEnd(); }, 3500); } break;
     }
   }
 
@@ -267,7 +294,9 @@ async function main() {
     if (menu.style.display !== 'none') { if (inp.pause && !game.over) showMenu('paused'); }   // (ESC on the class/settings page backs out to PAUSED, never unpauses under it)
     else if (!game.over && (inp.pause || (inp.unlocked && !paused))) setPaused(inp.pause ? !paused : true);   // (ESC also drops the pointer lock: pause once, not twice)
     // paused: the menus sit over a frozen frame (drawn once); nothing renders behind them
-    if (paused) { if (!pauseFrame) { draw(0, inp); pauseFrame = true; } return; }
+    if (paused && !net) { if (!pauseFrame) { draw(0, inp); pauseFrame = true; } return; }
+    if (net && (paused || chatOpen)) { const look = inp.look; Object.assign(inp, { move: { x: 0, z: 0 }, gun: { ...NO_GUN }, look: chatOpen ? look : { dyaw: 0, dpitch: 0 }, streak: false, respawn: false }); }   // (online the match goes on behind the menu)
+    if (net && inp.chat && !paused && !chatOpen) openChat();
     // adaptive resolution: hold ~55 fps, timed on the real clock (not the clamped dt) and only while playing;
     // a single long frame (a popup, a tab switch) is a stall, not slowness: start the count again
     if (raw > 0.25) { fpsT = 0; frames = 0; } else { fpsT += raw; frames++; }
@@ -276,16 +305,36 @@ async function main() {
       const want = fps < 45 ? Math.max(0.5, resScale * Math.max(0.6, Math.min(0.92, Math.sqrt(fps / 55)))) : fps > 58 && resScale < 1 ? Math.min(1, resScale + 0.05) : resScale;
       if (Math.abs(want - resScale) > 0.01) { resScale = want; renderer.setPixelRatio(dprBase * resScale); resize(); }
     }
-    if (!me.alive && inp.respawn && me.respawnT <= 0) inp.respawn = true; else if (me.alive) inp.respawn = false;
+    if (!me.alive && inp.respawn && me.respawnT <= 0) { inp.respawn = true; if (net && performance.now() - respawnAsk > 500) { respawnAsk = performance.now(); net.respawn(); } } else if (me.alive) inp.respawn = false;
     // hold breath while scoped (a few seconds, then you have to breathe)
     const scoped = w.scope && G.ads > 0.9;
     if (scoped && inp.breath && breathT < 4) { breath = 1; breathT += dt; } else { breath = 0; breathT = Math.max(0, breathT - dt * (scoped ? 0.5 : 2)); }
     if (scoped) inp.move.sprint = false;
+    barragePick(inp);
     assist(inp, dt);
+    net?.frame(dt);
     game.step(dt, inp);
+    net?.sendState(dt);
     for (const e of game.events) handle(e);
     game.events.length = 0;
     draw(dt, inp);
+  }
+
+  // Ice Barrage: the map comes up, the look moves the reticle, FIRE calls it in, AIM (or 4 again) backs out
+  let pick = null, holdFire = false;
+  const NO_GUN = { fire: false, ads: false, reload: false, swap: false, knife: false, nade: false };
+  function barragePick(inp) {
+    if (holdFire) { if (inp.gun.fire) inp.gun = { ...NO_GUN }; else holdFire = false; }
+    if (!pick) { if (inp.streak && me.alive && me.barrage) { pick = { x: me.body.pos.x, z: me.body.pos.z, fireWas: true }; sfx.pin(); } return; }
+    if (!me.alive || !me.barrage || inp.streak || inp.gun.ads) { pick = null; inp.gun = { ...NO_GUN }; holdFire = true; return; }
+    const [X0, Z0, X1, Z1] = Arena.BOUNDS, sw = arena.at(X0, Z0), ne = arena.at(X1, Z1);
+    pick.x = Math.max(sw.x, Math.min(ne.x, pick.x - inp.look.dyaw * 45)); pick.z = Math.max(ne.z, Math.min(sw.z, pick.z - inp.look.dpitch * 45));
+    const fire = inp.gun.fire && !pick.fireWas; pick.fireWas = inp.gun.fire;
+    inp.look.dyaw = inp.look.dpitch = 0; inp.gun = { ...NO_GUN };
+    if (fire) {
+      if (game.role === 'client') { net?.barrage(pick.x, pick.z); me.barrage = false; } else game.callBarrage(me, pick.x, pick.z);
+      hud.message('ICE BARRAGE INBOUND', '#9fe0ff', '', 2); sfx.jingle(); pick = null; holdFire = true;
+    }
   }
 
   function setPaused(p) {
@@ -332,7 +381,7 @@ async function main() {
       let m = nades.get(g);
       if (!m) { m = buildGun(g.L.sticky ? 'semtex' : 'frag').group; m.scale.setScalar(3); m.userData.trail = 0; scene.add(m); nades.set(g, m); }
       m.position.copy(g.p);
-      if (!g.rest && !g.stuck && !g.stuckWall) { m.rotation.x += dt * 13; m.rotation.z += dt * 4; if ((m.userData.trail += dt) > 0.025 && g.p.distanceTo(g.f.eye(_v)) > 2.5) { m.userData.trail = 0; puff(g.p, 0xcfcabb, 0.08, 0.6); } }   // (not in the thrower's face)
+      if (!g.rest && !g.stuck && !g.stuckWall) { m.rotation.x += dt * 13; m.rotation.z += dt * 4; if ((m.userData.trail += dt) > 0.025 && (!g.f || g.p.distanceTo(g.f.eye(_v)) > 2.5)) { m.userData.trail = 0; puff(g.p, 0xcfcabb, 0.08, 0.6); } }   // (not in the thrower's face)
     }
     for (const [g, m] of nades) if (!game.grenades.includes(g)) { scene.remove(m); nades.delete(g); }
     // puffs
@@ -389,7 +438,7 @@ async function main() {
     // HUD
     const spreadDeg = G.spreadDeg(Math.hypot(b.vel.x, b.vel.z) / MOVE.walk, !b.onGround, b.crouch > 0.5);
     const spreadPx = Math.tan(spreadDeg * Math.PI / 180) / Math.tan(vfov / 2) * hud.c.height / 2;
-    hud.draw(dt, game, me, camera, { spreadPx, ads: G.ads, scope: scoped, scopeSway: sway, breath: scoped ? breath : undefined, board: inp.board, sprint: b.sprinting, aimedAt, touch: input.device === 'touch', clickToAim: input.device === 'kbm' && !input.locked && !paused });
+    hud.draw(dt, game, me, camera, { spreadPx, ads: G.ads, scope: scoped, scopeSway: sway, breath: scoped ? breath : undefined, board: inp.board, sprint: b.sprinting, aimedAt, touch: input.device === 'touch', clickToAim: input.device === 'kbm' && !input.locked && !paused, pick: pick && me.alive ? pick : null });
   }
 
   // the menu backdrop: a slow flight round the arena
@@ -409,13 +458,14 @@ async function main() {
     if (page === 'main') {
       box.innerHTML = `<div class="title">CODSCAPE</div><div class="sub">Castle Wars. Live rounds. Saradomin vs Zamorak.</div>
         <div class="col">
-          <button id="m-play">PLAY</button>
+          <button id="m-online">PLAY ONLINE</button>
+          <button id="m-play">PLAY VS BOTS</button>
           <button id="m-class">CLASSES</button>
           <button id="m-settings">SETTINGS</button>
           <button id="m-controls" class="small">CONTROLS</button>
           <a href="index.html" class="small back">ALL GAMES</a>
         </div>`;
-      $('m-play').onclick = () => showMenu('play'); $('m-class').onclick = () => showMenu('class'); $('m-settings').onclick = () => showMenu('settings'); $('m-controls').onclick = () => showMenu('controls');
+      $('m-online').onclick = () => { sfx.start(); startOnline(); }; $('m-play').onclick = () => showMenu('play'); $('m-class').onclick = () => showMenu('class'); $('m-settings').onclick = () => showMenu('settings'); $('m-controls').onclick = () => showMenu('controls');
     } else if (page === 'play') {
       const opt = (name, cur, list) => `<div class="row"><span class="lab">${name}</span><div class="seg">${list.map(([v, l]) => `<button data-k="${name}" data-v="${v}" class="${String(cur) === String(v) ? 'sel' : ''}">${l}</button>`).join('')}</div></div>`;
       box.innerHTML = `<div class="title sm">PLAY</div>
@@ -440,8 +490,8 @@ async function main() {
       box.innerHTML = `<div class="title sm">SELECT CLASS</div>
         <div class="classes">${classes.map((c, i) => `<button data-cls="${i}" class="cls${i === ci ? ' sel' : ''}"><b>${c.name}</b><span>${WEAPONS[c.primary].name} · ${WEAPONS[c.secondary].name} · ${LETHALS[c.lethal].name}</span><em>${c.blurb}</em>${bars(c.primary)}</button>`).join('')}</div>
         <div class="col"><button id="m-back" class="small">BACK</button></div>`;
-      const done = () => { if (!inMatch) return showMenu('main'); menu.style.display = 'none'; me.loadout = { ...classes[setup.cls] }; setPaused(true); };
-      for (const b of box.querySelectorAll('[data-cls]')) b.onclick = () => { setup.cls = +b.dataset.cls; save(SETUP_KEY, setup); if (inMatch) { me.loadout = { ...classes[setup.cls] }; setPaused(false); hud.message(classes[setup.cls].name, '#ff0', 'next time you spawn', 2); } else showMenu('class'); };   // (picking a class drops you straight back in, like COD)
+      const done = () => { if (!inMatch) return showMenu('main'); menu.style.display = 'none'; if (net) net.cls(setup.cls); else me.loadout = { ...classes[setup.cls] }; setPaused(true); };
+      for (const b of box.querySelectorAll('[data-cls]')) b.onclick = () => { setup.cls = +b.dataset.cls; save(SETUP_KEY, setup); if (inMatch) { if (net) net.cls(setup.cls); else me.loadout = { ...classes[setup.cls] }; setPaused(false); hud.message(classes[setup.cls].name, '#ff0', 'next time you spawn', 2); } else showMenu('class'); };   // (picking a class drops you straight back in, like COD)
       $('m-back').onclick = done;
     } else if (page === 'settings') {
       const sl = (k, label, min, max, step) => `<div class="row"><span class="lab">${label}</span><input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${settings[k]}"><span class="val" id="v-${k}">${settings[k]}</span></div>`;
@@ -475,16 +525,29 @@ async function main() {
   function showEnd() {
     input.unlock(); if (input.touch) input.touch.show(false);
     const e = $('endbox'); e.style.display = 'flex';
+    if (net) e.querySelector('#e-again').textContent = 'NEXT MATCH SOON - KEEP WATCHING';
+    else e.querySelector('#e-again').textContent = 'PLAY AGAIN';
     const s = me; e.querySelector('.stats').textContent = `${s.kills} kills · ${s.deaths} deaths · ${s.assists} assists · ${s.score} score · accuracy ${Math.round(s.gunner.stats.hits / Math.max(1, s.gunner.stats.shots) * 100)}%`;
   }
-  $('e-again').onclick = () => { $('endbox').style.display = 'none'; startMatch(); };
+  $('e-again').onclick = () => { $('endbox').style.display = 'none'; if (!net) startMatch(); else if (input.device === 'kbm') input.lock(); };
   $('e-menu').onclick = () => { $('endbox').style.display = 'none'; endMatch(); };
 
   $('loading').style.display = 'none';
   showMenu(new URLSearchParams(location.search).has('play') ? 'play' : 'main');
   requestAnimationFrame(frame);
   // test hook (headless screenshots)
-  window.COD = { renderer, scene, get game() { return game; }, startMatch, setup, arena, camera, showMenu, settings, input, get me() { return me; }, get paused() { return paused; }, get vm() { return vm; }, get classes() { return classes; } };
+  // ---------------- chat (online): ENTER opens it, ENTER sends, ESC drops it
+  let chatOpen = false;
+  const chatIn = $('chatin');
+  function openChat() { chatOpen = true; input.enabled = false; input.keys.clear(); input.mouse.l = input.mouse.r = false; chatIn.style.display = 'block'; chatIn.value = ''; setTimeout(() => chatIn.focus(), 0); }
+  function closeChat() { if (!chatOpen) return; chatOpen = false; chatIn.blur(); chatIn.style.display = 'none'; if (inMatch) input.enabled = true; }
+  chatIn.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { const t = chatIn.value.trim(); if (t) net?.chat(t); closeChat(); if (input.device === 'kbm' && !paused) input.lock(); }
+    else if (e.key === 'Escape') closeChat();
+  });
+
+  window.COD = { get net() { return net; }, startOnline, renderer, scene, get game() { return game; }, startMatch, setup, arena, camera, showMenu, settings, input, get me() { return me; }, get paused() { return paused; }, get vm() { return vm; }, get classes() { return classes; } };
   document.title = 'CODScape';
 }
 

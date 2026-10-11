@@ -40,6 +40,10 @@ A first-person COD-style shooter vs bots in the Castle Wars arena; the home page
 - `body.js` movement (capsule vs BVH, step-up, slide, wading), `gunner.js` gun timelines, `weapons.js` stats,
   `game.js` match rules (pure, runs headless), `bots.js` AI, `soldier.js` third-person RS bodies + hit zones,
   `guns.js` procedural gun models (mm side profiles), `viewmodel.js` first-person arms/reloads, `hud.js`, `input.js`.
+- Online (PLAY ONLINE): `netserver.js` runs one always-on CTF match inside serve.ts (`/cod-ws`; bots fill each side to 4,
+  people replace them, up to 8 a side, sim idles when empty). Browsers run their own movement + bullets and report
+  hits; the server owns health, kills, flags, grenades, bots (`netclient.js` mirrors it, puppets interpolated ~0.12 s
+  behind). `netwire.js` is the shared wire format. ENTER chats.
 - The world renders 1:1 linear like the skate game; the gun pass uses sRGB + filmic (`withGunPass`).
 - Dev pages: `test/guns.html` (armoury gallery), `test/vmsheet.html?gun=..&what=reload|empty|sights` (reload sheets).
 

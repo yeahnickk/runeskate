@@ -12,7 +12,7 @@ const PANEL = 'rgba(62,53,41,0.86)', EDGE = '#2b2117', LIGHT = '#7a6a4c';
 export class CodHud {
   constructor(canvas, fonts, splat) {
     this.c = canvas; this.x = canvas.getContext('2d'); this.f = fonts; this.splat = splat;
-    this.hitT = 0; this.hitKill = false; this.hitHead = false; this.dmgDirs = []; this.splats = []; this.pops = []; this.msgs = []; this.points = [];
+    this.hitT = 0; this.hitKill = false; this.hitHead = false; this.dmgDirs = []; this.splats = []; this.pops = []; this.msgs = []; this.points = []; this.chat = [];
     this.mini = null; this.k = 2;
   }
   resize() {
@@ -41,6 +41,7 @@ export class CodHud {
   hurt(fromDir) { this.dmgDirs.push({ d: fromDir.clone(), t: 1.4 }); if (this.dmgDirs.length > 5) this.dmgDirs.shift(); }
   splatAt(p, n, kill) { this.splats.push({ p: p.clone(), n, t: 0, kill, ox: (Math.random() - 0.5) * 0.3 }); if (this.splats.length > 12) this.splats.shift(); }
   point(text, col = '#ff0') { this.points.push({ text, col, t: 0 }); if (this.points.length > 4) this.points.shift(); }
+  say(name, text, col = '#fff') { this.chat.push({ name, text, col, t: 0 }); if (this.chat.length > 6) this.chat.shift(); }
   message(text, col = '#ff0', sub = '', dur = 2.4) { this.msgs = this.msgs.filter(m => m.text !== text); this.msgs.push({ text, col, sub, t: 0, dur }); if (this.msgs.length > 3) this.msgs.shift(); }
 
   /**
@@ -152,7 +153,36 @@ export class CodHud {
       this.T(t > 0 ? `Respawn in ${t.toFixed(1)}` : (st.touch ? 'TAP TO RESPAWN' : 'PRESS SPACE / CLICK / A TO RESPAWN'), W / 2, H * 0.36 + 48 * k, '#fff', 'c', k, 'p12');
     }
     if (st.clickToAim && me?.alive) { this.panel(W / 2 - 90 * k, H * 0.42, 180 * k, 22 * k, 0.9); this.T('CLICK TO AIM', W / 2, H * 0.42 + 5 * k, '#ff0', 'c', k); }
+    // chat, bottom left over the minimap's column
+    { let y = H - (st.touch ? 230 : 120) * k; this.chat = this.chat.filter(m => (m.t += dt) < 12);
+      for (const m of this.chat.slice().reverse()) { const a = m.t > 10 ? (12 - m.t) / 2 : 1; const x = 10 * k + this.T(m.name + ': ', 10 * k, y, m.col, 'l', k, 'p12', a); this.T(m.text, x, y, '#fff', 'l', k, 'p12', a); y -= 14 * k; } }
+    if (st.pick) this.picker(g, me, st.pick);
     if (st.board || g.over) this.scoreboard(g, me);
+  }
+
+  /** the Ice Barrage map: the whole arena big, everyone you can see, the strike reticle */
+  picker(g, me, pick) {
+    const c = this.x, k = this.k, W = this.c.width, H = this.c.height, M = this.mini; if (!M) return;
+    const size = Math.min(W, H) * 0.82, x = (W - size) / 2, y = (H - size) / 2 + 8 * k;
+    c.fillStyle = 'rgba(0,0,0,0.45)'; c.fillRect(0, 0, W, H);
+    this.panel(x - 4 * k, y - 4 * k, size + 8 * k, size + 8 * k);
+    c.drawImage(M.canvas, x, y, size, size);
+    const to = p => [x + (p.x - M.x0) / (M.x1 - M.x0) * size, y + (p.z - M.z0) / (M.z1 - M.z0) * size];
+    const uav = me.uavT > 0;
+    for (const f of g.fighters) {
+      if (!f.alive) continue;
+      const friend = f === me || (g.mode.teams && f.team === me.team);
+      if (!friend && !uav && !f.carrying) continue;
+      const [px, py] = to(f.body.pos);
+      c.fillStyle = f === me ? '#fff' : friend ? TEAM_COL[f.team] : '#ff2a1a'; c.beginPath(); c.arc(px, py, 4 * k, 0, Math.PI * 2); c.fill(); c.strokeStyle = '#000'; c.lineWidth = k; c.stroke();
+    }
+    if (g.modeId === 'ctf') for (const fl of Object.values(g.flags)) { const [px, py] = to(fl.pos); this.diamond(px, py, 6 * k, TEAM_COL[fl.team]); }
+    const [px, py] = to(pick), r = 8.5 / (M.x1 - M.x0) * size;              // (the strike's reach: the blasts' spread plus their radius)
+    c.strokeStyle = '#9fe0ff'; c.lineWidth = 2 * k; c.beginPath(); c.arc(px, py, r, 0, Math.PI * 2); c.stroke();
+    c.fillStyle = 'rgba(159,224,255,0.18)'; c.fill();
+    c.beginPath(); c.moveTo(px - r * 1.3, py); c.lineTo(px + r * 1.3, py); c.moveTo(px, py - r * 1.3); c.lineTo(px, py + r * 1.3); c.stroke();
+    this.T('ICE BARRAGE', W / 2, y - 26 * k, '#9fe0ff', 'c', k + 1);
+    this.T('move to aim  ·  FIRE to call it in  ·  AIM / 4 to cancel', W / 2, y + size + 8 * k, '#fff', 'c', k, 'p12');
   }
 
   diamond(x, y, r, col) {
@@ -238,6 +268,7 @@ export class CodHud {
     const next = STREAKS.find(s => s.n > me.streak);
     if (next) this.T(`${me.streak}/${next.n} ${next.name}`, x + 8 * k, y - 14 * k, '#ccc', 'l', Math.max(1, k - 1), 'p12');
     if (me.uavT > 0) this.T('UAV ONLINE', x + pw - 8 * k, y - 14 * k, '#5f5', 'r', Math.max(1, k - 1), 'p12');
+    if (me.barrage) this.T(st.touch ? 'ICE BARRAGE READY: tap ICE' : 'ICE BARRAGE READY [4]', x + pw - 8 * k, y - 28 * k, '#9fe0ff', 'r', k, 'b12');
   }
 
   /** the arena from above (made once) with everyone on it */
@@ -251,7 +282,7 @@ export class CodHud {
     for (const f of g.fighters) {
       if (!f.alive || f === me) continue;
       const friend = g.mode.teams && f.team === me.team;
-      if (!friend && !uav && g.t - f.lastShotT > 1.2 && !f.carrying) continue;
+      if (!friend && !uav && !f.carrying) continue;                 // (enemies only show while your side's UAV is up; a flag carrier always does)
       const [px, py] = to(f.body.pos);
       c.fillStyle = friend ? TEAM_COL[f.team] : '#ff2a1a'; c.beginPath(); c.arc(px, py, 2.6 * k, 0, Math.PI * 2); c.fill();
       c.strokeStyle = '#000'; c.lineWidth = k * 0.6; c.stroke();

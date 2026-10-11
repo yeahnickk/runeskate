@@ -59,7 +59,7 @@ export class Input {
 
   /** dt: the frame; zoom: the current FOV divisor (ADS slows the look in step with the zoom) */
   read(dt, zoom = 1, adsAmt = 0) {
-    const K = this.keys, s = this.s, out = { move: { x: 0, z: 0, sprint: false, crouch: false, crouchEdge: false, jump: false }, gun: { fire: false, ads: false, reload: false, swap: false, knife: false, nade: false }, look: { dyaw: 0, dpitch: 0 }, breath: false, board: false, pause: false, unlocked: false, respawn: false, device: this.device, stick: { x: 0, y: 0 } };
+    const K = this.keys, s = this.s, out = { move: { x: 0, z: 0, sprint: false, crouch: false, crouchEdge: false, jump: false }, gun: { fire: false, ads: false, reload: false, swap: false, knife: false, nade: false }, look: { dyaw: 0, dpitch: 0 }, breath: false, board: false, pause: false, streak: false, chat: false, unlocked: false, respawn: false, device: this.device, stick: { x: 0, y: 0 } };
     const m = out.move, g = out.gun;
     // ---- keyboard + mouse
     m.x = (K.has('KeyD') ? 1 : 0) - (K.has('KeyA') ? 1 : 0); m.z = (K.has('KeyW') ? 1 : 0) - (K.has('KeyS') ? 1 : 0);
@@ -70,6 +70,7 @@ export class Input {
     g.knife = this.edge('KeyV') || this.edge('KeyF'); g.nade = K.has('KeyG');
     if (s.toggleAds) { if (this.edge('Mouse2')) this.adsToggled = !this.adsToggled; g.ads = this.adsToggled; } else g.ads = this.mouse.r;
     out.board = K.has('Tab'); out.pause = this.edge('Escape') || this.edge('KeyP'); out.unlocked = this.edge('Unlocked');
+    out.streak = this.edge('Digit4') || this.edge('Digit3') || this.edge('Digit5'); out.chat = this.edge('Enter') || this.edge('NumpadEnter');
     out.respawn = this.edge('Space') || this.edge('Mouse0') || this.edge('Click');
     const msens = MOUSE_RAD * s.sens * (1 - adsAmt + adsAmt * s.adsSens / zoom);   // aimed: slower by the zoom, like COD's relative ADS
     out.look.dyaw -= this.mouse.dx * msens; out.look.dpitch -= this.mouse.dy * msens * (s.invert ? -1 : 1);
@@ -95,6 +96,7 @@ export class Input {
         g.nade = g.nade || b(PAD.RB);
         out.board = out.board || b(PAD.BACK);
         if (b(PAD.START) && !was(PAD.START)) out.pause = true;
+        if ((b(PAD.RIGHT) && !was(PAD.RIGHT)) || (b(PAD.UP) && !was(PAD.UP))) out.streak = true;   // (COD: the d-pad calls killstreaks in)
         if (b(PAD.RT) && !was(PAD.RT)) out.respawn = true;
         // the right stick: a curve (fine aim near the middle, fast turns at the edge), slower aimed
         const mag = Math.hypot(rx, ry), curve = mag > 0 ? Math.pow(mag, 1.8) / mag : 0;
@@ -129,6 +131,8 @@ export class TouchControls {
       <div class="b nade" data-h="nade">NADE</div>
       <div class="b knife" data-t="knife">KNIFE</div>
       <div class="b small board" data-h="board">SCORE</div>
+      <div class="b small strike" data-t="streak">ICE</div>
+      <div class="b small chatb" data-t="chat">CHAT</div>
       <div class="b small pause" data-t="pause">II</div>`;
     root.appendChild(el);
     const cap = (n, e) => { try { n.setPointerCapture(e.pointerId); } catch {} };
@@ -182,6 +186,8 @@ export class TouchControls {
     if (this.taps.has('swap')) { g.swap = true; this.adsOn = false; }
     if (this.taps.has('knife')) g.knife = true;
     if (this.taps.has('pause')) out.pause = true;
+    if (this.taps.has('streak')) out.streak = true;
+    if (this.taps.has('chat')) out.chat = true;
     if (this.taps.has('respawn')) out.respawn = true;
     out.board = out.board || this.held.has('board');
     const k = 0.0052 * this.s.touchSens * (1 - adsAmt + adsAmt * 0.6 / Math.sqrt(zoom));
@@ -212,5 +218,7 @@ export const TOUCH_CSS = `
 #ctouch .knife { right: calc(env(safe-area-inset-right) + 80px); top: 180px; width: 50px; height: 50px; font-size: 10px; }
 #ctouch .small { width: 44px; height: 44px; border-radius: 8px; font-size: 9px; }
 #ctouch .board { left: calc(env(safe-area-inset-left) + 150px); top: 12px; }
+#ctouch .strike { right: calc(env(safe-area-inset-right) + 22px); top: 240px; background: rgba(40,90,140,.6); }
+#ctouch .chatb { left: calc(env(safe-area-inset-left) + 200px); top: 12px; }
 #ctouch .pause { left: calc(env(safe-area-inset-left) + 200px); top: 12px; }
 `;

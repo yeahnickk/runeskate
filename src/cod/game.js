@@ -15,7 +15,7 @@ export const MODES = {
   ctf: { name: 'CAPTURE THE FLAG', short: 'CTF', teams: true, limit: 3, time: 600, respawn: 5, desc: "Castle Wars: take their standard off their tower, bring it home to yours." },
   ffa: { name: 'FREE-FOR-ALL', short: 'FFA', teams: false, limit: 25, time: 600, respawn: 2.5, desc: 'Everyone for themselves.' },
 };
-export const STREAKS = [{ n: 3, id: 'uav', name: 'UAV', desc: 'enemies on your minimap' }, { n: 5, id: 'barrage', name: 'ICE BARRAGE', desc: 'blasts rain on the enemy' }, { n: 7, id: 'vengeance', name: 'VENGEANCE', desc: 'take the next one with you' }];
+export const STREAKS = [{ n: 3, id: 'uav', name: 'UAV', desc: 'enemies on your minimap' }, { n: 5, id: 'barrage', name: 'ICE BARRAGE', desc: 'press 4 (d-pad) and pick the spot on the map' }, { n: 7, id: 'vengeance', name: 'VENGEANCE', desc: 'take the next one with you' }];
 const TEAM_HALF = { sara: [2400, 3072, 2431, 3103], zam: [2368, 3104, 2399, 3135] };
 const FLAG_R = 1.4;                                        // touch distance for a flag
 
@@ -32,6 +32,9 @@ export class Fighter {
     this.lastShotT = -99; this.carrying = null; this.hurtBy = new Map(); this.uavT = 0; this.vengeance = false;
     this.yawTrail = []; this.adsStart = -1; this.recoil = { p: 0, y: 0 };
     this.avatar = null;                                    // set by the renderer
+    this.net = null;                                       // server: a remote human's latest state ({ p, v, yaw, pitch, ... }), applied each step
+    this.puppet = false;                                   // client: someone else, posed from snapshots (never simulated here)
+    this.barrage = false;                                  // an Ice Barrage earned and not yet called in
   }
   get w() { return this.gunner.w; }
   eye(out = new THREE.Vector3()) { return this.body.eye(out); }
@@ -54,10 +57,12 @@ export class Game {
    */
   constructor(arena, opts) {
     this.arena = arena; this.opts = opts;
+    this.role = opts.role || null;                          // null: a local match; 'server': the online match; 'client': its mirror in a browser
+    this.net = opts.net || null;                            // client: { hit(v, dmg, zone, w, dir, at), nade(g), shot(f, w, o, to) } -> the server
     this.mode = MODES[opts.mode] || MODES.tdm; this.modeId = opts.mode in MODES ? opts.mode : 'tdm';
     this.limit = opts.limit || this.mode.limit; this.timeLeft = opts.time || this.mode.time;
     this.score = { sara: 0, zam: 0 }; this.t = 0; this.over = false; this.winner = null;
-    this.fighters = []; this.events = []; this.feed = []; this.grenades = []; this.blasts = []; this.tracers = [];
+    this.fighters = []; this.events = []; this.feed = []; this.grenades = []; this.blasts = []; this.tracers = []; this.nadeId = 0;
     if (!arena.nav) arena.buildNav();
     this.spawnNodes = {};
     for (const [k, T] of Object.entries(Arena.TEAMS)) {
@@ -72,14 +77,10 @@ export class Game {
       this.flags[k] = { team: k, home: new THREE.Vector3(p.x, y, p.z), pos: new THREE.Vector3(p.x, y, p.z), state: 'home', carrier: null, dropT: 0 };
     }
     // the sides
-    const per = Math.max(1, opts.perTeam || 6), names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
-    let id = 0;
-    const loadouts = BOT_LOADOUTS;
-    const add = (team, isPlayer) => {
-      const f = new Fighter(this, isPlayer ? { id: id++, name: opts.name || 'You', team, loadout: opts.loadout, player: true }
-        : { id: id++, name: names.pop() || 'Bot' + id, team, bot: opts.difficulty || 'regular', loadout: loadouts[Math.floor(Math.random() * loadouts.length)] });
-      this.fighters.push(f); return f;
-    };
+    const per = Math.max(1, opts.perTeam || 6);
+    this.names = [...BOT_NAMES].sort(() => Math.random() - 0.5); this.nextId = 0;
+    if (this.role === 'client') return;                     // (the server sends the roster)
+    const add = (team, isPlayer) => isPlayer ? this.addFighter({ name: opts.name || 'You', team, loadout: opts.loadout, player: true }) : this.addBot(team);
     if (this.mode.teams) {
       const pt = opts.playerTeam === 'zam' ? 'zam' : 'sara', other = pt === 'sara' ? 'zam' : 'sara';
       if (opts.spectate) { for (let i = 0; i < per; i++) add(pt, false); }
@@ -91,6 +92,15 @@ export class Game {
       if (this.player) this.player.team = 'ffa' + this.player.id;
     }
     for (const f of this.fighters) this.spawn(f, true);
+  }
+  addFighter(o) { const f = new Fighter(this, { id: o.id ?? this.nextId++, ...o }); this.nextId = Math.max(this.nextId, f.id + 1); this.fighters.push(f); return f; }
+  addBot(team) { return this.addFighter({ name: this.names.pop() || 'Bot' + this.nextId, team, bot: this.opts.difficulty || 'regular', loadout: BOT_LOADOUTS[Math.floor(Math.random() * BOT_LOADOUTS.length)] }); }
+  removeFighter(f) {
+    if (f.carrying) this.dropFlag(f);
+    for (const g of this.grenades) if (g.stuck === f) g.stuck = null;
+    for (const o of this.fighters) { o.hurtBy.delete(f); if (o.brain && (o.brain.target === f || o.brain.knownWho === f)) o.brain.reset(); }
+    this.fighters = this.fighters.filter(o => o !== f);
+    if (f.brain?.f) this.names.push(f.name);
   }
 
   enemies(f) { return this.fighters.filter(o => o !== f && o.alive && o.team !== f.team); }
@@ -136,9 +146,23 @@ export class Game {
     if (this.over) return;
     this.t += dt; this.timeLeft -= dt;
     for (const f of this.fighters) {
+      if (f.puppet) continue;                                // (someone else, online: the server moves them)
       if (!f.alive) {
         f.respawnT -= dt;
-        if (f.respawnT <= 0 && !(f.player && inp && !inp.respawn && f.respawnT > -10)) this.spawn(f);
+        if (this.role === 'client') continue;                 // (the server respawns you)
+        const waits = f.net ? !f.net.respawn : (f.player && inp && !inp.respawn);
+        if (f.respawnT <= 0 && !(waits && f.respawnT > -10)) { if (f.net) f.net.respawn = false; this.spawn(f); }
+        continue;
+      }
+      if (f.net) {                                           // a remote human: where their own browser says they are (it runs their physics)
+        const n = f.net, b = f.body;
+        if (n.p) { b.pos.set(n.p[0], n.p[1], n.p[2]); b.vel.set(n.v[0], n.v[1], n.v[2]); b.yaw = n.yaw; b.pitch = n.pitch; b.crouch = n.crouch; b.sprinting = !!n.sprint; b.slide = n.slide ? 0.1 : 0; b.onGround = !!n.ground; b.wading = !!n.wade; }
+        if (n.slot !== undefined && f.gunner.slots[n.slot]) f.gunner.cur = n.slot;
+        f.gunner.phase = n.reload ? 'reload' : 'idle'; f.gunner.ads = n.ads || 0;
+        f.regenT += dt;
+        if (f.regenT > REGEN_DELAY && f.hp < HP) f.hp = Math.min(HP, f.hp + REGEN_RATE * dt);
+        if (f.uavT > 0) f.uavT -= dt;
+        if (this.modeId === 'ctf') this.flagTouch(f);
         continue;
       }
       let move, gun;
@@ -159,18 +183,20 @@ export class Game {
       if (prevAds < 0.9 && G.ads >= 0.9) f.adsStart = this.t;
       for (const e of gev) this.gunEvent(f, e);
       // health comes back
+      if (f.uavT > 0) f.uavT -= dt;
+      if (this.role === 'client') continue;                  // (health, flags: the server's call)
       f.regenT += dt;
       if (f.regenT > REGEN_DELAY && f.hp < HP) f.hp = Math.min(HP, f.hp + REGEN_RATE * dt);
-      if (f.uavT > 0) f.uavT -= dt;
       if (this.modeId === 'ctf') this.flagTouch(f);
     }
+    for (let i = this.tracers.length - 1; i >= 0; i--) if ((this.tracers[i].t -= dt) <= 0) this.tracers.splice(i, 1);
+    if (this.role === 'client') return;                       // (grenades, blasts, flags, the clock: mirrored from the server)
     this.stepGrenades(dt);
     this.stepBlasts(dt);
     if (this.modeId === 'ctf') for (const fl of Object.values(this.flags)) {
       if (fl.state === 'carried' && fl.carrier) fl.pos.copy(fl.carrier.body.pos);
       if (fl.state === 'dropped' && (fl.dropT -= dt) <= 0) this.returnFlag(fl, null);
     }
-    for (let i = this.tracers.length - 1; i >= 0; i--) if ((this.tracers[i].t -= dt) <= 0) this.tracers.splice(i, 1);
     // the end
     if (this.timeLeft <= 0) this.end();
     if (this.mode.teams && Math.max(this.score.sara, this.score.zam) >= this.limit) this.end();
@@ -222,6 +248,8 @@ export class Game {
     }
     const end = o.clone().addScaledVector(d, hit ? hit.t : wallT);
     if (first || w.pellets) this.tracers.push({ from: f.avatar && !f.player ? f.avatar.muzzleWorld(new THREE.Vector3()) : null, o: o.clone(), to: end, t: 0.06, f, w });
+    if (first && this.role === 'client' && f.player) this.net.shot(f, w, o, end);
+    if (first && this.role === 'server') this.emit({ t: 'tracer', f, o: o.clone(), to: end });
     if (hit) {
       const dmg = damageAt(w, hit.t, hit.zone);
       this.damage(who, dmg, f, w, hit.zone, d, end);
@@ -238,6 +266,12 @@ export class Game {
   damage(v, dmg, f, w, zone, dir, at) {
     if (!v.alive || dmg <= 0) return;
     if (f && this.mode.teams && f !== v && f.team === v.team) return;      // no friendly fire
+    if (this.role === 'client') {                           // online: your hit goes to the server (it owns everyone's health); the hitmarker shows now
+      if (f !== this.player) return;
+      this.net.hit(v, dmg, zone, w, dir, at);
+      this.emit({ t: 'hit', f, v, dmg: Math.round(dmg), zone, dir, at, kill: false, w });
+      return;
+    }
     v.hp -= dmg; v.regenT = 0;
     if (f) v.hurtBy.set(f, (v.hurtBy.get(f) || 0) + dmg);
     this.emit({ t: 'hit', f, v, dmg: Math.round(dmg), zone, dir, at, kill: v.hp <= 0, w });
@@ -276,14 +310,27 @@ export class Game {
     this.emit({ t: 'streak', f, s });
     if (s.id === 'uav') for (const o of this.fighters) if (!this.mode.teams ? o === f : o.team === f.team) o.uavT = 30;
     if (s.id === 'vengeance') f.vengeance = true;
-    if (s.id === 'barrage') {                                 // blasts land on (and around) where the enemy are, after a warning
-      const foes = this.enemies(f);
-      for (let i = 0; i < 7; i++) {
-        const e = foes[i % Math.max(1, foes.length)]; if (!e) break;
-        const p = e.body.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 6, 0, (Math.random() - 0.5) * 6));
-        this.blasts.push({ p, t: 1.6 + i * 0.35, f, r: 5.5, dmg: 140, name: 'Ice Barrage' });
-      }
+    if (s.id === 'barrage') {
+      if (f.brain) {                                          // a bot calls it straight in on the thickest knot of enemies
+        const foes = this.enemies(f); let best = null, bn = -1;
+        for (const e of foes) { const n = foes.filter(o => o.body.pos.distanceTo(e.body.pos) < 8).length; if (n > bn) { bn = n; best = e; } }
+        if (best) this.callBarrage(f, best.body.pos.x, best.body.pos.z);
+      } else f.barrage = true;                                // a person picks the spot on the map (press 4)
     }
+  }
+  /** an Ice Barrage on a spot: a ring of ice blasts walks in on it after a warning (game x, z) */
+  callBarrage(f, x, z) {
+    if (!f.barrage && !f.brain) return false;
+    f.barrage = false;
+    const c = new THREE.Vector3(x, 0, z);
+    for (let i = 0; i < 8; i++) {
+      const a = i * 2.4, r = i === 0 ? 0 : 2 + (i % 3) * 2.2;
+      const p = c.clone().add(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r));
+      p.y = this.arena.floor(p.x, 40, p.z, 0, 60) ?? 0;
+      this.blasts.push({ p, t: 1.6 + i * 0.3, f, r: 5.5, dmg: 140, name: 'Ice Barrage' });
+    }
+    this.emit({ t: 'barrage', f, p: c });
+    return true;
   }
   stepBlasts(dt) {
     for (let i = this.blasts.length - 1; i >= 0; i--) {
@@ -310,9 +357,11 @@ export class Game {
     const L = LETHALS[f.gunner.lethal], d = f.body.look(new THREE.Vector3());
     const v = d.clone().multiplyScalar(NADE.speed).add(new THREE.Vector3(0, NADE.lift, 0)).add(_v.set(f.body.vel.x, 0, f.body.vel.z).multiplyScalar(0.5));
     const p = f.eye(new THREE.Vector3()).addScaledVector(d, 0.5);
-    this.grenades.push({ p, v, fuse: L.fuse - cook, f, L, stuck: null, id: Math.random() });
     this.emit({ t: 'nade', f });
+    if (this.role === 'client') { this.net.nade({ p, v, fuse: L.fuse - cook, lethal: f.gunner.lethal }); return; }   // (the server flies it)
+    this.addNade(f, p, v, L.fuse - cook, L);
   }
+  addNade(f, p, v, fuse, L) { const g = { p, v, fuse, f, L, stuck: null, id: ++this.nadeId }; this.grenades.push(g); return g; }
   stepGrenades(dt) {
     for (let i = this.grenades.length - 1; i >= 0; i--) {
       const g = this.grenades[i];

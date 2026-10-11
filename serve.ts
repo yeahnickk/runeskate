@@ -249,12 +249,17 @@ function skateMsg(s: Sess, m: any) {
   }
 }
 
+// CODScape online: the always-on Castle Wars CTF match (src/cod/netserver.js). Off, not fatal, if it can't load.
+let cod: any = null;
+import('./src/cod/netserver.js').then(m => { cod = new m.CodServer(ROOT, cleanChat); console.log('CODScape online match up'); }).catch(e => console.warn('CODScape online off:', e?.message || e));
+
 Bun.serve({
   port,
   async fetch(req, server) {
     const url = new URL(req.url);
     let p = decodeURIComponent(url.pathname);
     if (p === '/ws') return server.upgrade(req, { data: { sess: null } }) ? undefined : new Response('upgrade failed', { status: 400 });
+    if (p === '/cod-ws') return cod && server.upgrade(req, { data: { cod: true } }) ? undefined : new Response('CODScape online is off', { status: 503 });
     if (p === '/api/top') {                                         // leaderboard: all accounts by XP
       const online = new Set([...sessions.values()].map(s => s.k));
       // rank by XP up to max level, then runes found, then raw XP
@@ -295,7 +300,9 @@ Bun.serve({
     return sendFile(req, full);
   },
   websocket: {
+    open(ws: any) { if (ws.data.cod) cod?.open(ws); },
     async message(ws: any, raw) {
+      if (ws.data.cod) return cod?.message(ws, raw);
       let m: any; try { m = JSON.parse(String(raw)); } catch { return; }
       const s: Sess | null = ws.data.sess;
       if (!s) {
@@ -379,6 +386,7 @@ Bun.serve({
       }
     },
     close(ws: any) {
+      if (ws.data.cod) return cod?.close(ws);
       const s: Sess | null = ws.data.sess;
       if (s && sessions.get(s.id) === s) {
         sessions.delete(s.id); broadcast({ t: 'leave', id: s.id });
