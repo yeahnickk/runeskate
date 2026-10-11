@@ -24,7 +24,7 @@ export class CodServer {
   }
 
   newGame() {
-    this.game = new Game(this.arena, { mode: 'ctf', difficulty: 'regular', perTeam: BOTS, spectate: true, role: 'server' });
+    this.game = new Game(this.arena, { mode: 'ctf', difficulty: 'recruit', perTeam: BOTS, spectate: true, role: 'server' });
     this.restartAt = 0;
     for (const c of this.clients) { c.f = null; this.seat(c); }
     for (const c of this.clients) if (c.f) c.ws.send(JSON.stringify({ t: 'w', you: c.f.id, ...this.state() }));
