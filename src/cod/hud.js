@@ -9,6 +9,8 @@ import { STREAKS } from './game.js';
 const TEAM_COL = { sara: '#5ab4ff', zam: '#ff5a48' };
 const PANEL = 'rgba(62,53,41,0.86)', EDGE = '#2b2117', LIGHT = '#7a6a4c';
 
+const isBot = f => !!(f.brain || f.isBot);                 // (online, the server's bots arrive flagged; offline they carry a brain)
+
 export class CodHud {
   constructor(canvas, fonts, splat) {
     this.c = canvas; this.x = canvas.getContext('2d'); this.f = fonts; this.splat = splat;
@@ -73,7 +75,7 @@ export class CodHud {
       if (!friend && f !== st.aimedAt) continue;
       const p = proj(f.body.pos.clone().add(new THREE.Vector3(0, f.body.height + 0.45, 0))); if (!p) continue;
       const d = f.body.pos.distanceTo(me.body.pos); if (friend && d > 60) continue;
-      this.T(f.name, p[0], p[1] - 10 * k, friend ? TEAM_COL[f.team] : '#ff3030', 'c', Math.max(1, k - (d > 25 ? 1 : 0)), 'p12', friend ? 0.85 : 1);
+      this.T(f.name + (isBot(f) ? ' [BOT]' : ''), p[0], p[1] - 10 * k, friend ? TEAM_COL[f.team] : '#ff3030', 'c', Math.max(1, k - (d > 25 ? 1 : 0)), 'p12', friend ? 0.85 : 1);
       if (f.carrying) this.T('FLAG', p[0], p[1] - 22 * k, '#fff', 'c', Math.max(1, k - 1));
     }
     // CTF: the flags, wherever they are
@@ -313,7 +315,7 @@ export class CodHud {
       for (const [n, fx] of cols) this.T(n, x + w * fx, yy, '#ff981f', 'l', Math.max(1, k - 1), 'p12'); yy += 12 * k;
       for (const f of list) {
         if (f === me) { c.fillStyle = 'rgba(255,255,0,0.12)'; c.fillRect(x + 4 * k, yy - k, w - 8 * k, 12 * k); }
-        const vals = [f.name + (f.alive ? '' : ' (dead)'), f.score, f.kills, f.deaths, f.assists, g.modeId === 'ctf' ? f.caps : (f.kills / Math.max(1, f.deaths)).toFixed(2)];
+        const vals = [f.name + (isBot(f) ? ' [BOT]' : '') + (f.alive ? '' : ' (dead)'), f.score, f.kills, f.deaths, f.assists, g.modeId === 'ctf' ? f.caps : (f.kills / Math.max(1, f.deaths)).toFixed(2)];
         vals.forEach((v, i) => this.T(String(v), x + w * cols[i][1], yy, i === 0 ? (f === me ? '#ff0' : tc === '#ff981f' ? '#fff' : tc) : '#fff', 'l', Math.max(1, k - 1), 'p12'));
         yy += 12 * k;
       }

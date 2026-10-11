@@ -165,6 +165,7 @@ async function main() {
     if (input.device === 'kbm') input.lock();
     if (input.touch) input.touch.show(true);
     document.body.classList.add('playing');
+    firstTips();
     hud.message(online ? 'ONLINE: CAPTURE THE FLAG' : game.mode.name, '#ff981f', online ? `you're ${me.team === 'sara' ? 'Saradomin' : 'Zamorak'} · ENTER to chat` : TOUCH ? 'left thumb: move · drag right: aim · FIRE' : (game.modeId === 'ctf' ? "Take their standard from their tower. Bring it home." : game.mode.desc), 3);   // once, at the start
   }
 
@@ -536,6 +537,17 @@ async function main() {
   showMenu(new URLSearchParams(location.search).has('play') ? 'play' : 'main');
   requestAnimationFrame(frame);
   // test hook (headless screenshots)
+  // ---------------- first match on this device: the controls, 10 s, once (phone and desktop each get their own)
+  function firstTips() {
+    const key = 'codscape.tips.' + (TOUCH ? 'touch' : 'kbm'); if (load(key, false)) return; save(key, true);
+    const el = $('tips'), b = s => `<b style="color:#ff0">${s}</b>`;
+    el.innerHTML = `<div style="color:#ff981f;font-weight:bold;margin-bottom:4px">CONTROLS</div>` + (TOUCH
+      ? `${b('left thumb')} move (push past the ring to sprint) · ${b('drag right side')} aim<br>${b('FIRE')} shoot · ${b('AIM')} sights · ${b('DUCK')} crouch / slide<br>${b('ICE')} Ice Barrage (5 kill streak) · ${b('CHAT')} talk · ${b('II')} pause`
+      : `${b('WASD')} move · ${b('SHIFT')} sprint · ${b('SPACE')} jump · ${b('C')} crouch / slide<br>${b('RMB')} aim · ${b('R')} reload · ${b('G')} grenade · ${b('V')} knife · ${b('1/2')} swap<br>${b('4')} Ice Barrage (5 kill streak) · ${b('ENTER')} chat · ${b('TAB')} scores · ${b('ESC')} pause`);
+    el.style.opacity = 1; el.style.display = 'block';
+    setTimeout(() => { el.style.opacity = 0; setTimeout(() => { el.style.display = 'none'; }, 700); }, 10000);
+  }
+
   // ---------------- chat (online): ENTER opens it, ENTER sends, ESC drops it
   let chatOpen = false;
   const chatIn = $('chatin');
