@@ -37,6 +37,8 @@
   #discord { background: rgba(88,101,242,0.85); } #discord:hover { background: #5865f2; }
   #xfollow { background: rgba(0,0,0,0.75); } #xfollow:hover { background: #000; }
   .touchkeys { display: none; }
+  #codscape { display: inline-block; font: bold 15px monospace; padding: 9px 18px; color: #fff; background: linear-gradient(180deg, #8a1a10, #4a0a06); border: 3px solid #2e0804;
+    box-shadow: 3px 3px 0 #000; text-decoration: none; letter-spacing: 1px; } #codscape b { color: #ff981f; } #codscape:hover { background: #a02218; }
   @media (pointer: coarse) {
     .keys.desk { display: none; } .touchkeys { display: block; }
     body.playing #social { display: none; }
@@ -104,6 +106,7 @@
     <input id="lpass" placeholder="password" type="password" autocomplete="current-password">
   </div>
   <div><button id="skate">SKATE</button> <button id="solo" class="small">solo</button></div>
+  <div><a href="cod.html" id="codscape" onmousedown="event.stopPropagation()" onpointerdown="event.stopPropagation()">NEW: <b>CODSCAPE</b> &mdash; Castle Wars FPS vs bots</a></div>
   <div class="sub" id="lerr" style="color:#f66; min-height: 1.2em"></div>
   <div class="keys" style="font-size:12px">New name? You're signed up on the spot. Or join from a link: <b>?name=You&amp;password=secret</b></div>
 </div>

@@ -262,6 +262,7 @@ Bun.serve({
         .sort((a, b) => b[1].xp - a[1].xp || runesOf(b[1]) - runesOf(a[1])).slice(0, 15)
         .map(([k, a]) => ({ name: a.name, own: isOwner(k) ? 1 : undefined, xp: a.xp, runes: runesOf(a), runeTotal: RUNE_IDS.size, on: online.has(k) })));
     }
+    if (p === '/cod' || p === '/cod/' || p === '/codscape') return Response.redirect('/cod.html', 302);
     if (p === '/map' || p === '/map/') return new Response(MAP_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' } });
     if (p === '/api/map') return Response.json(MAP_STATIC, { headers: { 'Cache-Control': 'no-cache' } });
     if (p === '/api/live') {                                         // who is where right now (world tiles)

@@ -8,8 +8,18 @@
         "allowJs": true,
         "baseUrl": ".",
         "paths": {
-            "#/*": ["./third_party/webclient/src/*"],
-            "#3rdparty/*": ["./third_party/webclient/src/3rdparty/*"]
+            "#/*": [
+                "./third_party/webclient/src/*"
+            ],
+            "#3rdparty/*": [
+                "./third_party/webclient/src/3rdparty/*"
+            ],
+            "three": [
+                "./vendor/three.module.js"
+            ],
+            "three-mesh-bvh": [
+                "./vendor/three-mesh-bvh.module.js"
+            ]
         }
     }
 }

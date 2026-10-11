@@ -213,6 +213,33 @@ const rotV = (M, v) => [M[0][0] * v[0] + M[0][1] * v[1] + M[0][2] * v[2], M[1][0
 export function skinFrame(skin, model, fi) {
   if (!skin.labelled) return null;
   const hit = skin.cache.get(fi); if (hit) return hit;
+  const nv = skin.nv, F = model.frames, o = fi * nv * 3;
+  const { P, Rof } = clipFit(skin, model, fi);
+  // each bone's frame: its posed origin, its bind axes turned by the fitted rotation
+  const frames = skin.names.map((n, k) => { const [, x, y, z] = skin.bindF[k], M = Rof(n); return [P[skin.defs[k][0]], rotV(M, x), rotV(M, y), rotV(M, z)]; });
+  const out = Float32Array.from(writeVerts(skin, frames));
+  // feet on the floor: the lowest point lands where the clip's did
+  let lo = Infinity, lf = Infinity;
+  for (let i = 0; i < nv; i++) { lo = Math.min(lo, out[i * 3 + 1]); lf = Math.min(lf, F[o + i * 3 + 1]); }
+  for (let i = 0; i < nv; i++) out[i * 3 + 1] += lf - lo;
+  if (skin.cache.size > 400) skin.cache.clear();
+  skin.cache.set(fi, out);
+  return out;
+}
+
+/** the 20 joints of an RS clip frame on the human body (model-local, feet near y = 0): pose the legs from a
+ *  walk/run clip and the arms some other way (CODScape's soldiers hold a gun), then poseRagSkin */
+export function clipJoints(skin, model, fi) {
+  if (!skin.labelled) return null;
+  const k = 'j' + fi, hit = skin.cache.get(k); if (hit) return hit;
+  const { P } = clipFit(skin, model, fi);
+  const lo = Math.min(P[J.lFt][1], P[J.rFt][1]) - skin.ankleH;
+  const out = P.map(p => [p[0], p[1] - lo, p[2]]);
+  skin.cache.set(k, out);
+  return out;
+}
+
+function clipFit(skin, model, fi) {
   const nv = skin.nv, F = model.frames, o = fi * nv * 3, S = skin.bindS, R0 = skin.full;
   const B = i => [F[i * 3], F[i * 3 + 1], F[i * 3 + 2]], Fv = i => [F[o + i * 3], F[o + i * 3 + 1], F[o + i * 3 + 2]];
   // each bone's rotation in this frame, fitted to its vertices (a bone with too few to fit takes its parent's)
@@ -237,16 +264,7 @@ export function skinFrame(skin, model, fi) {
     P[J[s + 'Hip']] = step(J.pelvis, 'abdomen', J[s + 'Hip']); P[J[s + 'Kn']] = step(J[s + 'Hip'], s + 'Thigh', J[s + 'Kn']); P[J[s + 'Ft']] = step(J[s + 'Kn'], s + 'Shin', J[s + 'Ft']);
     P[X[s + 'Toe']] = step(J[s + 'Ft'], s + 'Foot', X[s + 'Toe']); P[X[s + 'FtUp']] = step(J[s + 'Ft'], s + 'Foot', X[s + 'FtUp']);
   }
-  // each bone's frame: its posed origin, its bind axes turned by the fitted rotation
-  const frames = skin.names.map((n, k) => { const [, x, y, z] = skin.bindF[k], M = Rof(n); return [P[skin.defs[k][0]], rotV(M, x), rotV(M, y), rotV(M, z)]; });
-  const out = Float32Array.from(writeVerts(skin, frames));
-  // feet on the floor: the lowest point lands where the clip's did
-  let lo = Infinity, lf = Infinity;
-  for (let i = 0; i < nv; i++) { lo = Math.min(lo, out[i * 3 + 1]); lf = Math.min(lf, F[o + i * 3 + 1]); }
-  for (let i = 0; i < nv; i++) out[i * 3 + 1] += lf - lo;
-  if (skin.cache.size > 400) skin.cache.clear();
-  skin.cache.set(fi, out);
-  return out;
+  return { P, Rof };
 }
 
 // ------------------------------------------------------------------ band skin (models without labels)
