@@ -67,6 +67,15 @@ map data and running in the browser. Every door and gate stands open.
 - **Fast start.** Only the meshes around spawn (about 2 MB) load before you can skate; the rest of Lumbridge
   streams in behind you, and other towns load as you get near (or teleport).
 - **Live map** at `/map`: the whole world with runes, teleports, challenges and everyone online.
+- **RuneRoyale, a battle royale mode.** Press **V** (or the BATTLE ROYALE button) to queue. Up to 16 players,
+  topped up with bots, ride the King Black Dragon across Lumbridge and jump off where they like, skydive, then
+  open a board-glider to land. Loot chests, ammo boxes and floor loot in five rarities (shortbow, crossbow,
+  staffs, dark bow, fire wave staff) plus shrimp, sharks, brews and super defence for health and shield. Harvest
+  wood, stone and metal with the rune pickaxe and build walls, floors, ramps and cones (edit walls into doors).
+  Everything breaks: castle walls, fences, trees, houses and other players' builds, and anything left hanging
+  collapses. A storm circle closes in over six phases, supply drops fall from the sky, and the last one standing
+  wins. Ride your board between fights with **B**. The world comes back whole when the match ends. Plays solo
+  against bots offline, and on phones with its own touch controls.
 
 ![The world map](assets/map.png)
 
@@ -91,6 +100,20 @@ map data and running in the browser. Every door and gate stands open.
 | `::skate Name` | challenge someone to S.K.A.T.E. (`::accept`, `::quit`) |
 
 A gamepad works too. Press **H** in game for the full list.
+
+### RuneRoyale controls
+
+| Key | Action |
+|---|---|
+| V | queue for a match (`::br`), `::leave` to quit |
+| Mouse | look (click to lock the pointer), left click fire, right click aim / scope |
+| WASD, SPACE | move, jump (jump off the dragon, open the glider) |
+| 1-6, wheel | hotbar |
+| E | open chests, pick up loot |
+| R | reload (rotate the piece in build mode) |
+| Q / F / C / V | build wall / floor / ramp / cone, click to place |
+| T, G | change material, edit a wall into a door |
+| B / M / ESC | board on or off, big map, menu |
 
 ## Running it
 
@@ -121,6 +144,8 @@ with `.gz` siblings, whenever they are missing or stale (a few seconds, gitignor
 ## Development
 
 - `bun test/sim.js` runs the headless physics checks (collisions, grinds, rune placement, regions, ragdoll, board).
+- `bun test/br.js` checks RuneRoyale on the real world: storm, dragon path, building and collapse, breaking and
+  restoring the world, full bot matches to a winner, and capped player messages.
 - `bun test/net.js` starts the server on a spare port and plays it: S.K.A.T.E. turns, park limits, spot claims.
 - `bun tools/spot-check.ts` checks every challenge spot is reachable from spawn.
 - `bun tools/pocket-check.ts` (after split) checks spawn and every teleport drop land in a big connected area, never a pocket you cannot skate out of.

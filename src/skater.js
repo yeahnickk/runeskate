@@ -833,6 +833,7 @@ export class Skater {
 
   solid(s, air) {
     if (this.noclip) return !!s.frontier;         // owner ::noclip: through everything except the edge of the loaded map
+    if (s.hi !== undefined && (this.y > s.hi - 0.05 || this.y + 1.6 < s.bot)) return false;   // a battle royale build wall: over it or under it
     if (s.kind === 'water') return !air;          // you can fly over the bank... and into the river
     // trees, statues, props: any real air carries you straight through (not realistic, but forests are for flowing)
     if (s.kind === 'block' && air && this.y - this.w.height(this.x, this.z) > P.treeClear) return false;

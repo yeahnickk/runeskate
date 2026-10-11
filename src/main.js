@@ -23,6 +23,7 @@ import { poseRider, rigDims } from './rig.js';
 import { Replay } from './replay.js';
 import { Parks } from './park.js';
 import { SPOTS_ALL } from './spots.js';
+import { BattleRoyale } from './br.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
@@ -363,6 +364,10 @@ async function main() {
     if (designer?.open) return;
     // start menu up: the game ignores keys (Enter on the menu skates, like the SKATE button)
     if (document.getElementById('start').style.display === 'flex') { if (e.key === 'Enter' && e.target?.tagName !== 'BUTTON') { e.preventDefault(); window.RS.autoLogin?.(); } return; }
+    if (br?.active) {                                       // RuneRoyale has the keys (chat still opens with Enter)
+      if (e.key === 'Enter' && net.online) { e.preventDefault(); openChat(); return; }
+      if (br.key(e)) return;
+    }
     if (e.key === 'Tab' || teleports?.open) {                // TAB: the teleport menu (with the leaderboard)
       e.preventDefault();
       if (e.repeat) return;
@@ -377,6 +382,7 @@ async function main() {
     audio.start();
     const k = e.key.toLowerCase();
     if (parks?.key(k, sk)) { e.preventDefault(); return; }
+    if (k === 'v') { br?.queue(); return; }                  // RuneRoyale (battle royale)
     keys.add(k); anyEdge = true;
     if (k === ' ') jumpEdge = true;
     const tricks = TRICK_KEYS;
@@ -399,7 +405,7 @@ async function main() {
     if (replay.key(k, shift) === 'record') { const why = replay.startRec(renderer.domElement); if (why) chatLog.push({ text: 'Replay: ' + why, col: '#f80', t: 0, msg: 1 }); }
   }
   replay.onKey = k => replayKey(k, false);
-  addEventListener('keyup', e => { keys.delete(e.key.toLowerCase()); });
+  addEventListener('keyup', e => { if (br?.active) br.keyup(e); keys.delete(e.key.toLowerCase()); });
   addEventListener('blur', () => keys.clear());
   const down = (...ks) => ks.some(k => keys.has(k));
   function readInput(first) {
@@ -421,7 +427,7 @@ async function main() {
   // in the air throws a trick. Double-length flicks do the double / 360 versions.
   let flick = null, gest = null;
   const gl = document.getElementById('gl');
-  gl.addEventListener('pointerdown', e => { if (e.button !== 0 || designer?.open || gest) return; audio.start(); gest = { id: e.pointerId, low: e.clientY, lowX: e.clientX, x0: e.clientX, y0: e.clientY, lowT: performance.now() }; });
+  gl.addEventListener('pointerdown', e => { if (e.button !== 0 || designer?.open || gest || br?.active) return; audio.start(); gest = { id: e.pointerId, low: e.clientY, lowX: e.clientX, x0: e.clientX, y0: e.clientY, lowT: performance.now() }; });
   addEventListener('pointermove', e => { if (gest && e.pointerId === gest.id && e.clientY > gest.low) { gest.low = e.clientY; gest.lowX = e.clientX; gest.lowT = performance.now(); } });
   addEventListener('pointercancel', e => { if (gest && e.pointerId === gest.id) gest = null; });
   addEventListener('pointerup', e => {
@@ -610,7 +616,7 @@ async function main() {
     press: k => { active(); audio.start(); if (k) fakeKey('keydown', k); },
     release: k => fakeKey('keyup', k),
     chat: () => net.online ? openChat() : hud.pop('CHAT NEEDS YOU ONLINE', '#f80'),
-    menu: [['Teleport', () => teleports.show(true)], ['Outfit', () => fakeKey('keydown', 'o')], ['Graphics', () => fakeKey('keydown', 'g')],
+    menu: [['Battle Royale', () => br.queue()], ['Teleport', () => teleports.show(true)], ['Outfit', () => fakeKey('keydown', 'o')], ['Graphics', () => fakeKey('keydown', 'g')],
       ['Respawn', () => fakeKey('keydown', 'r')], ['Wave', () => fakeKey('keydown', '1')], ['Cheer', () => fakeKey('keydown', '2')],
       ['Dance', () => fakeKey('keydown', '3')], ['Clap', () => fakeKey('keydown', '5')]],
   }) : null;
@@ -680,6 +686,7 @@ async function main() {
        chatLog.push({ text: `${m.name} owns ${sp} (${m.score.toLocaleString()})` + (m.prev ? ` - taken from ${m.prev}` : ''), col: '#ff0', t: 0 });
      })
      .on('skate', m => skateEvent(m))
+     .on('br', m => br?.rx(m))
      .on('rejoined', w => { parks.load(w.parks); spotOwn = w.spots || spotOwn; me.xp = Math.max(me.xp, w.xp); chatLog.push({ text: 'Reconnected.', col: '#0f0', t: 0 }); });
   const SNAP = ['x', 'y', 'z', 'heading', 'body', 'boardYaw', 'boardRoll', 'charge', 'airTime', 'pushing', 'tumble', 'tumbleAxis', 'speed', 'manual', 'lean', 'balance', 'vy', 'grabT'];
   function snapshot() {
@@ -714,8 +721,10 @@ async function main() {
     const info = text => chatLog.push({ text, col: '#0ff', t: 0, msg: 1 });
     if (c.startsWith('skate')) { const n = c.slice(5).trim(); if (!n) info('::skate <name> challenges someone to a game of S.K.A.T.E.'); else net.send({ t: 'skate', op: 'challenge', name: n }); return; }
     if (c === 'accept') { net.send({ t: 'skate', op: 'accept' }); return; }
+    if (c === 'br' || c === 'royale') { br.queue(); return; }
+    if (c === 'leave') { if (br.active) br.exit(true); else info('Not in a RuneRoyale match.'); return; }
     if (c === 'quit') { if (skGame) net.send({ t: 'skate', op: 'quit' }); else info('Not in a game.'); return; }
-    if (c === 'help' || c === 'commands') { info('Commands: ::skate <name> · ::accept · ::quit' + (canNoclip ? ' · ::noclip' : '')); return; }
+    if (c === 'help' || c === 'commands') { info('Commands: ::br (battle royale) · ::leave · ::skate <name> · ::accept · ::quit' + (canNoclip ? ' · ::noclip' : '')); return; }
     if (c === 'noclip' && canNoclip) { sk.noclip = !sk.noclip; chatLog.push({ text: 'Noclip ' + (sk.noclip ? 'ON - skate through anything.' : 'OFF.'), col: me.own ? GOLD : '#0ff', crown: !!me.own, t: 0, msg: 1 }); }
     else if (c === 'noclip') chatLog.push({ text: `Collect all ${goals.runes.length} runes to unlock ::noclip (${goals.status().runes}/${goals.runes.length}).`, col: '#f00', t: 0, msg: 1 });
     else chatLog.push({ text: 'Unknown command. ::help lists them.', col: '#f00', t: 0, msg: 1 });
@@ -1158,6 +1167,8 @@ async function main() {
   const v = new THREE.Vector3();
   window.RS.eventsLog = [];
   function tick(dt) {
+    if (br?.active) { brTick(dt); return; }
+    hud.br = null;
     if (trickTimer > 0 && (trickTimer -= dt) <= 0 && sk.mode !== 'air') pendingTrick = null;
     acc += dt;
     let firstStep = true;
@@ -1176,6 +1187,7 @@ async function main() {
     teleports.update(dt);
     drawSkater(dt);
     updateRemotes(dt);
+    br?.postDraw();
     net.state(snapshot(), performance.now());
     updateCamera(dt, first); first = false;
     lighting.update(_lfocus.set(sk.x, sk.y, -sk.z), dt);
@@ -1192,7 +1204,7 @@ async function main() {
     } else renderer.render(scene, camera);
     hud.tags.length = 0;
     const tag = (x, y, z, text, col, sub, crown) => { v.set(x, y, -z).project(camera); if (v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2) hud.tags.push({ text, col, sub, crown, screen: [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight] }); };
-    for (const r of remotes.values()) if (r.s && Math.hypot(r.s.x - sk.x, r.s.z - sk.z) < 14) {   // tags only for skaters near you
+    for (const r of remotes.values()) if (r.s && !r.tgt?.br && Math.hypot(r.s.x - sk.x, r.s.z - sk.z) < 14) {   // tags only for skaters near you
       const said = say.get(r.id);
       if (r.own) tag(r.s.x, r.s.y + 2.35, r.s.z, `[OWNER] ${r.name} (level-${levelFor(r.xp)})`, GOLD, said ? said.text : null, true);
       else tag(r.s.x, r.s.y + 2.35, r.s.z, `${r.name} (level-${levelFor(r.xp)})`, '#fff', said ? said.text : null);
@@ -1210,12 +1222,57 @@ async function main() {
     hud.playing = net.online ? net.players.size + 1 : 0;   // live skaters on the server, you included
     hud.miniDots.length = 0;
     hud.miniDots.push(...goals.dots());
-    for (const r of remotes.values()) if (r.s) hud.miniDots.push({ x: r.s.x, z: r.s.z, col: '#fff', r: 2 });
+    for (const r of remotes.values()) if (r.s && !r.tgt?.br) hud.miniDots.push({ x: r.s.x, z: r.s.z, col: '#fff', r: 2 });
     hud.goal = goals.status();
     skPanel(dt);
     buildBar();
     hud.touch = !!touch; hud.draw(dt, sk, cfg);
   }
+  // ---------------- RuneRoyale (src/br.js): the match drives the skater, the camera and the HUD
+  function skateStep(dt) {                                // riding your board in a match: the normal skate physics
+    acc += dt; let firstStep = true;
+    while (acc >= DT) {
+      world.probeY = sk.y;                                  // (build floors and ramps are rideable)
+      sk.step(DT, readInput(firstStep)); sk.tickCombo(DT);
+      if (firstStep) { jumpEdge = false; anyEdge = false; }
+      firstStep = false; acc -= DT;
+    }
+    world.probeY = -Infinity; sk.events.length = 0;
+  }
+  function skKey(k, on) {
+    if (on) { if (!keys.has(k)) { keys.add(k); anyEdge = true; if (k === ' ') jumpEdge = true; } }
+    else keys.delete(k);
+  }
+  function brTick(dt) {
+    br.tick(dt);
+    for (const n of npcs) n.m.group.visible = false;      // (the monsters sit a match out)
+    drawSkater(dt);
+    updateRemotes(dt);
+    br.postDraw();
+    const o = snapshot(); br.snap(o); net.state(o, performance.now());
+    br.camera(dt, first); first = false;
+    lighting.update(_lfocus.set(sk.x, sk.y, -sk.z), dt);
+    placeShadow(myShadow, sk.x, sk.y, sk.z, br.alive && br.ph !== 'bus');
+    audio.update(sk, dt);
+    for (const s of hud.splats) {
+      v.set(s.gob.x, world.height(s.gob.x, s.gob.z) + 2.1, -s.gob.z).project(camera);
+      s.screen = v.z < 1 ? [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight] : null;
+    }
+    renderer.render(scene, camera);
+    hud.tags.length = 0;
+    for (const [id, m] of say) { m.t += dt; if (m.t > 5) say.delete(id); }
+    hud.chat = chatLog; hud.me = me; hud.mini = miniMap; hud.br = br; hud.touch = !!touch;
+    hud.draw(dt, sk, cfg);
+  }
+  var br = new BattleRoyale({
+    THREE, scene, camera, renderer, world, wjson, sk, hud, audio, net, me, CH, chunkMeshes, nearOccluders, cullChunks, remotes, addRemote, dropRemote,
+    TOUCH, touch, teleports, lighting, loadRSModel, skateStep, skKey, keys, unblock, addXP,
+    say: (text, col) => chatLog.push({ text, col, t: 0, msg: 1 }),
+    player: () => player, board: () => board, get myShadow() { return myShadow; },
+    emote: n => startEmote(n), shake: x => { shake = Math.max(shake, x); },
+  });
+  window.RS.br = br;
+
   // adaptive resolution: if frames run long for a second, render fewer pixels (down to 55%); step back up
   // once there's headroom. Keeps slower laptops smooth without making fast machines look worse.
   // A canvas resize blanks the drawing buffer, so the change is only APPLIED at the start of a frame, right
@@ -1240,8 +1297,8 @@ async function main() {
     const dt = Math.min(0.1, gap / 1000); last = now;
     if (pendingRes) { resScale = pendingRes; pendingRes = 0; renderer.setPixelRatio(BASE_DPR * resScale); needResize = true; }
     if (needResize) { needResize = false; resize(); }
-    if (touch) { const on = playing && !replay.open && !designer.open && !teleports.open && $('chatbox').style.display !== 'block'; if (on !== touch.on) { touch.on = on; touch.show(on); } }
-    if (playing) { const b = !replay.open && !designer.open; if (b !== teleports.shown) teleports.ready(teleports.shown = b); }
+    if (touch) { const on = playing && !replay.open && !designer.open && !teleports.open && !br.active && $('chatbox').style.display !== 'block'; if (on !== touch.on) { touch.on = on; touch.show(on); } }
+    if (playing) { const b = !replay.open && !designer.open && !br.active; if (b !== teleports.shown) { teleports.ready(teleports.shown = b); } br.showBtn(b); }
     if (replay.open) replayTick(dt);
     else if (!window.RS.paused) { tick(dt); if (gap < 250) adaptResolution(gap, dt); }
   }

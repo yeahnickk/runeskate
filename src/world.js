@@ -21,7 +21,10 @@ export class World {
     this.rails = [];
     this.railGrid = new Map();
     this.trunkGrid = new Map();
-    this.ramps = new Map();                                // tz*N+tx -> Create-a-Park kicker on that tile (src/park.js)                            // 'tx,tz' -> [{x, z, r}]: tree trunks, measured by tools/build.py
+    this.ramps = new Map();                                // tz*N+tx -> Create-a-Park kicker on that tile (src/park.js)
+    // battle royale builds (src/br-core.js): floors, ramps and roofs you can stand on, by build cell. height()
+    // only counts one at or a step below probeY (the height of whoever is asking), so you can walk under them.
+    this.decks = new Map(); this.deckById = new Map(); this.probeY = -Infinity;
     this.regions = json.regions || [];
     this.loaded = new Set();
     this.rects = [];
@@ -159,11 +162,37 @@ export class World {
     tx = Math.max(0, Math.min(N - 1, tx)); tz = Math.max(0, Math.min(N - 1, tz));
     const u = Math.min(1, Math.max(0, x - tx)), v = Math.min(1, Math.max(0, z - tz));
     const o = (tx * N + tz) * 4, g = this.ground;
-    const h = (g[o] * (1 - u) + g[o + 1] * u) * (1 - v) + (g[o + 3] * (1 - u) + g[o + 2] * u) * v;
-    if (!this.ramps.size) return h;
-    const r = this.ramps.get(tz * N + tx);
-    return r ? h + r.rise * Math.max(0, Math.min(1, ((gx - r.x0) * r.dx + (gz - r.z0) * r.dz) / r.len)) : h;   // (a ramp is in game units)
+    let h = (g[o] * (1 - u) + g[o + 1] * u) * (1 - v) + (g[o + 3] * (1 - u) + g[o + 2] * u) * v;
+    if (this.ramps.size) {
+      const r = this.ramps.get(tz * N + tx);
+      if (r) h += r.rise * Math.max(0, Math.min(1, ((gx - r.x0) * r.dx + (gz - r.z0) * r.dz) / r.len));   // (a ramp is in game units)
+    }
+    if (this.decks.size && this.probeY > -1e8) {
+      const l = this.decks.get(Math.floor(gx / DECK_G) + ',' + Math.floor(gz / DECK_G));
+      if (l) for (const d of l) { const t = deckTop(d, gx, gz); if (t > h && t <= this.probeY + 0.8) h = t; }
+    }
+    return h;
   }
+
+  /** a battle royale floor / ramp / roof: { id, k, i, j, y, d, G, H } */
+  addDeck(d) {
+    const k = d.i + ',' + d.j;
+    if (!this.decks.has(k)) this.decks.set(k, []);
+    this.decks.get(k).push(d); this.deckById.set(d.id, d);
+  }
+  removeDeck(id) {
+    const d = this.deckById.get(id); if (!d) return;
+    this.deckById.delete(id);
+    const k = d.i + ',' + d.j, l = this.decks.get(k).filter(x => x !== d);
+    if (l.length) this.decks.set(k, l); else this.decks.delete(k);
+  }
+  clearDecks() { this.decks.clear(); this.deckById.clear(); }
+  /** put a rail / a tree trunk back (after a battle royale broke it) */
+  addRail(r) {
+    this.rails.push(r);
+    for (const cell of cellsAlong(r.ax, r.az, r.bx, r.bz, 1)) { if (!this.railGrid.has(cell)) this.railGrid.set(cell, []); this.railGrid.get(cell).push(r); }
+  }
+  addTrunk(t) { const k = Math.floor(t.x) + ',' + Math.floor(t.z); if (!this.trunkGrid.has(k)) this.trunkGrid.set(k, []); this.trunkGrid.get(k).push(t); }
 
   /** Create-a-Park: a rail/ledge (rails + collision walls) or a kicker (a ramp on the ground). Undo with removePark */
   addPark(id, { rails = [], segs = [], ramp = null }) {
@@ -229,6 +258,15 @@ export class World {
       }
     return out;
   }
+}
+
+const DECK_G = 3;                                          // = BR.G (src/br-core.js)
+/** the walkable top of a build deck at (x, z): floors are flat, ramps rise toward d (0 +x, 1 +z, 2 -x, 3 -z), roofs peak */
+export function deckTop(d, x, z) {
+  const u = Math.max(0, Math.min(1, x / d.G - d.i)), v = Math.max(0, Math.min(1, z / d.G - d.j));
+  if (d.k === 'floor') return d.y;
+  if (d.k === 'ramp') return d.y + d.H * [u, v, 1 - u, 1 - v][d.d];
+  return d.y + d.H * 0.5 * (1 - 2 * Math.max(Math.abs(u - 0.5), Math.abs(v - 0.5)));
 }
 
 /** top height of a single rail segment at parameter u (samples at 0.15/0.5/0.85) */

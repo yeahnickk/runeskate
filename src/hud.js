@@ -122,6 +122,7 @@ export class HUD {
     const x = this.x, W = this.c.width, H = this.c.height;
     x.clearRect(0, 0, W, H);
     const K = Math.max(2, Math.round(Math.min(W, H) / 300));
+    if (this.br) { this.br.drawHud(this, x, W, H, K); return this.drawCommon(dt, K, W, H, cfg); }
     // score (RS yellow, top left, like the xp drops)
     this.text('SCORE ' + sk.score.toLocaleString(), 16, 14, '#ff0', K);
     this.text('BEST COMBO ' + sk.stat.bestCombo.toLocaleString(), 16, 14 + K * 12, '#ff981f', Math.max(2, K - 1), 'l', 'p12');
@@ -166,6 +167,12 @@ export class HUD {
       this.text(`ONLINE (${this.online.length})`, W - 16, 14 + k1 * 24, '#ff981f', k1, 'r', 'p12');
       this.online.slice(0, 12).forEach((n, i) => this.text(n, W - 16, 14 + k1 * 35 + i * k1 * 10, i ? '#fff' : '#0ff', k1, 'r', 'p12', 0.85));
     }
+    this.drawCommon(dt, K, W, H, cfg, sk);
+  }
+
+  /** what every mode shows: name tags, chat, pops, hitsplats, the big message */
+  drawCommon(dt, K, W, H, cfg, sk = null) {
+    const x = this.x, k1 = Math.max(1, K - 1);
     // name tags + overhead chat
     for (const t of this.tags) {
       if (t.text) { const w = this.text(t.text, t.screen[0], t.screen[1], t.col, k1, 'c', 'p12'); if (t.crown) this.crown(t.screen[0] - w / 2 - 14 * k1, t.screen[1], k1); }
@@ -175,7 +182,7 @@ export class HUD {
     // (ENTER) the whole history shows, scrollable with the mouse wheel.
     for (const c of this.chat) c.t += dt;
     const life = c => c.old ? 0 : c.msg ? 120 : 10;
-    const lineH = k1 * 11, baseY = H - 34 - K * 10 - (this.chatOpen ? 30 : 0);
+    const lineH = k1 * 11, baseY = H - 34 - K * 10 - (this.chatOpen ? 30 : 0) - (this.br ? 60 : 0);   // (battle royale: above the health bars)
     let rows;
     if (this.chatOpen) {
       const hist = this.chat.filter(c => c.msg || c.t < 10), n = 10;
@@ -193,6 +200,12 @@ export class HUD {
       let cx = 16; if (c.crown) { this.x.globalAlpha = a; cx += this.crown(16, y, k1) + 3 * k1; this.x.globalAlpha = 1; }
       this.text(c.text, cx, y, c.col, k1, 'l', 'p12', a);
     });
+    if (sk) this.drawSkate(dt, K, W, H, sk);
+    this.drawPops(dt, K, W, H, cfg);
+  }
+
+  drawSkate(dt, K, W, H, sk) {
+    const x = this.x;
     // live combo
     if (sk.combo.length || (sk.mode === 'grind')) {
       const names = sk.combo.slice(-4).join(' + ') + (sk.mode === 'grind' ? (sk.combo.length ? ' + ' : '') + sk.grindKind : '');
@@ -217,6 +230,10 @@ export class HUD {
       x.fillStyle = 'rgba(0,0,0,0.5)'; x.fillRect(W / 2 - 42, H * 0.3, 84, 8);
       x.fillStyle = '#ff0'; x.fillRect(W / 2 - 40, H * 0.3 + 2, 80 * sk.charge, 4);
     }
+  }
+
+  drawPops(dt, K, W, H, cfg) {
+    const x = this.x;
     // floating trick pops: a few slots under the top bar, each line glides to its slot as older ones leave
     const POP_LIFE = 1.3, POP_MAX = 2;
     for (const p of this.pops) p.t += dt;
@@ -253,6 +270,7 @@ export class HUD {
         if (m.sub) this.text(m.sub, W / 2, H * 0.38 + K * 30, '#fff', K, 'c', 'p12', a);
       }
     }
+    if (this.br) return;
     if (this.board) this.drawBoard(K);
     if (cfg.help) this.drawHelp(K);
     else if (!this.touch) this.text('H: controls', 16, H - 16 - K * 10, '#ff981f', Math.max(1, K - 1), 'l', 'p12', 0.75);
@@ -260,7 +278,7 @@ export class HUD {
 
   /** RS-style round minimap, north up, centred on the skater */
   drawMini(right, top, K, sk) {
-    const x = this.x, m = this.mini, R = Math.round(34 * Math.max(2, K)), span = 40;   // span = tiles from centre to rim
+    const x = this.x, m = this.mini, R = Math.round(34 * Math.max(2, K)), span = this.miniSpan || 40;   // span = tiles from centre to rim
     const S = m.S || 1, cx = right - R - 4, cy = top + R + 4, sc = R / span / S;   // (the map canvas is in tiles, positions in game units)
     x.save();
     x.beginPath(); x.arc(cx, cy, R, 0, Math.PI * 2); x.clip();
@@ -274,6 +292,10 @@ export class HUD {
       if (Math.hypot(px - cx, py - cy) > R - 3) continue;
       x.fillStyle = '#000'; x.fillRect(px - d.r - 1, py - d.r - 1, d.r * 2 + 2, d.r * 2 + 2);
       x.fillStyle = d.col; x.fillRect(px - d.r, py - d.r, d.r * 2, d.r * 2);
+    }
+    for (const g of this.miniRings || []) {                // battle royale: the storm circles
+      x.strokeStyle = g.col; x.lineWidth = g.w || 2;
+      x.beginPath(); x.arc(cx + (g.x - sk.x) * sc, cy - (g.z - sk.z) * sc, Math.max(1, g.r * sc), 0, Math.PI * 2); x.stroke();
     }
     // you: a white arrow along the heading
     const a = -sk.heading;

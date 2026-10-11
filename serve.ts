@@ -11,6 +11,8 @@ import { EXTRA_SPAWNS } from './src/npc-spawns.js';
 import { SPOTS_ALL } from './src/spots.js';
 import { cleanPark, footprint, PARK_PER, PARK_MAX } from './src/park-shape.js';
 import { nearFarPlan } from './src/nearfirst.js';
+import { World } from './src/world.js';
+import { BRMatch, BR } from './src/br-core.js';
 const ROOT = import.meta.dir;
 const port = Number(process.argv[2] || process.env.PORT || 8123);
 
@@ -132,7 +134,8 @@ const MAP_HTML = readFileSync(join(ROOT, 'map.html'), 'utf8');
     console.log(`near-first world split in ${((performance.now() - t0) / 1000).toFixed(1)}s: near ${(statSync(out[0] + '.gz').size / 1e6).toFixed(1)} MB gz, far ${(statSync(out[1] + '.gz').size / 1e6).toFixed(1)} MB gz`);
   }
 }
-const CORE_JSON = (({ name, title, x0, z0, w, h, baseX, baseZ, regions }) => ({ name, title, x0, z0, w, h, baseX, baseZ, regions }))(JSON.parse(readFileSync(join(ROOT, 'assets', 'world.json'), 'utf8')));
+const WORLD_JSON = JSON.parse(readFileSync(join(ROOT, 'assets', 'world.json'), 'utf8'));
+const CORE_JSON = (({ name, title, x0, z0, w, h, baseX, baseZ, regions }) => ({ name, title, x0, z0, w, h, baseX, baseZ, regions }))(WORLD_JSON);
 const BASE = [CORE_JSON.baseX, CORE_JSON.baseZ];
 const MAP_STATIC = (() => {
   const npcs: Record<string, number[][]> = {};
@@ -249,6 +252,59 @@ function skateMsg(s: Sess, m: any) {
   }
 }
 
+// ------------------------------------------------------------------ RuneRoyale (battle royale, src/br-core.js)
+// One match at a time. ::br / V / the button queues you; the lobby waits BR.LOBBY seconds (5 once everyone online
+// has queued), tops the match up with bots and runs it here at 20 Hz. The collision world it plays on is made
+// once (the first match) and put back the way it was after each one.
+let brWorld: any = null, brMatch: any = null, brLobbyT = 0;
+const brQueue = new Set<number>(), brIds = new Set<number>();
+function brSend(to: any, msg: any, except?: any) {
+  const m = JSON.stringify({ ...msg, t: 'br' });                    // (t is the message type: match messages never use it)
+  if (to == null) { for (const id of brIds) if (id !== except) sessions.get(id)?.ws.send(m); }
+  else sessions.get(to)?.ws.send(m);
+}
+function brLobby() {
+  const m = JSON.stringify({ t: 'br', op: 'lobby', n: brQueue.size, secs: Math.max(0, brLobbyT), running: !!brMatch });
+  for (const id of brQueue) sessions.get(id)?.ws.send(m);
+}
+function brStart() {
+  brWorld ||= new World(WORLD_JSON, { scale: WORLD_SCALE });
+  brIds.clear();
+  brMatch = new BRMatch({ world: brWorld, send: brSend });
+  for (const id of brQueue) { const s = sessions.get(id); if (s && brMatch.join(id, s.name, { outfit: s.outfit })) brIds.add(id); }
+  brQueue.clear();
+  brMatch.fillBots(); brMatch.start();
+  console.log(`RuneRoyale: match started with ${brIds.size} player(s) + ${BR.SIZE - brIds.size} bots`);
+}
+setInterval(() => {
+  if (brMatch || !brQueue.size) return;
+  for (const id of [...brQueue]) if (!sessions.has(id)) brQueue.delete(id);
+  if (!brQueue.size) return;
+  if (brQueue.size >= sessions.size) brLobbyT = Math.min(brLobbyT, 5);   // everyone online is in: no need to wait
+  brLobbyT -= 1;
+  if (brLobbyT <= 0) brStart(); else brLobby();
+}, 1000);
+let brLast = performance.now();
+setInterval(() => {
+  const now = performance.now(), dt = Math.min(0.25, (now - brLast) / 1000); brLast = now;   // real time, even when the loop runs late
+  if (!brMatch) return;
+  if (brMatch.state !== 'over' && !brIds.size) { brMatch.state = 'over'; brMatch.overT = 99; }   // nobody left to watch: the bots go home
+  try { brMatch.tick(dt); } catch (e) { console.error('RuneRoyale tick', e); brMatch.state = 'over'; brMatch.overT = 99; }
+  if (brMatch.state === 'over' && brMatch.overT > BR.END_WAIT + 3) {
+    brMatch.reset(); brMatch = null; brIds.clear();
+    if (brQueue.size) { brLobbyT = BR.LOBBY; brLobby(); }
+  }
+}, 50);
+function brMsg(s: Sess, m: any) {
+  if (m.op === 'join') {
+    if (brIds.has(s.id) || brQueue.has(s.id)) return;
+    if (!brQueue.size) brLobbyT = BR.LOBBY;
+    brQueue.add(s.id); brLobby();
+  } else if (m.op === 'unjoin') { brQueue.delete(s.id); s.ws.send(JSON.stringify({ t: 'br', op: 'left' })); brLobby(); }
+  else if (m.op === 'done') { if (brMatch && brIds.has(s.id)) { brMatch.msg(s.id, { op: 'leave' }); brIds.delete(s.id); } }
+  else if (brMatch && brIds.has(s.id)) brMatch.msg(s.id, m);
+}
+
 Bun.serve({
   port,
   async fetch(req, server) {
@@ -320,6 +376,7 @@ Bun.serve({
       }
       if (m.t === 'st') {                                       // ~15 Hz skater state, relayed verbatim (small)
         s.st = m.s; broadcast({ t: 'st', id: s.id, s: m.s }, s.id);
+        if (brMatch && brIds.has(s.id) && m.s) brMatch.pos(s.id, +m.s.x, +m.s.y, +m.s.z);
       } else if (m.t === 'xp') {                                 // banked combo points
         const now = Date.now();
         s.bucket = Math.min(XP_PER_MIN, (s.bucket ?? XP_PER_MIN) + (now - (s.bucketAt || now)) / 60_000 * XP_PER_MIN); s.bucketAt = now;
@@ -370,6 +427,8 @@ Bun.serve({
         const cur = spotBest[id]; if (cur && cur.score >= score) return;
         spotBest[id] = { name: s.name, score, t: Date.now() }; spotsDirty = true;
         broadcast({ t: 'spot', id, name: s.name, score, prev: cur && cur.name !== s.name ? cur.name : null });
+      } else if (m.t === 'br') {                                 // RuneRoyale
+        brMsg(s, m);
       } else if (m.t === 'skate') {                              // Game of S.K.A.T.E.
         skateMsg(s, m);
       } else if (m.t === 'say') {
@@ -383,6 +442,8 @@ Bun.serve({
         sessions.delete(s.id); broadcast({ t: 'leave', id: s.id });
         const g = games.get(s.id); if (g) gEnd(g, g.p[g.p[0] === s ? 1 : 0], `${s.name} left`, false);
         invites.delete(s.id);
+        brQueue.delete(s.id);
+        if (brMatch && brIds.has(s.id)) { brMatch.msg(s.id, { op: 'leave' }); brIds.delete(s.id); }
       }
     },
   },

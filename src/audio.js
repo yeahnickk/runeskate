@@ -96,6 +96,31 @@ export class SkateAudio {
       case 'manual': case 'grab': this.burst(1800, 0.05, 0.12, 'highpass'); break;
       case 'levelup': this.tone(523, 1046, 0.5, 0.25, 'triangle'); this.tone(659, 1318, 0.6, 0.18, 'triangle'); break;
       case 'stomp': this.tone(300, 80, 0.2, 0.5); this.burst(900, 0.2, 0.9); break;
+      // battle royale (src/br.js); v = loudness by distance
+      case 'shot': {
+        const v = e.v ?? 1, w = e.w;
+        if (w === 'smg') { this.burst(2600, 0.07, 0.5 * v, 'bandpass', 2); this.tone(900, 300, 0.05, 0.12 * v, 'triangle'); }
+        else if (w === 'ar') { this.burst(1400, 0.1, 0.8 * v, 'bandpass', 1.5); this.tone(220, 70, 0.08, 0.3 * v); }
+        else if (w === 'shotgun') { this.burst(700, 0.3, 1.0 * v); this.tone(160, 40, 0.25, 0.4 * v, 'sawtooth'); }
+        else if (w === 'sniper') { this.burst(1100, 0.5, 1.0 * v); this.tone(300, 50, 0.35, 0.45 * v, 'sawtooth'); }
+        else if (w === 'rocket') { this.burst(500, 0.6, 0.7 * v); this.tone(140, 260, 0.5, 0.2 * v, 'sawtooth'); }
+        else this.burst(1600, 0.08, 0.4 * v, 'bandpass', 3);
+        break;
+      }
+      case 'boom': this.burst(240, 1.2, Math.min(1, e.v ?? 1)); this.tone(90, 30, 0.9, 0.6 * (e.v ?? 1), 'sawtooth'); break;
+      case 'hitmark': this.tone(e.hd ? 1900 : 1400, e.hd ? 2400 : 1500, 0.06, 0.18, 'square'); break;
+      case 'hurt': this.tone(200, 90, 0.18, 0.35, 'sawtooth'); this.burst(600, 0.12, 0.5); break;
+      case 'shieldhit': this.tone(1200, 500, 0.12, 0.2, 'triangle'); break;
+      case 'build': this.burst(900, 0.09, 0.5, 'bandpass', 2); this.tone(260, 140, 0.07, 0.2, 'square'); break;
+      case 'chop': this.burst(e.mat === 'stone' ? 2200 : e.mat === 'metal' ? 3400 : 1200, 0.1, 0.6, 'bandpass', 4); break;
+      case 'crumble': this.burst(350, 0.7, 0.8); this.burst(1600, 0.3, 0.3, 'bandpass', 2); break;
+      case 'chest': this.tone(784, 1568, 0.3, 0.2, 'triangle'); this.tone(988, 1976, 0.4, 0.15, 'sine'); break;
+      case 'pickup': this.tone(660, 880, 0.08, 0.15, 'triangle'); break;
+      case 'reload': this.burst(2800, 0.04, 0.3, 'bandpass', 6); this.burst(1900, 0.05, 0.3, 'bandpass', 6); break;
+      case 'eat': this.burst(800, 0.15, 0.3, 'bandpass', 3); break;
+      case 'elim': this.tone(440, 880, 0.15, 0.25, 'triangle'); this.tone(660, 1320, 0.3, 0.2, 'triangle'); break;
+      case 'glide': this.burst(400, 0.4, 0.4); break;
+      case 'victory': for (const [a, b, d] of [[523, 523, 0.3], [659, 659, 0.45], [784, 1568, 0.9]]) this.tone(a, b, d, 0.22, 'triangle'); break;
     }
   }
 }
