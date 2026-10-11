@@ -321,7 +321,7 @@ const BUILD = {
     k.lathe([[340, 12], [560, 12], [560, 14], [600, 14], [600, 0]], 'park', { v: B });
     k.ext([[350, 50], [520, 50], [520, 58], [350, 60]], 40, 'black');                               // heat shield
     k.ext([[520, 46], [544, 46], [540, 112], [526, 112]], 16, 'black');                             // front sight
-    k.ext([[160, 96], [180, 96], [178, 130], [40, 134], [20, 130], [20, 112], [140, 112], [160, 108]], 18, 'black', { bevel: 3 });   // carry handle
+    k.ext([[160, 60], [180, 60], [178, 96], [40, 100], [20, 96], [20, 80], [140, 80], [160, 74]], 14, 'black', { bevel: 3, x: -40 });   // carry handle: folded down the left side, clear of the sight line (it used to stand in front of the eye)
     for (const x of [-12, 12]) k.ext([[400, 24], [600, 22], [600, 14], [400, 16]], 6, 'black', { x });   // folded bipod legs
     grip(k, -44, 4); guard(k, -38, 0);
     k.ext([[-170, 56], [-360, 52], [-380, 40], [-384, -46], [-360, -48], [-300, -10], [-170, 0]], 46, 'poly', { bevel: 5 });
