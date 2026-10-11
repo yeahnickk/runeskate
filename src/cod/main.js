@@ -47,7 +47,7 @@ async function main() {
   scene.fog = new THREE.Fog(FOG, 45, 150);
   scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x4a4030, 1.1));
   const sun = new THREE.DirectionalLight(0xfff0d8, 1.3); sun.position.set(-30, 60, 40); scene.add(sun);
-  const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 400);
+  const camera = new THREE.PerspectiveCamera(70, 1, 0.15, 400);   // (near at 15 cm: you never get closer than the body radius, and the depth buffer gets 3x the precision)
 
   let gunEnv = gunEnvironment(renderer); scene.environment = gunEnv;   // (the world is unlit vertex colour: only the guns pick this up)
   const arena = await pArena;

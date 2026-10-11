@@ -35,7 +35,8 @@ The owner doesn't want CI or npm-script plumbing; just run the scripts above dir
 ## CODScape (cod.html, src/cod/)
 
 A first-person COD-style shooter vs bots in the Castle Wars arena; the home page opens on a game picker.
-- `arena.js` loads `assets/cw_arena.*` (cut by `tools/cw-arena.py`), builds the BVH collider, perimeter wall, nav graph.
+- `arena.js` loads `assets/cw_arena.*` (cut by `tools/cw-arena.py`, then `bun tools/cw-decals.ts` lifts RS's coplanar
+  face stacks so they don't shimmer up close), builds the BVH collider, perimeter wall, nav graph.
 - `body.js` movement (capsule vs BVH, step-up, slide, wading), `gunner.js` gun timelines, `weapons.js` stats,
   `game.js` match rules (pure, runs headless), `bots.js` AI, `soldier.js` third-person RS bodies + hit zones,
   `guns.js` procedural gun models (mm side profiles), `viewmodel.js` first-person arms/reloads, `hud.js`, `input.js`.
