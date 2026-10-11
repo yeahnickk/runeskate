@@ -70,6 +70,7 @@ const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swif
   check(locked, 'clicking the game locks the mouse');
   const pos = () => p.evaluate(() => ({ x: COD.me.body.pos.x, y: COD.me.body.pos.y, z: COD.me.body.pos.z, vy: COD.me.body.vel.y, sp: Math.hypot(COD.me.body.vel.x, COD.me.body.vel.z), ground: COD.me.body.onGround, sprint: COD.me.body.sprinting, crouch: COD.me.body.crouch, slide: COD.me.body.slide, yaw: COD.me.body.yaw, pitch: COD.me.body.pitch }));
   const gt = () => p.evaluate(() => COD.game.t);
+  const btn = (button, down) => p.evaluate(([button, down]) => { const c = document.getElementById('gl'); (down ? c : window).dispatchEvent(new MouseEvent(down ? 'mousedown' : 'mouseup', { button, bubbles: true })); }, [button, down]);
   const waitGame = async s => { const t0 = await gt(); await p.waitForFunction(([t0, s]) => COD.game.t >= t0 + s, [t0, s], { timeout: 400000 }); };
   // ---- movement
   let a = await pos(); await p.keyboard.down('KeyW'); await waitGame(0.8); let b1 = await pos();
@@ -123,7 +124,7 @@ const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swif
   await aimAt(); await waitGame(0.3); await aimAt();
   const ammo0 = await p.evaluate(() => COD.me.gunner.g.ammo);
   const evs = await p.evaluate(() => { COD._ev = []; const h = COD.game.events; const orig = COD.game.emit.bind(COD.game); COD.game.emit = e => { COD._ev.push({ t: e.t, what: e.what, zone: e.zone, kill: e.kill, f: e.f?.id, v: e.v?.id, tags: e.tags }); orig(e); }; return true; });
-  await p.mouse.down({ button: 'left' }); for (let i = 0; i < 10; i++) { await waitGame(0.1); await aimAt(); } await p.mouse.up({ button: 'left' });   // hold it on target, like a player fighting the kick
+  await btn(0, true); for (let i = 0; i < 10; i++) { await waitGame(0.1); await aimAt(); } await btn(0, false);   // hold it on target, like a player fighting the kick
   const after = await p.evaluate(id => ({ ammo: COD.me.gunner.g.ammo, hp: COD.game.fighters.find(f => f.id === id).hp, alive: COD.game.fighters.find(f => f.id === id).alive, ev: COD._ev.filter(e => e.t === 'hit' || e.t === 'kill' || e.t === 'shot').length }), target);
   check(after.ammo < ammo0, 'LMB fires (ammo goes down)', `${ammo0} -> ${after.ammo}`);
   check(!after.alive || after.hp < 100, 'bullets hit the enemy', `hp ${Math.round(after.hp)} alive ${after.alive}`);
@@ -131,10 +132,10 @@ const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swif
   check(await p.evaluate(() => COD.game.feed.length > 0 && COD.me.kills >= 1 && COD.game.score.sara + COD.game.score.zam >= 1), 'kill counts on the scoreboard + killfeed');
   await p.screenshot({ path: 'e2e-fire.png' });
   // ADS
-  await p.mouse.down({ button: 'right' }); await waitGame(0.5);
+  await btn(2, true); await waitGame(0.5);
   check(await p.evaluate(() => COD.me.gunner.ads > 0.95), 'RMB aims down sights');
   await p.screenshot({ path: 'e2e-ads.png' });
-  await p.mouse.up({ button: 'right' }); await waitGame(0.4);
+  await btn(2, false); await waitGame(0.4);
   // reload
   await p.evaluate(() => { COD.me.gunner.g.ammo = 5; });
   await p.keyboard.press('KeyR'); await waitGame(0.2);
@@ -144,7 +145,7 @@ const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swif
   check(await p.evaluate(() => COD.me.gunner.g.ammo === 30 && COD.me.gunner.phase === 'idle'), 'the reload finishes with a full mag', await p.evaluate(() => `${COD.me.gunner.g.ammo}/${COD.me.gunner.g.reserve} ${COD.me.gunner.phase}`));
   // empty mag reloads itself when you pull the trigger
   await p.evaluate(() => { COD.me.gunner.g.ammo = 0; });
-  await p.mouse.down({ button: 'left' }); await waitGame(0.2); await p.mouse.up({ button: 'left' });
+  await btn(0, true); await waitGame(0.2); await btn(0, false);
   check(await p.evaluate(() => COD.me.gunner.phase === 'reload' && COD.me.gunner.empty), 'an empty mag reloads itself (empty reload)');
   await waitGame(2.8);
   // swap
@@ -187,8 +188,8 @@ const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swif
   const aim3 = () => p.evaluate(id => { const g = COD.game, me = COD.me, e = g.fighters.find(f => f.id === id); const eye = me.eye(e.body.pos.clone()), t = e.body.pos.clone(); t.y += 1.28; const d = t.sub(eye).normalize(); me.body.yaw = Math.atan2(-d.x, -d.z); me.body.pitch = Math.asin(d.y); }, t3);
   await waitGame(0.5); await aim3();
   await p.evaluate(() => { COD._ev = []; });
-  await p.mouse.down({ button: 'right' }); await waitGame(0.42); await aim3(); await p.screenshot({ path: 'e2e-scope.png' });
-  await p.mouse.down({ button: 'left' }); await waitGame(0.05); await p.mouse.up({ button: 'left' }); await p.mouse.up({ button: 'right' }); await waitGame(0.2);
+  await btn(2, true); await waitGame(0.42); await aim3(); await p.screenshot({ path: 'e2e-scope.png' });
+  await btn(0, true); await waitGame(0.05); await btn(0, false); await btn(2, false); await waitGame(0.2);
   const qs = await p.evaluate(id => ({ dead: !COD.game.fighters.find(f => f.id === id).alive, tags: (COD._ev.find(e => e.t === 'kill') || {}).tags }), t3);
   check(qs.dead, 'the Intervention drops them in one shot', JSON.stringify(qs.tags) + ' ' + await state());
   check((qs.tags || []).includes('QUICKSCOPE'), 'a quick ADS kill counts as a QUICKSCOPE');
@@ -198,9 +199,9 @@ const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swif
   await p.evaluate(() => { COD._ev = []; COD.me.gunner.slots[0].w = { ...COD.me.gunner.slots[0].w, noscope: 0.01 }; });   // (a dead-on noscope, so the test is about the spin, not luck)
   const spin = await p.evaluate(() => COD.settings.sens);
   const px360 = Math.round(Math.PI * 2 / (0.0022 * spin)); let moved = 0; let mx = 640;
-  for (let i = 0; i < 20; i++) { await p.evaluate(dx => window.dispatchEvent(new MouseEvent('mousemove', { movementX: dx, movementY: 0 })), Math.round(px360 / 20)); await waitGame(0.02); }
+  for (let i = 0; i < 8; i++) { await p.evaluate(dx => window.dispatchEvent(new MouseEvent('mousemove', { movementX: dx, movementY: 0 })), Math.round(px360 / 8)); await waitGame(0.02); }
   await p.evaluate(id => { const g = COD.game, me = COD.me, e = g.fighters.find(f => f.id === id); const eye = me.eye(e.body.pos.clone()), t = e.body.pos.clone(); t.y += 1.28; const d = t.sub(eye).normalize(); const want = Math.atan2(-d.x, -d.z); let dy = want - me.body.yaw; dy = ((dy + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI; me.body.yaw += dy; me.body.pitch = Math.asin(d.y); }, t4);
-  await p.mouse.down({ button: 'left' }); await waitGame(0.05); await p.mouse.up({ button: 'left' }); await waitGame(0.2);
+  await btn(0, true); await waitGame(0.05); await btn(0, false); await waitGame(0.2);
   const ns = await p.evaluate(() => (COD._ev.find(e => e.t === 'kill') || {}).tags || []);
   check(ns.includes('360') && ns.includes('NOSCOPE'), 'spin 360 and noscope: 360 NOSCOPE', JSON.stringify(ns));
   // ---- bots: let them loose, they fight and score
@@ -247,15 +248,19 @@ const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swif
     window.__pad = pad; navigator.getGamepads = () => [pad];
   });
   await place(2420, 3098);
-  const g0 = await pos(); await waitGame(0.6); const g1 = await pos();
-  check(Math.hypot(g1.x - g0.x, g1.z - g0.z) > 1.5 && await p.evaluate(() => COD.input.device === 'pad'), 'gamepad: the left stick moves you', `${Math.hypot(g1.x - g0.x, g1.z - g0.z).toFixed(2)} ${await state()}`);
+  await p.evaluate(() => { window.VMAX = 0; const tick = () => { window.VMAX = Math.max(window.VMAX, Math.hypot(COD.me.body.vel.x, COD.me.body.vel.z)); requestAnimationFrame(tick); }; tick(); });
+  await waitGame(0.6);
+  const vmax = await p.evaluate(() => window.VMAX);
+  check(vmax > 4 && await p.evaluate(() => COD.input.device === 'pad'), 'gamepad: the left stick moves you', `top speed ${vmax.toFixed(2)} ${await state()}`);
   await p.evaluate(() => { window.__pad.axes = [0, 0, 0.8, 0]; });
   const gy0 = (await pos()).yaw; await waitGame(0.3); const gy1 = (await pos()).yaw;
   check(Math.abs(gy1 - gy0) > 0.2, 'gamepad: the right stick turns you', `${(gy1 - gy0).toFixed(2)} rad`);
-  await p.evaluate(() => { window.__pad.axes = [0, 0, 0, 0]; window.__pad.buttons[7] = { pressed: true, value: 1 }; });
-  const pa0 = await p.evaluate(() => COD.me.gunner.g.ammo + COD.me.gunner.g.reserve); await waitGame(0.6);
-  const pa1 = await p.evaluate(() => COD.me.gunner.g.ammo + COD.me.gunner.g.reserve);
-  check(pa1 < pa0, 'gamepad: RT fires', `${pa0} -> ${pa1}`);
+  await p.evaluate(() => { window.__pad.axes = [0, 0, 0, 0]; });
+  await p.waitForFunction(() => { const G = COD.me.gunner; return G.phase === 'idle' && G.cool <= 0 && G.g.chambered && G.g.ammo > 0; }, null, { timeout: 400000 });   // (a bolt gun is ready)
+  await p.evaluate(() => { window.PADSHOTS = 0; const o = COD.game.emit.bind(COD.game); COD.game.emit = e => { if (e.t === 'shot' && e.f === COD.me) window.PADSHOTS++; o(e); }; window.__pad.buttons[7] = { pressed: true, value: 1 }; });
+  await waitGame(0.4);
+  const ps = await p.evaluate(() => window.PADSHOTS);
+  check(ps >= 1, 'gamepad: RT fires', `${ps} shot(s)`);
   await p.evaluate(() => { window.__pad.buttons[7] = { pressed: false, value: 0 }; window.__pad.buttons[6] = { pressed: true, value: 1 }; });
   await waitGame(0.6);
   check(await p.evaluate(() => COD.me.gunner.ads > 0.9), 'gamepad: LT aims');

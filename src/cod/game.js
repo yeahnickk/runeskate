@@ -146,7 +146,7 @@ export class Game {
       else if (inp) {
         ({ move, gun } = inp);
         f.body.yaw += inp.look.dyaw; f.body.pitch = Math.max(-1.45, Math.min(1.45, f.body.pitch + inp.look.dpitch));
-        f.yawTrail.push([this.t, inp.look.dyaw]); while (f.yawTrail.length && f.yawTrail[0][0] < this.t - 1.2) f.yawTrail.shift();
+        f.yawTrail.push([this.t, inp.look.dyaw]); while (f.yawTrail.length && f.yawTrail[0][0] < this.t - 1.5) f.yawTrail.shift();   // (a 360 counts if the spin was within the last 1.5 s)
       } else { move = {}; gun = {}; }
       // recoil recovers toward where you were aiming (Call of Duty pulls most of it back down)
       const rec = f.recoil, k = Math.min(1, dt * 7);
