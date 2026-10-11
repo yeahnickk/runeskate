@@ -47,6 +47,11 @@ export const HEALS = {
   brew: { name: 'Saradomin brew', sh: 25, cap: 50, use: 1.8, stack: 6, col: '#fe8' },
   superdef: { name: 'Super defence', sh: 50, cap: 100, use: 3.5, stack: 3, col: '#6cf' },
 };
+// gadgets: a launch pad throws whoever steps on it into the sky (then they glide); a spike trap hurts the
+// next enemies to walk over it (3 goes, a couple of seconds apart)
+export const GADGETS = { pad: { name: 'Launch pad', stack: 1, col: '#4cf' }, trap: { name: 'Spike trap', stack: 3, col: '#ccc', dmg: 75, uses: 3 } };
+export const EDITS = { wall: ['', 'door', 'window', 'half'], floor: ['', 'hole'] };
+export const CART = { MAX: 15, RAM: 7 };    // mine carts: top speed, and the speed a ram starts to hurt at
 export const MATS = { wood: { name: 'Wood', hp: 150, col: 0x9a6a3a }, stone: { name: 'Stone', hp: 300, col: 0x8a8a8e }, metal: { name: 'Metal', hp: 500, col: 0x6a7a8e } };
 export const MAT_ORDER = ['wood', 'stone', 'metal'];
 export const BUILD_COST = 10, MAT_MAX = 999;
@@ -127,20 +132,22 @@ export function rollWeapon(r, bonus = 0) {
 }
 export const ammoFor = (w, k = 1) => ({ t: 'a', a: WEAPONS[w].ammo, n: AMMO_PACK[WEAPONS[w].ammo] * k });
 const rollHeal = r => { const h = pickW(r, [['shrimp', 34], ['shark', 14], ['brew', 34], ['superdef', 18]]); return { t: 'h', h, n: h === 'shrimp' ? 5 : h === 'brew' ? 3 : 1 }; };
+const rollGadget = r => { const g = r() < 0.5 ? 'pad' : 'trap'; return { t: 'g', g, n: g === 'trap' ? 2 : 1 }; };
 const rollAmmo = r => { const a = pickW(r, [['arrows', 30], ['bolts', 30], ['death', 24], ['dragon', 10], ['fire', 6]]); return { t: 'a', a, n: AMMO_PACK[a] }; };
 /** what a chest / floor spot / ammo box / supply drop holds */
 export function rollLoot(r, kind) {
   if (kind === 'chest') {
     const w = rollWeapon(r, 1), out = [w, ammoFor(w.w)];
     if (r() < 0.7) out.push(rollHeal(r));
+    if (r() < 0.22) out.push(rollGadget(r));
     out.push({ t: 'm', m: 'wood', n: 30 });
     return out;
   }
   if (kind === 'ammo') return [rollAmmo(r), rollAmmo(r)];
-  if (kind === 'supply') { const w = rollWeapon(r, 3); return [w, ammoFor(w.w, 2), { t: 'h', h: 'superdef', n: 2 }, { t: 'm', m: 'stone', n: 60 }, { t: 'm', m: 'metal', n: 40 }]; }
+  if (kind === 'supply') { const w = rollWeapon(r, 3); return [w, ammoFor(w.w, 2), { t: 'h', h: 'superdef', n: 2 }, { t: 'g', g: 'pad', n: 1 }, { t: 'm', m: 'stone', n: 60 }, { t: 'm', m: 'metal', n: 40 }]; }
   const x = r();
   if (x < 0.55) { const w = rollWeapon(r); return [w, ammoFor(w.w)]; }
-  return [x < 0.85 ? rollHeal(r) : rollAmmo(r)];
+  return [x < 0.8 ? rollHeal(r) : x < 0.93 ? rollAmmo(r) : rollGadget(r)];
 }
 /** a sane item from a client (drops), or null */
 export function cleanItem(it) {
@@ -148,10 +155,11 @@ export function cleanItem(it) {
   if (it.t === 'w' && WEAPONS[it.w] && !WEAPONS[it.w].melee) return { t: 'w', w: it.w, r: Math.max(0, Math.min(4, it.r | 0)), a: Math.max(0, Math.min(WEAPONS[it.w].mag, it.a | 0)) };
   if (it.t === 'a' && AMMO[it.a]) return { t: 'a', a: it.a, n: Math.max(1, Math.min(999, it.n | 0)) };
   if (it.t === 'h' && HEALS[it.h]) return { t: 'h', h: it.h, n: Math.max(1, Math.min(HEALS[it.h].stack, it.n | 0)) };
+  if (it.t === 'g' && GADGETS[it.g]) return { t: 'g', g: it.g, n: Math.max(1, Math.min(GADGETS[it.g].stack, it.n | 0)) };
   if (it.t === 'm' && MATS[it.m]) return { t: 'm', m: it.m, n: Math.max(1, Math.min(MAT_MAX, it.n | 0)) };
   return null;
 }
-export const itemName = it => it.t === 'w' ? `${RARITY[it.r].name} ${WEAPONS[it.w].name}` : it.t === 'a' ? `${AMMO[it.a]} x${it.n}` : it.t === 'h' ? `${HEALS[it.h].name}${it.n > 1 ? ' x' + it.n : ''}` : `${MATS[it.m].name} x${it.n}`;
+export const itemName = it => it.t === 'w' ? `${RARITY[it.r].name} ${WEAPONS[it.w].name}` : it.t === 'a' ? `${AMMO[it.a]} x${it.n}` : it.t === 'h' ? `${HEALS[it.h].name}${it.n > 1 ? ' x' + it.n : ''}` : it.t === 'g' ? `${GADGETS[it.g].name}${it.n > 1 ? ' x' + it.n : ''}` : `${MATS[it.m].name} x${it.n}`;
 
 /** chests (inside buildings, by walls), floor loot and ammo boxes, spread over the arena; deterministic */
 export function lootSpots(world, seed, arena) {
@@ -173,12 +181,14 @@ export function lootSpots(world, seed, arena) {
   const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   shuffle(byWall); shuffle(open);
   const taken = [], far = (x, z, d) => taken.every(([a, b]) => Math.hypot(a - x, b - z) >= d);
-  const take = (list, n, gap) => { const out = []; for (const [x, z] of list) { if (out.length >= n) break; if (!far(x, z, gap)) continue; taken.push([x, z]); out.push([x, z]); } return out; };
+  const take = (list, n, gap, own = 0) => { const out = []; for (const [x, z] of list) { if (out.length >= n) break; if (!far(x, z, gap) || out.some(([a, b]) => Math.hypot(a - x, b - z) < own)) continue; taken.push([x, z]); out.push([x, z]); } return out; };
   const at = ([x, z]) => ({ x: Math.round(x * 100) / 100, z: Math.round(z * 100) / 100, y: Math.round(world.height(x, z) * 100) / 100 });
   return {
     chests: take(byWall, 80, 11).map((p, i) => ({ k: 'c' + i, kind: 'chest', ...at(p) })),
     ammo: take([...open, ...byWall], 36, 9).map((p, i) => ({ k: 'a' + i, kind: 'ammo', ...at(p) })),
     floor: take([...byWall.slice(0, 600), ...open], 130, 7).map(p => at(p)),
+    vend: take(byWall, 6, 6, 40).map((p, i) => ({ k: 'v' + i, kind: 'vend', ...at(p) })),    // vending machines
+    carts: take(open, 8, 5, 30).map(p => at(p)),                                              // mine carts to drive
   };
 }
 
@@ -192,8 +202,12 @@ export function pieceSeg(p) {
   return p.d === 0 ? { ax: x, az: z, bx: x + G, bz: z } : { ax: x, az: z, bx: x, bz: z + G };
 }
 export function addPiece(world, p) {
-  if (p.k === 'wall') { if (p.e !== 'door') world.addSeg({ ...pieceSeg(p), kind: 'wall', top: null, bot: p.y, hi: p.y + BR.H, piece: p.id }); }
-  else world.addDeck({ id: p.id, k: p.k, i: p.i, j: p.j, y: p.y, d: p.d, G: BR.G, H: BR.H });
+  if (p.k === 'wall') {
+    const s = pieceSeg(p), seg = (bot, hi) => world.addSeg({ ...s, kind: 'wall', top: null, bot, hi, piece: p.id });
+    if (p.e === 'window') { seg(p.y, p.y + 1.05); seg(p.y + 1.95, p.y + BR.H); }       // shoot through the gap, can't walk through
+    else if (p.e === 'half') seg(p.y, p.y + 1.1);                                       // low enough to jump over
+    else if (p.e !== 'door') seg(p.y, p.y + BR.H);
+  } else if (!(p.k === 'floor' && p.e === 'hole')) world.addDeck({ id: p.id, k: p.k, i: p.i, j: p.j, y: p.y, d: p.d, G: BR.G, H: BR.H });
 }
 export function removePiece(world, p) {
   if (p.k === 'wall') world.removeSegs(s => s.piece === p.id);
@@ -338,6 +352,7 @@ export class BRMatch {
     this.chests = new Map();
     this.objHp = new Map(); this.broken = []; this.undos = [];
     this.drops = []; this.dropN = 0;
+    this.carts = new Map(); this.gadgets = new Map(); this.gid = 1;
     this.stormTick = 0; this.botTick = 0; this.sendTick = 0; this.overT = 0;
   }
   get alive() { return [...this.p.values()].filter(p => p.alive); }
@@ -361,6 +376,9 @@ export class BRMatch {
     this.bus = busPath(this.seed, this.arena);
     const spots = lootSpots(w, this.seed, this.arena), r = this.r = rng(this.seed ^ 0x17e5);
     for (const c of [...spots.chests, ...spots.ammo]) this.chests.set(c.k, { ...c, open: false });
+    spots.vend.forEach((v, i) => { const it = rollWeapon(r, 3); it.r = Math.max(2, it.r); this.chests.set(v.k, { ...v, open: false, it, mat: MAT_ORDER[i % 3], cost: [100, 100, 150, 250, 400][it.r] }); });
+    this.carts = new Map(spots.carts.map((c, i) => ['m' + i, { id: 'm' + i, ...c, h: Math.round(r() * 628) / 100, rider: null }]));
+    this.gadgets = new Map(); this.gid = 1;
     for (const f of spots.floor) for (const it of rollLoot(r, 'floor')) this.addItem(it, f.x + (r() - 0.5) * 0.8, f.y, f.z + (r() - 0.5) * 0.8, false);
     // supply drops: one into each of the first circles, as it is announced
     this.drops = this.plan.slice(0, 4).map((p, i) => ({ at: (i ? this.plan[i - 1].t2 : 40) + 6, c: p.to }));
@@ -371,7 +389,7 @@ export class BRMatch {
     }
     this.state = 'live'; this.t = 0;
     this.send(null, { op: 'start', seed: this.seed, arena: this.arena, plan: this.plan, bus: this.bus,
-      chests: [...this.chests.values()], items: [...this.items.values()], players: [...this.p.values()].map(p => ({ id: p.id, name: p.name, bot: p.bot ? 1 : 0, outfit: p.outfit })) });
+      chests: [...this.chests.values()], items: [...this.items.values()], carts: [...this.carts.values()], players: [...this.p.values()].map(p => ({ id: p.id, name: p.name, bot: p.bot ? 1 : 0, outfit: p.outfit })) });
   }
   addItem(it, x, y, z, announce = true) {
     const o = { id: 'i' + this.iid++, it, x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100, z: Math.round(z * 100) / 100 };
@@ -400,8 +418,9 @@ export class BRMatch {
     if (!v.alive) return;
     v.alive = false; v.hp = 0;
     const left = this.alive.length, k = by != null && by !== v.id ? this.p.get(by) : null;
-    if (k) k.kills++;
+    if (k) { k.kills++; if (k.bot) { k.emSeq = ((k.emSeq || 0) + 1) % 100; k.em = 300 + k.emSeq; k.emT = 3; } }   // a bot that gets the elim dances
     v.place = left + 1;
+    if (v.cart) { const c = this.carts.get(v.cart); if (c) { c.rider = null; this.send(null, { op: 'cart', c }); } v.cart = null; }
     this.send(null, { op: 'elim', id: v.id, name: v.name, by: k ? k.id : null, byName: k ? k.name : null, w: w || '', place: v.place, left });
     if (v.bot) {                                         // a bot's loot spills out where it fell
       const out = [];
@@ -486,8 +505,29 @@ export class BRMatch {
     if (!p.alive) return;
     if (m.op === 'open') {
       const c = this.chests.get(String(m.k));
-      if (!c || c.open || (c.land && this.t < c.land) || Math.hypot(c.x - p.x, c.z - p.z) > BR.PICK_R + 1.5) return;
+      if (!c || c.open || c.kind === 'vend' || (c.land && this.t < c.land) || Math.hypot(c.x - p.x, c.z - p.z) > BR.PICK_R + 1.5) return;
       this.openChest(c, id);
+    } else if (m.op === 'buy') {                       // a vending machine (the client paid the materials)
+      const c = this.chests.get(String(m.k));
+      if (!c || c.open || c.kind !== 'vend' || Math.hypot(c.x - p.x, c.z - p.z) > BR.PICK_R + 1.5) return;
+      c.open = true;
+      const out = [this.addItem({ ...c.it }, c.x + 0.8, c.y, c.z, false), this.addItem(ammoFor(c.it.w, 2), c.x - 0.8, c.y, c.z, false)];
+      this.send(null, { op: 'opened', k: c.k, by: id }); this.send(null, { op: 'items', list: out });
+    } else if (m.op === 'gadget') {
+      const g = String(m.g), [x, y, z] = [+m.x, +m.y, +m.z];
+      if (!GADGETS[g] || ![x, y, z].every(Number.isFinite) || Math.hypot(x - p.x, z - p.z) > 6 || this.gadgets.size > 400) return;
+      const o = { id: 'g' + this.gid++, g, x: r2(x), y: r2(y), z: r2(z), by: id, cd: 0, uses: GADGETS[g].uses || 0 };
+      this.gadgets.set(o.id, o); this.send(null, { op: 'gadget', o });
+    } else if (m.op === 'ride') {
+      const c = this.carts.get(String(m.id));
+      if (!c || c.rider || p.cart || Math.hypot(c.x - p.x, c.z - p.z) > 4.5) return;
+      c.rider = id; p.cart = c.id; this.send(null, { op: 'cart', c });
+    } else if (m.op === 'unride' || m.op === 'drive') {
+      const c = p.cart && this.carts.get(p.cart); if (!c) return;
+      const [x, y, z, h] = [+m.x, +m.y, +m.z, +m.h];
+      if ([x, y, z, h].every(Number.isFinite) && Math.hypot(x - c.x, z - c.z) < 12) { c.x = r2(x); c.y = r2(y); c.z = r2(z); c.h = r2(h); }
+      if (m.op === 'unride') { c.rider = null; p.cart = null; this.send(null, { op: 'cart', c }); }
+      else this.send(null, { op: 'cart', c }, id);
     } else if (m.op === 'pick') {
       const it = this.items.get(String(m.id));
       if (!it || Math.hypot(it.x - p.x, it.z - p.z) > BR.PICK_R + 1.5) return;
@@ -514,10 +554,13 @@ export class BRMatch {
     } else if (m.op === 'build') this.build(id, m.p || {});
     else if (m.op === 'pdmg') this.hitPiece(m.id | 0, Math.max(0, Math.min(700, +m.d || 0)), id);
     else if (m.op === 'odmg') this.hitObj(String(m.k), Math.max(0, Math.min(700, +m.d || 0)), id);
-    else if (m.op === 'edit') {
-      const pc = this.pieces.get(m.id | 0); if (!pc || pc.k !== 'wall') return;
-      removePiece(this.w, pc); pc.e = pc.e === 'door' ? '' : 'door'; addPiece(this.w, pc);
-      this.send(null, { op: 'edited', id: pc.id, e: pc.e });
+    else if (m.op === 'edit') {                       // walls: door / window / half wall; floors: a hole; ramps: turn round
+      const pc = this.pieces.get(m.id | 0); if (!pc || pc.k === 'cone') return;
+      removePiece(this.w, pc);
+      if (pc.k === 'ramp') pc.d = (pc.d + 2) % 4;
+      else { const l = EDITS[pc.k]; pc.e = l[(l.indexOf(pc.e) + 1) % l.length]; }
+      addPiece(this.w, pc);
+      this.send(null, { op: 'edited', id: pc.id, e: pc.e, d: pc.d });
     }
   }
   /** put the world back the way it was (every break undone, every build gone), ready for the next match */
@@ -553,13 +596,27 @@ export class BRMatch {
       this.chests.set(c.k, c);
       this.send(null, { op: 'chest', c });
     }
+    // gadgets: spike traps bite enemies on top of them, launch pads throw bots (people launch themselves)
+    for (const g of this.gadgets.values()) {
+      g.cd -= dt; if (g.cd > 0) continue;
+      for (const p of this.p.values()) {
+        if (p.padOn === g.id && Math.hypot(p.x - g.x, p.z - g.z) > 1.5) p.padOn = null;
+        if (!p.alive || p.ph !== 'ground' || Math.hypot(p.x - g.x, p.z - g.z) > 1.1 || Math.abs(p.y - g.y) > 1.6) continue;
+        if (g.g === 'pad') { if (p.bot && p.padOn !== g.id) { p.padOn = g.id; p.ph = 'fall'; p.launch = 26; p.useT = 0; p.using = null; p.goal = { x: p.x + Math.cos(p.h) * 30, z: p.z + Math.sin(p.h) * 30 }; this.send(null, { op: 'trap', id: g.id }); } continue; }
+        if (p.id === g.by) continue;
+        this.damage(p, GADGETS.trap.dmg, g.by, 'trap'); g.cd = 2; g.uses--;
+        this.send(null, { op: 'trap', id: g.id });
+        break;
+      }
+      if (g.g === 'trap' && g.uses <= 0) { this.gadgets.delete(g.id); this.send(null, { op: 'ggone', id: g.id }); }
+    }
     // the bus: anyone still on board at the end of the line is thrown off
     if (this.t > BR.BUS_T) for (const p of this.p.values()) if (p.ph === 'bus') p.ph = 'fall';
     if ((this.botTick += dt) >= 0.1) { const s = this.botTick; this.botTick = 0; for (const b of this.p.values()) if (b.bot && b.alive) this.botStep(b, s, st); }
     if ((this.sendTick += dt) >= 0.1) {
       this.sendTick = 0;
       const b = [];
-      for (const p of this.p.values()) if (p.bot && p.alive) b.push([p.id, r2(p.x), r2(p.y), r2(p.z), r2(p.h), p.ph === 'bus' ? 0 : p.ph === 'fall' ? (p.y - this.w.height(p.x, p.z) > BR.GLIDE_AT ? 1 : 2) : 3, p.wk, p.inv ? p.inv.w : '']);
+      for (const p of this.p.values()) if (p.bot && p.alive) b.push([p.id, r2(p.x), r2(p.y), r2(p.z), r2(p.h), p.ph === 'bus' ? 0 : p.ph === 'fall' ? (p.y - this.w.height(p.x, p.z) > BR.GLIDE_AT ? 1 : 2) : 3, p.wk, p.inv ? p.inv.w : '', p.emT > 0 ? p.em : 0]);
       this.send(null, { op: 'bots', mt: r2(this.t), b, n: this.alive.length });
     }
   }
@@ -572,7 +629,7 @@ export class BRMatch {
       if (this.t >= b.jumpAt) {
         b.ph = 'fall';
         // aim for a chest somewhere near (most drop close to the line, a few go far)
-        const cs = [...this.chests.values()].filter(c => !c.sd), r = Math.random() * 70;
+        const cs = [...this.chests.values()].filter(c => !c.sd && c.kind !== 'vend'), r = Math.random() * 70;
         const want = [b.x + (Math.random() - 0.5) * r * 2, b.z + (Math.random() - 0.5) * r * 2];
         let best = null, bd = Infinity; for (const c of cs) { const d = Math.hypot(c.x - want[0], c.z - want[1]); if (d < bd) { bd = d; best = c; } }
         b.goal = best ? { x: best.x, z: best.z, chest: best.k } : { x: this.arena.x, z: this.arena.z };
@@ -583,13 +640,14 @@ export class BRMatch {
       const g = w.height(b.x, b.z), glide = b.y - g < BR.GLIDE_AT;
       const dx = b.goal.x - b.x, dz = b.goal.z - b.z, d = Math.hypot(dx, dz), sp = glide ? 10 : 7;
       if (d > 0.5) { b.x += dx / d * Math.min(d, sp * dt); b.z += dz / d * Math.min(d, sp * dt); b.h = Math.atan2(dz, dx); }
-      b.y -= (glide ? 5 : 22) * dt;
+      if (b.launch > 0) { b.y += b.launch * dt; b.launch -= 30 * dt; } else b.y -= (glide ? 5 : 22) * dt;
       if (b.y <= w.height(b.x, b.z)) { b.y = w.height(b.x, b.z); b.ph = 'ground'; b.lastX = b.x; b.lastZ = b.z; this.botUnstick(b); }
       return;
     }
     // ---- on the ground: think now and then
     b.react -= dt; b.fireT -= dt; b.reloadT -= dt; b.buildT -= dt; b.strafeT -= dt; b.calm += dt; b.detour -= dt;
     if ((b.think -= dt) <= 0) { b.think = 0.35 + Math.random() * 0.2; this.botThink(b, st); }
+    if (b.emT > 0) { b.emT -= dt; if (!b.enemy) { b.wk = 0; return; } b.emT = 0; }      // the victory dance (cut short by a fight)
     // healing: stand still and eat
     if (b.useT > 0) {
       b.wk = 0; b.useT -= dt;
@@ -669,7 +727,7 @@ export class BRMatch {
       const d = Math.hypot(it.x - b.x, it.z - b.z); if (d < gd) { gd = d; g = { x: it.x, z: it.z, item: it.id }; }
     }
     for (const c of this.chests.values()) {
-      if (c.open || (c.land && this.t < c.land)) continue;
+      if (c.open || c.kind === 'vend' || (c.land && this.t < c.land)) continue;
       const d = Math.hypot(c.x - b.x, c.z - b.z) * (b.inv ? 1.4 : 1); if (d < gd) { gd = d; g = { x: c.x, z: c.z, chest: c.k }; }
     }
     if (!g) { const a = Math.random() * 6.283, q = Math.random() * next.r * 0.8; g = { x: next.x + Math.cos(a) * q, z: next.z + Math.sin(a) * q }; }
