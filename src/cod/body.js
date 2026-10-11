@@ -91,9 +91,11 @@ export class Body {
 
     // vertical: snap to the floor under us (stairs, steps, slopes) or fall
     let fy = this.floorAt(arena, this.pos.x, this.pos.y, this.pos.z);
-    // a step up into a gap you don't fit in (a ledge under the storey above: standing on it put your head, and
-    // the camera, through the next floor) is a wall
-    if (this.onGround && fy > this.pos.y + 0.05 && this.room(arena, this.pos.x, fy, this.pos.z) < MOVE.crouchHeight + 0.05) {
+    // a gap you don't fit in, even crouched, is a wall: a ledge under the storey above (standing on it put your
+    // head through the next floor), the space under a bench you'd slide off the edge of (and be boxed in). From a
+    // spot that's already that cramped you can still walk out
+    const tight = y => this.room(arena, this.pos.x, y, this.pos.z) < MOVE.crouchHeight + 0.05;
+    if (this.onGround && (this.pos.x !== ox || this.pos.z !== oz) && tight(fy) && this.room(arena, ox, this.pos.y, oz) >= MOVE.crouchHeight + 0.05) {
       this.pos.x = ox; this.pos.z = oz; this.vel.x = this.vel.z = 0; fy = this.floorAt(arena, ox, this.pos.y, oz);
     }
     if (this.onGround) {
@@ -112,6 +114,14 @@ export class Body {
       } else this.pos.y = ny;
     }
     if (this.pos.y < -20) this.pos.y = 5;                   // (never fall out of the world)
+    // wedged in something (no room over you, a second on end): out onto the nearest open floor
+    if (this.onGround && this.room(arena, this.pos.x, this.pos.y, this.pos.z) < 0.6) {
+      if ((this.wedgedT = (this.wedgedT || 0) + dt) > 1 && arena.nav) {
+        const k = arena.nearestNode(this.pos.x, this.pos.y + 2, this.pos.z, 4), n = arena.nav.nodes[k];
+        if (n) { this.pos.set(n.x, n.y, n.z); this.vel.set(0, 0, 0); }
+        this.wedgedT = 0;
+      }
+    } else this.wedgedT = 0;
     // the eye follows the stance (and eases stairs instead of popping up them)
     const want = (this.slide > 0 ? MOVE.slideEye : MOVE.eye + (MOVE.crouchEye - MOVE.eye) * this.crouch) - (this.wading ? MOVE.wadeSink : 0);   // waist deep in the river
     this.eyeY += (want - this.eyeY) * Math.min(1, dt * 14);
@@ -141,7 +151,7 @@ export class Body {
 
   blockedAbove(arena) { return this.room(arena, this.pos.x, this.pos.y, this.pos.z) < MOVE.height + 0.05; }
   /** headroom over a floor at (x, y, z) */
-  room(arena, x, y, z) { const h = arena.ray(_v.set(x, y + 0.05, z), UP, 3); return h ? h.distance + 0.05 : 9; }
+  room(arena, x, y, z) { const d = arena.headroom(x, y + 0.05, z, 3); return d < 9 ? d + 0.05 : 9; }
 
   /** push the capsule (from a step above the feet to the head) sideways out of every triangle it overlaps */
   pushOut(arena) {

@@ -325,10 +325,18 @@ export class Arena {
   }
 
   /** the floor under (x, y, z): highest surface below y + up, within down (castle floors stack, so not just the ground) */
+  /** how far up from (x, y, z) to a ceiling: something roughly flat overhead (a grass tuft's steep sides don't count) */
+  headroom(x, y, z, far = 3) {
+    const r = this._hr ||= new THREE.Ray(); r.origin.set(x, y, z); r.direction.copy(_up);
+    let best = Infinity;
+    for (const h of this.bvh.raycast(r, THREE.DoubleSide, 0, far)) if (Math.abs(h.face?.normal?.y ?? 1) > 0.5 && h.distance < best) best = h.distance;
+    return best;
+  }
   floor(x, y, z, up = 0.5, down = 40) {
-    // the first thing under you that's a floor: facing up, or (an RS face wound the wrong way) with room to stand on
-    // it. The underside of a staircase or a ledge you're walking beneath is not a floor: standing on it is how a
-    // body used to pop up a storey
+    // the first thing under you that's a floor: facing up, or facing down but not the underside of something thin
+    // (RS winds some treads upside down: those are floors, and whether you fit on one is the body's call). The
+    // underside of a staircase or a ledge you're walking beneath, with its top right over it, is not a floor:
+    // standing on it is how a body used to pop up a storey; skipping a real tread dropped you inside the stairs
     const r = this._fr ||= new THREE.Ray(); r.origin.set(x, y + up, z); r.direction.copy(_down);
     const hits = this.bvh.raycast(r, THREE.DoubleSide, 0, up + down);
     if (!hits.length) return -Infinity;
@@ -336,7 +344,7 @@ export class Arena {
     for (const h of hits) {
       const ny = h.face?.normal?.y ?? 1;
       if (ny > 0.3) return h.point.y;
-      if (ny < -0.3 && !this.ray(_o2.set(h.point.x, h.point.y + 0.03, h.point.z), _up, 0.9)) return h.point.y;
+      if (ny < -0.3 && this.headroom(h.point.x, h.point.y + 0.03, h.point.z, 0.25) > 0.25) return h.point.y;
     }
     return hits[hits.length - 1].point.y;
   }
@@ -359,5 +367,5 @@ class Heap {
   }
 }
 
-const _o = new THREE.Vector3(), _o2 = new THREE.Vector3(), _down = new THREE.Vector3(0, -1, 0), _up = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3();
+const _o = new THREE.Vector3(), _down = new THREE.Vector3(0, -1, 0), _up = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3();
 const _seg = new THREE.Line3(), _box = new THREE.Box3(), _tp = new THREE.Vector3(), _cp = new THREE.Vector3();
