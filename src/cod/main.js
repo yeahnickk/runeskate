@@ -60,6 +60,7 @@ async function main() {
   const hud = new CodHud($('hud'), { b12, p12 }, await pSplat);
   const sfx = new Sfx(); sfx.setVolume(settings.volume);
   const input = new Input(canvas, settings);
+  input.want = () => inMatch && !paused && !chatOpen && !game?.over && menu.style.display === 'none';   // (in live play the mouse belongs to the game)
   document.head.appendChild(Object.assign(document.createElement('style'), { textContent: TOUCH_CSS }));
   if (TOUCH) { input.touch = new TouchControls(document.body, settings); input.device = 'touch'; }
 
