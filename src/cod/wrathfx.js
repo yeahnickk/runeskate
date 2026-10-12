@@ -15,7 +15,7 @@ const FS = `uniform sampler2D map; varying vec2 vUv; varying float vA; varying v
 void main() { vec4 t = texture2D(map, vUv); float a = t.a * vA; if (a < 0.003) discard; gl_FragColor = vec4(vC * t.rgb, a); }`;
 
 // a soft cauliflower puff: overlapping blobs under a round falloff (smoke reads as smoke, fire as flame licks)
-function puffTex() {
+export function puffTex() {
   const S = 128, cv = Object.assign(document.createElement('canvas'), { width: S, height: S }), x = cv.getContext('2d');
   for (let i = 0; i < 26; i++) {
     const a = Math.random() * 6.283, r = Math.random() * S * 0.26, px = S / 2 + Math.cos(a) * r, py = S / 2 + Math.sin(a) * r, br = S * (0.12 + Math.random() * 0.16);
@@ -28,13 +28,13 @@ function puffTex() {
 }
 
 // a plain soft glow (comet halo, the core's flash)
-function glowTex() {
+export function glowTex() {
   const S = 128, cv = Object.assign(document.createElement('canvas'), { width: S, height: S }), x = cv.getContext('2d');
   const g = x.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.2, 'rgba(255,255,255,0.7)'); g.addColorStop(0.5, 'rgba(255,255,255,0.18)'); g.addColorStop(1, 'rgba(255,255,255,0)');
   x.fillStyle = g; x.fillRect(0, 0, S, S); return new THREE.CanvasTexture(cv);
 }
 
-class Puffs {
+export class Puffs {
   constructor(scene, n, add, tex) {
     this.n = n; this.L = []; this.add = add;
     const g = this.g = new THREE.InstancedBufferGeometry();

@@ -4,6 +4,7 @@
 // (an unknown name is registered on the spot). Accounts live in runeskate/data/accounts.json:
 // hashed password, outfit, points (= total XP). Everything else is relayed peer state.
 import { join, normalize } from 'path';
+import { addScore, topOf } from './src/cart/scores.js';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync } from 'fs';
 import { cleanChat } from './profanity.ts';
 import { PORTAL_HOME, PORTAL_DESTS, CORE_SPAWNS, WORLD_SCALE } from './src/mapdata.js';
@@ -106,6 +107,9 @@ setInterval(saveStats, 30_000);
 // Parks: rails, ledges and kickers players drop into the world for everyone (src/park-shape.js), PARK_PER each.
 // Spots: the best combo banked at each challenge spot owns it (name on the spot for everyone to see).
 const PARKS = join(DATA, 'parks.json'), SPOTS_F = join(DATA, 'spots.json');
+// CartScape highscores (src/cart/scores.js says what's taken), and how often one address may post
+const CART_F = join(DATA, 'cart.json'), cartPosts = new Map<string, number>();
+let cartBoard: any = {}; try { if (existsSync(CART_F)) cartBoard = JSON.parse(readFileSync(CART_F, 'utf8')); } catch {}
 type ParkObj = { id: number; k: string; by: string; kind: string; x: number; z: number; dir: number; len: number; t: number };
 const parks: ParkObj[] = loadJson(PARKS, []);
 const spotBest: Record<string, { name: string; score: number; t: number }> = loadJson(SPOTS_F, {});
@@ -328,6 +332,17 @@ Bun.serve({
         .sort((a, b) => b[1].xp - a[1].xp || runesOf(b[1]) - runesOf(a[1])).slice(0, 15)
         .map(([k, a]) => ({ name: a.name, own: isOwner(k) ? 1 : undefined, xp: a.xp, runes: runesOf(a), runeTotal: RUNE_IDS.size, on: online.has(k) })));
     }
+    if (p === '/api/cart') {                                        // CartScape: GET the boards, POST a finished race
+      if (req.method !== 'POST') return Response.json(topOf(cartBoard), { headers: { 'Cache-Control': 'no-cache' } });
+      const ip = req.headers.get('cf-connecting-ip') || server.requestIP(req)?.address || '?', now = Date.now();
+      if (now - (cartPosts.get(ip) || 0) < 4000) return Response.json({ ok: false, why: 'slow down' }, { status: 429 });
+      cartPosts.set(ip, now); if (cartPosts.size > 5000) cartPosts.clear();
+      let m: any; try { m = await req.json(); } catch { return Response.json({ ok: false, why: 'bad' }, { status: 400 }); }
+      const r = addScore(cartBoard, { ...m, name: cleanChat(String(m?.name || '')).replace(/\*/g, '') }, now);   // (a sworn name loses the word)
+      if (r.ok && !r.kept) writeJson(CART_F, cartBoard);
+      return Response.json({ ...r, top: topOf(cartBoard) });
+    }
+    if (p === '/cart' || p === '/cart/' || p === '/cartscape') return Response.redirect('/cart.html', 302);
     if (p === '/cod' || p === '/cod/' || p === '/codscape') return Response.redirect('/cod.html', 302);
     if (p === '/map' || p === '/map/') return new Response(MAP_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' } });
     if (p === '/api/map') return Response.json(MAP_STATIC, { headers: { 'Cache-Control': 'no-cache' } });

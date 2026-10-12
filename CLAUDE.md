@@ -17,6 +17,8 @@ bun test/stairs.js                # CODScape: every staircase walked up + down, 
 bun test/castle-fuzz.js           # CODScape: bodies wander the castles; no popping a storey, no walking through walls
 bun test/supply-fuzz.js           # CODScape: bodies scramble round the supply tables; nobody ends up stuck (body.js unstuck)
 node test/cod-e2e.cjs [base]      # CODScape in a real browser (needs playwright; server on base, default :8199)
+bun test/cart.js                  # CartScape: the road, CPU races per class + difficulty, every item, no lap from cutting/reversing, highscores (boots the server)
+bun tools/cart-track.ts            # CartScape: re-bake assets/cart_lumbridge.* after changing the route in src/cart/track.js
 ```
 
 The owner doesn't want CI or npm-script plumbing; just run the scripts above directly.
@@ -49,6 +51,26 @@ A first-person COD-style shooter vs bots in the Castle Wars arena; the home page
   behind). `netwire.js` is the shared wire format. ENTER chats.
 - The world renders 1:1 linear like the skate game; the gun pass uses sRGB + filmic (`withGunPass`).
 - Dev pages: `test/guns.html` (armoury gallery), `test/vmsheet.html?gun=..&what=reload|empty|sights` (reload sheets).
+
+## CartScape (cart.html, src/cart/)
+
+Mario Kart round Lumbridge vs 7 CPU karts. Single player for now (the race is pure, so an online version can follow
+the CODScape pattern).
+- `track.js` the route (`TRACKS.lumbridge.pts`, world tiles; centripetal Catmull-Rom, keep corner radii >= ~10 for the
+  13-wide road) + features (`at` = waypoint index + fraction). `bakeTrack` makes the road profile (smoothed, bridges over
+  water, ramps, the river gap). `Track` = track space: s along, d sideways (+ left), `locate`/`pos`/`h`/`curve`.
+- `tools/cart-track.ts` bakes `assets/cart_lumbridge.track.json` and cuts the pack round it (`.json/.bin`): scenery
+  off the road and verge, the ground levelled flat out past the fence, then cut/fill banks. Re-run after route edits.
+- `race.js` the sim (pure, 1/120 substeps): drift hops + mini-turbo tiers, rocket start, items (`ITEMS`: OSRS spells and
+  attacks from the treasure chests, rolled by place; Protect from Missiles blocks `MISSILES`, Smoke Barrage blinds
+  everyone ahead), mobs (cows, chickens, blades, boulders: a pure function of race time), CPU AI, `DIFF` (easy/normal/
+  hard: skill, rubber band, item timing). Laps only count via the `cp` checkpoint creeping round, so no cutting.
+- `scores.js` the highscores rules (pure): one best a name per class, three lap splits that add up and beat no
+  `LAP_FLOOR`. serve.ts keeps them in `data/cart.json` behind `/api/cart` (GET boards, POST a finish, 1 per 4 s an IP).
+- `models.js` karts from scratch (`BODIES` x `THEMES` god trims) + the RS driver sat in via the ragdoll skin, hands
+  IK'd onto the rim (`gripAt`, `placeWheel` moves the wheel to their reach) and turning it with the steering.
+  `scenery.js` the road mesh, fence/bales, gantry, arches, pads, chests, obstacles. `hud.js`, `input.js`, `main.js`.
+- Dev page: `test/karts.html` (every kart, `?body=mine`, `?one=3`, `?spin=1`, `?close=1&steer=0.7` grip markers). `window.CART` exposes the race.
 
 ## RuneRoyale (battle royale inside the skate game)
 

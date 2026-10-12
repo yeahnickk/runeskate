@@ -89,6 +89,15 @@ map data and running in the browser. Every door and gate stands open.
   wins. TAB opens your bag: click a slot to hold it, drag to swap, DROP buttons for items, materials and ammo.
   The world comes back whole when the match ends. Plays solo
   against bots offline, and on phones with its own touch controls.
+- **CartScape, a kart racer.** Pick CARTSCAPE on the home page (or open `cart.html`). Eight karts race three laps
+  of a road laid round Lumbridge: over the bridge, along the Al Kharid edge, a ramp jump over the River Lum, back
+  through the farms. Build your kart from three bodies (go-kart, mine cart, dragon racer) in seven god trims
+  (Saradomin, Zamorak, Guthix, Armadyl, Bandos, Zaros, Seren), each with its own touches and the god's armour on
+  the driver. Hop into drifts for blue, orange and purple mini-turbos, open the treasure chests for RS items (energy
+  potions, bananas, wind strikes, homing fire bolts, chinchompas, Protect from Missiles, Smoke Barrage on everyone
+  ahead, an overload, ice barrage, dragonfire on the leader), dodge the cows and chickens wandering over, the swinging
+  blades and the rolling boulders. Mithril, Rune and Dragon classes, easy / normal / hard CPUs, and online highscores
+  per class (fastest three laps). Keyboard, gamepad or touch.
 
 ![The world map](assets/map.png)
 
@@ -166,6 +175,7 @@ with `.gz` siblings, whenever they are missing or stale (a few seconds, gitignor
   launch pads, spike traps, mine carts, victory dances, duos and squads (knocks, revives, reboots, team wins),
   fishing, upgrade benches, rifts, ziplines and the locker (pass tiers, shop).
 - `bun test/net.js` starts the server on a spare port and plays it: S.K.A.T.E. turns, park limits, spot claims.
+- `bun test/cart.js` checks CartScape's baked road, whole CPU races in every class and difficulty, every item, that cutting or reversing earns no lap, and the highscores; `bun tools/cart-track.ts` re-bakes the track after a route change.
 - `bun tools/spot-check.ts` checks every challenge spot is reachable from spawn.
 - `bun tools/pocket-check.ts` (after split) checks spawn and every teleport drop land in a big connected area, never a pocket you cannot skate out of.
 - `src/skater.js` is the physics, `src/world.js` the collision world, `src/main.js` the client,
