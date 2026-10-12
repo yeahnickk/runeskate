@@ -50,9 +50,21 @@ export class CodHud {
    * g: the Game; me: the player's fighter (or the one we watch); cam: the camera; st: { spreadPx, ads, scope,
    * scopeSway, fov, board (tab held), paused, dead, touch }
    */
+  /** God's Wrath: the sky fills, the count, the flash */
+  wrathFx(w, W, H, k) {
+    const c = this.x, col = w.team === 'zam' ? [255, 60, 30] : w.team === 'sara' ? [255, 246, 200] : [120, 255, 120];
+    if (w.tint) { c.fillStyle = `rgba(${col},${w.tint})`; c.fillRect(0, 0, W, H); }
+    if (w.left > 0) { this.panel(W / 2 - 150 * k, H * 0.12 - 8 * k, 300 * k, 74 * k, 0.92); this.T(w.name, W / 2, H * 0.12, w.team === 'zam' ? '#ff5040' : w.team === 'sara' ? '#ffd040' : '#7f7', 'c', k + 1); this.T(String(Math.ceil(w.left)), W / 2, H * 0.12 + 24 * k, '#fff', 'c', k * 2); }
+    if (w.flash) { c.fillStyle = `rgba(${col},${Math.min(1, w.flash * 1.2)})`; c.fillRect(0, 0, W, H); }
+  }
   draw(dt, g, me, cam, st) {
     const c = this.x, W = this.c.width, H = this.c.height, k = this.k;
     c.clearRect(0, 0, W, H);
+    if (st.wrath?.cine) {                                              // God's Wrath's cinematic: letterbox, the god's name, nothing else
+      const bh = H * 0.11; c.fillStyle = '#000'; c.fillRect(0, 0, W, bh); c.fillRect(0, H - bh, W, bh);
+      this.wrathFx({ ...st.wrath, left: 0 }, W, H, k); this.T(st.wrath.left > 0 ? `${st.wrath.name}   ${Math.ceil(st.wrath.left)}` : st.wrath.name, W / 2, H - bh / 2 - 6 * k, st.wrath.team === 'zam' ? '#ff5040' : st.wrath.team === 'sara' ? '#ffd040' : '#7f7', 'c', k + 1);
+      return;
+    }
     const proj = p => { const v = p.clone().project(cam); return v.z < 1 && v.z > -1 ? [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H] : null; };
 
     // the scope: black round a circle, the mil-dot reticle, the sway
@@ -164,12 +176,7 @@ export class CodHud {
     { let y = H - (st.touch ? 230 : 120) * k; this.chat = this.chat.filter(m => (m.t += dt) < 12);
       for (const m of this.chat.slice().reverse()) { const a = m.t > 10 ? (12 - m.t) / 2 : 1; const x = 10 * k + this.T(m.name + ': ', 10 * k, y, m.col, 'l', k, 'p12', a); this.T(m.text, x, y, '#fff', 'l', k, 'p12', a); y -= 14 * k; } }
     if (st.pick) this.picker(g, me, st.pick);
-    if (st.wrath) {                                                     // God's Wrath: the sky fills, the count, the flash
-      const w = st.wrath, col = w.team === 'zam' ? [255, 60, 30] : w.team === 'sara' ? [255, 246, 200] : [120, 255, 120];
-      if (w.tint) { c.fillStyle = `rgba(${col},${w.tint})`; c.fillRect(0, 0, W, H); }
-      if (w.left > 0) { this.panel(W / 2 - 150 * k, H * 0.12 - 8 * k, 300 * k, 74 * k, 0.92); this.T(w.name, W / 2, H * 0.12, w.team === 'zam' ? '#ff5040' : w.team === 'sara' ? '#ffd040' : '#7f7', 'c', k + 1); this.T(String(Math.ceil(w.left)), W / 2, H * 0.12 + 24 * k, '#fff', 'c', k * 2); }
-      if (w.flash) { c.fillStyle = `rgba(${col},${Math.min(1, w.flash * 1.2)})`; c.fillRect(0, 0, W, H); }
-    }
+    if (st.wrath) this.wrathFx(st.wrath, W, H, k);
     if (st.board || (g.over && !st.wrath)) this.scoreboard(g, me);           // (God's Wrath gets its moment before the scores)
   }
 
