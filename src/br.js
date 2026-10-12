@@ -10,15 +10,17 @@
 // = back to weapons), T material, G edit (walls: door, window, half wall; floors: a hole; ramps: turn round),
 // H J K L emotes, B board on / off, M map, TAB scores, ESC menu (leave). Phones get their own buttons.
 import {
-  BR, WEAPONS, RARITY, HEALS, GADGETS, CART, MATS, MAT_ORDER, BUILD_COST, MAT_MAX, OBJ_MAT, BRMatch, stormAt, busAt, pieceKey, addPiece, removePiece,
+  BR, MODES, WEAPONS, RARITY, HEALS, GADGETS, CART, benchCost, MATS, MAT_ORDER, BUILD_COST, MAT_MAX, OBJ_MAT, BRMatch, stormAt, busAt, pieceKey, addPiece, removePiece,
   breakInWorld, restoreWorld, segObjKey, treeKey, tileKey, segDist, lineBlock, itemName,
 } from './br-core.js';
+import { Locker } from './br-locker.js';
 
 const SLOTS = 6;                         // 0 = the pickaxe, 1-5 = what you carry
 const BUILD_KEYS = { q: 'wall', f: 'floor', c: 'ramp', v: 'cone' };
 const PIECE_NAME = { wall: 'WALL', floor: 'FLOOR', ramp: 'RAMP', cone: 'ROOF' };
 const EMOTE_KEYS = { h: 3, j: 1, k: 2, l: 4 };           // dance, wave, cheer, laugh
-const HOT_NAME = { pick: 'PICK', smg: 'SBOW', ar: 'XBOW', shotgun: 'STAFF', sniper: 'DARK', rocket: 'FIRE', shrimp: 'SHRMP', shark: 'SHARK', brew: 'BREW', superdef: 'S.DEF', pad: 'PAD', trap: 'TRAP' };
+const MODE_ORDER = ['solo', 'duos', 'squads'];
+const HOT_NAME = { pick: 'PICK', smg: 'SBOW', ar: 'XBOW', shotgun: 'STAFF', sniper: 'DARK', rocket: 'FIRE', shrimp: 'SHRMP', shark: 'SHARK', brew: 'BREW', superdef: 'S.DEF', pad: 'PAD', trap: 'TRAP', rift: 'TELE' };
 const W_HEAD = { smg: 1.5, ar: 1.6, shotgun: 1.5, sniper: 2.5, rocket: 1, pick: 1 };
 const BOT_SNAP = { x: 0, y: 0, z: 0, heading: 0, body: 0, boardYaw: 0, boardRoll: 0, charge: -1, airTime: 1, pushing: 0, tumble: 0, tumbleAxis: 0, speed: 0, manual: 0, lean: 0, balance: 0, vy: -5, grabT: 0, mode: 'walk', gk: '', gr: '', sl: 0, w: 0, wk: 0, fa: 0, fk: 0, em: 0 };
 const fmtT = s => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -29,6 +31,8 @@ body.inbr #social { display: none !important; }
 #brbtn { position: fixed; left: 50%; bottom: 58px; transform: translateX(-50%); z-index: 6; display: none; align-items: center; gap: 8px;
   padding: 6px 14px 6px 8px; font: bold 14px monospace; color: #fff; background: rgba(120,30,140,.85); border: 2px solid #f6c;
   border-radius: 6px; box-shadow: 0 0 14px rgba(255,90,220,.5), 3px 3px 0 #000; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+#brbtn .mode { font: bold 11px monospace; color: #000; background: #ffc830; border-radius: 3px; padding: 2px 6px; margin-left: 2px; }
+#brlobby .modes button.on { background: #f6c; color: #000; }
 #brbtn kbd { font: bold 12px monospace; color: #000; background: #f6c; border-radius: 3px; padding: 2px 6px; }
 #brbtn.touch kbd { display: none; }
 #brlobby { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 7; display: none; padding: 10px 16px; font: 14px monospace; color: #fff;
@@ -71,17 +75,19 @@ export class BattleRoyale {
     this.mkAssets();
     document.head.appendChild(Object.assign(document.createElement('style'), { textContent: CSS }));
     const el = (id, html = '', tag = 'div') => { const e = document.createElement(tag); e.id = id; e.innerHTML = html; document.body.appendChild(e); return e; };
-    this.btn = el('brbtn', '<kbd>V</kbd><span>BATTLE ROYALE</span>');
+    try { this.mode = MODE_ORDER.includes(localStorage.getItem('rr_mode')) ? localStorage.getItem('rr_mode') : 'solo'; } catch { this.mode = 'solo'; }
+    this.btn = el('brbtn', `<kbd>V</kbd><span>BATTLE ROYALE</span><b class="mode">${this.mode.toUpperCase()}</b>`);
+    this.locker = new Locker(() => { this.heldW = null; });
     if (c.TOUCH) this.btn.classList.add('touch');
     const stop = e => e.stopPropagation();
     for (const ev of ['pointerdown', 'touchstart', 'mousedown']) this.btn.addEventListener(ev, stop, { passive: true });
-    this.btn.addEventListener('click', e => { e.stopPropagation(); this.queue(); });
+    this.btn.addEventListener('click', e => { e.stopPropagation(); if (e.target.classList?.contains('mode')) this.setMode(MODE_ORDER[(MODE_ORDER.indexOf(this.mode) + 1) % 3]); else this.queue(); });
     this.lobbyEl = el('brlobby');
     this.tint = el('brtint'); this.hurtEl = el('brhurt'); this.scopeEl = el('brscope');
-    this.menuEl = el('brmenu', '<div class="box"><h2 style="color:#f6c;margin:0 0 8px">RUNEROYALE</h2><button data-a="back">Back to the match</button><button data-a="leave">Leave the match</button></div>');
-    this.menuEl.addEventListener('click', e => { const a = e.target.dataset?.a; if (a === 'back') this.showMenu(false); if (a === 'leave') { this.showMenu(false); this.exit(true); } });
+    this.menuEl = el('brmenu', '<div class="box"><h2 style="color:#f6c;margin:0 0 8px">RUNEROYALE</h2><button data-a="back">Back to the match</button><button data-a="locker">Locker</button><button data-a="leave">Leave the match</button></div>');
+    this.menuEl.addEventListener('click', e => { const a = e.target.dataset?.a; if (a === 'back') this.showMenu(false); if (a === 'locker') { this.showMenu(false); this.locker.open(); } if (a === 'leave') { this.showMenu(false); this.exit(true); } });
     this.overEl = el('brover');
-    this.overEl.addEventListener('click', e => { if (e.target.dataset?.a === 'done') this.exit(); });
+    this.overEl.addEventListener('click', e => { if (e.target.dataset?.a === 'done') this.exit(); if (e.target.dataset?.a === 'locker') this.locker.open(); });
     for (const x of [this.lobbyEl, this.menuEl, this.overEl]) for (const ev of ['pointerdown', 'touchstart', 'mousedown']) x.addEventListener(ev, stop, { passive: true });
     if (c.TOUCH) this.mkTouch();
     // mouse: aim, fire, sights
@@ -147,6 +153,18 @@ export class BattleRoyale {
     for (const [x, z] of [[0.6, 0.6], [-0.6, 0.6], [0.6, -0.6], [-0.6, -0.6]]) { const w = new THREE.Mesh(this.geo.wheel, m.cartRim); w.rotation.x = Math.PI / 2; w.position.set(x, 0.28, z); g.add(w); }
     return g;
   }
+  riftMesh() {
+    const { THREE } = this.c, g = new THREE.Group();
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.3, 0.14, 8, 28), new THREE.MeshBasicMaterial({ color: 0xc060ff }));
+    const core = new THREE.Mesh(new THREE.CircleGeometry(1.2, 24), new THREE.MeshBasicMaterial({ color: 0x5010a0, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false }));
+    g.add(ring, core); g.name = 'rift'; return g;
+  }
+  zipMesh(z) {
+    const { THREE } = this.c, g = new THREE.Group(), pole = this.mat.cartRim;
+    for (const e of [z.a, z.b]) { const p = this.box(0.18, e.y - (e.y - 6) + 0.4, 0.18, pole); p.position.copy(this.T(e.x, e.y - 2.8, e.z)); g.add(p); }
+    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([this.T(z.a.x, z.a.y, z.a.z), this.T(z.b.x, z.b.y, z.b.z)]), new THREE.LineBasicMaterial({ color: 0x222222 })));
+    return g;
+  }
   gadgetMesh(gk) {
     const { THREE } = this.c, g = new THREE.Group();
     if (gk === 'pad') {
@@ -162,7 +180,8 @@ export class BattleRoyale {
   box(w, h, d, mat, x = 0, y = 0, z = 0) { const m = new this.c.THREE.Mesh(this.geo.box, mat); m.scale.set(w, h, d); m.position.set(x, y, z); return m; }
   /** a held / dropped weapon: forward is +x */
   weaponMesh(w) {
-    const { THREE } = this.c, g = new THREE.Group(), col = new THREE.MeshBasicMaterial({ color: WEAPONS[w].col }), wood = new THREE.MeshBasicMaterial({ color: 0x6a4420 });
+    const skin = w === 'pick' ? this.locker.col('pick') : this.locker.col('wrap');
+    const { THREE } = this.c, g = new THREE.Group(), col = new THREE.MeshBasicMaterial({ color: skin > 0 ? skin : WEAPONS[w].col }), wood = new THREE.MeshBasicMaterial({ color: 0x6a4420 });
     if (w === 'pick') { g.add(this.box(0.7, 0.05, 0.05, wood, 0.1, 0, 0), this.box(0.06, 0.45, 0.07, col, 0.42, 0, 0)); }
     else if (w === 'smg' || w === 'sniper') {
       const L = w === 'sniper' ? 1 : 0.75;
@@ -174,14 +193,20 @@ export class BattleRoyale {
   }
 
   // ================================================================== lobby
-  showBtn(on) { this.btn.style.display = on && this.state !== 'live' && this.state !== 'over' ? 'flex' : 'none'; }
+  showBtn(on) { const b = on && this.state !== 'live' && this.state !== 'over'; this.btn.style.display = b ? 'flex' : 'none'; this.locker.showBtn(b); }
+  setMode(m) {
+    if (!MODE_ORDER.includes(m)) return;
+    this.mode = m; try { localStorage.setItem('rr_mode', m); } catch {}
+    this.btn.querySelector('.mode').textContent = m.toUpperCase();
+    if (this.state === 'queue') this.c.net.send({ t: 'br', op: 'mode', mode: m });
+  }
   queue() {
     const c = this.c;
     if (this.active) return;
     if (this.state === 'queue') { c.net.send({ t: 'br', op: 'unjoin' }); this.state = 'idle'; this.lobbyEl.style.display = 'none'; c.say('Left the RuneRoyale queue.', '#f6c'); return; }
     c.audio.start?.();
     if (c.net.online) {
-      c.net.send({ t: 'br', op: 'join' }); this.state = 'queue';
+      c.net.send({ t: 'br', op: 'join', mode: this.mode }); this.state = 'queue';
       this.lobby = { n: 1, secs: BR.LOBBY };
       this.drawLobby();
       c.say('Queued for RuneRoyale. Keep skating, the match starts shortly (bots fill the empty spots).', '#f6c');
@@ -190,16 +215,19 @@ export class BattleRoyale {
   drawLobby() {
     const l = this.lobby; if (!l) return;
     this.lobbyEl.style.display = this.state === 'queue' ? 'block' : 'none';
-    this.lobbyEl.innerHTML = `<b>RUNEROYALE</b><br>${l.n} player${l.n === 1 ? '' : 's'} queued &middot; ${l.running ? 'a match is on, you are in the next one' : `starts in ${Math.max(0, Math.ceil(l.secs))}s`}<br><small>bots fill the lobby to ${BR.SIZE}</small><br><button class="small">LEAVE QUEUE</button>`;
-    this.lobbyEl.querySelector('button').onclick = () => this.queue();
+    const md = l.mode || this.mode;
+    this.lobbyEl.innerHTML = `<b>RUNEROYALE ${md.toUpperCase()}</b><br>${l.n} player${l.n === 1 ? '' : 's'} queued &middot; ${l.running ? 'a match is on, you are in the next one' : `starts in ${Math.max(0, Math.ceil(l.secs))}s`}<br><small>bots fill the lobby to ${BR.SIZE}${md !== 'solo' ? ', people queued together share a team' : ''}</small>
+      <div class="modes">${MODE_ORDER.map(m => `<button class="small${m === md ? ' on' : ''}" data-m="${m}">${m.toUpperCase()}</button>`).join(' ')}</div><button class="small" data-q="1">LEAVE QUEUE</button>`;
+    this.lobbyEl.querySelector('[data-q]').onclick = () => this.queue();
+    for (const b of this.lobbyEl.querySelectorAll('[data-m]')) b.onclick = () => this.setMode(b.dataset.m);
   }
   /** offline / solo: the whole match runs here */
   startLocal() {
     const c = this.c;
-    c.say('Starting a solo RuneRoyale against bots...', '#f6c');
+    c.say(`Starting a RuneRoyale (${this.mode}) against bots...`, '#f6c');
     // the match shares this page's collision world: it builds and breaks it, this side only draws the result
     this.inbox = []; this.shared = true;
-    this.local = new BRMatch({ world: c.world, send: (to, msg, except) => { if ((to == null || to === 'me') && except !== 'me') this.inbox.push(msg); } });
+    this.local = new BRMatch({ world: c.world, team: MODES[this.mode], send: (to, msg, except) => { if ((to == null || to === 'me') && except !== 'me') this.inbox.push(msg); } });
     this.local.join('me', c.me.name === 'offline' ? 'You' : c.me.name, { outfit: c.me.outfit || null });
     this.local.fillBots(); this.local.start();
     this.drain();
@@ -229,6 +257,10 @@ export class BattleRoyale {
       case 'ggone': { const g = this.gadgets?.get(m.id); if (g) { this.group.remove(g.mesh); this.gadgets.delete(m.id); } break; }
       case 'trap': this.onTrap(m.id); break;
       case 'cart': this.onCart(m.c); break;
+      case 'down': this.onDown(m); break;
+      case 'up': this.onUp(m); break;
+      case 'reboot': this.onReboot(m); break;
+      case 'fished': { const f = this.chests?.get(m.k); if (f) { f.uses = m.uses; if (!m.uses) { f.open = true; this.chestLook(f); } } if (m.by === this.myId) { c.audio.event({ type: 'pickup' }); c.hud.pop('A BITE!', '#4cf'); } break; }
       case 'fx': this.onFx(m); break;
       case 'over': this.onOver(m); break;
       case 'left': if (this.state === 'queue') { this.state = 'idle'; this.lobbyEl.style.display = 'none'; } break;
@@ -241,7 +273,9 @@ export class BattleRoyale {
     this.state = 'live'; this.lobbyEl.style.display = 'none';
     this.t = 0; this.plan = m.plan; this.bus = m.bus; this.arena = m.arena;
     this.myId = this.local ? 'me' : c.net.me?.id;
-    this.players = new Map(m.players.map(p => [p.id, { ...p, hp: BR.HP, sh: 0, alive: true, kills: 0 }]));
+    this.players = new Map(m.players.map(p => [p.id, { ...p, hp: BR.HP, sh: 0, alive: true, kills: 0, down: false }]));
+    this.team = m.team || 1; this.myTeam = this.players.get(this.myId)?.team;
+    this.down = false; this.cards = []; this.reviving = null; this.revT = 0; this.fishing = null; this.zip = null; this.riftOn = null; this.trailT = 0;
     this.hp = BR.HP; this.sh = 0; this.kills = 0; this.ph = 'bus'; this.myPlace = 0;
     this.slots = [{ t: 'w', w: 'pick' }, null, null, null, null, null]; this.sel = 0;
     this.ammo = {}; this.mats = { wood: 0, stone: 0, metal: 0 }; this.matSel = 'wood';
@@ -253,6 +287,8 @@ export class BattleRoyale {
     this.carts = new Map(); this.gadgets = new Map();
     this.group.visible = true;
     for (const ct of m.carts || []) this.onCart(ct);
+    this.rifts = (m.rifts || []).map(r => { const g = this.riftMesh(); g.position.copy(this.T(r.x, r.y + 1.6, r.z)); this.group.add(g); return { ...r, g }; });
+    this.zips = (m.zips || []).map(z => { this.group.add(this.zipMesh(z)); return { ...z, L: Math.hypot(z.b.x - z.a.x, z.b.y - z.a.y, z.b.z - z.a.z) }; });
     for (const ch of m.chests) this.addChest(ch);
     for (const o of m.items) this.addItem(o);
     // bots show up like any other skater
@@ -273,7 +309,20 @@ export class BattleRoyale {
 
   addChest(ch) {
     const { THREE } = this.c, g = new THREE.Group();
-    if (ch.kind === 'vend') {
+    if (ch.kind === 'fish') {
+      // bubbles over the water next to the spot
+      const w = this.c.world, S = w.S, [tx, tz] = w.tileOf(ch.x, ch.z); let wx = 0, wz = 0;
+      for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (w.blocked[(tz + b) * w.N + tx + a] === 2) { wx = a; wz = b; break; }
+      const bub = new THREE.Group(); bub.name = 'bubbles'; bub.position.set(wx * S, 0, -wz * S);
+      for (let i = 0; i < 6; i++) { const b = new THREE.Mesh(this.geo.sphere, this.mat.spike); b.scale.setScalar(0.08 + (i % 3) * 0.04); b.position.set(Math.cos(i * 1.1) * 0.5, 0.05, Math.sin(i * 1.1) * 0.5); bub.add(b); }
+      g.add(bub);
+    } else if (ch.kind === 'bench') {
+      g.add(this.box(1.6, 0.8, 0.8, this.mat.cartRim, 0, 0.4, 0), this.box(1.7, 0.12, 0.9, this.mat.band, 0, 0.86, 0), this.box(0.5, 0.35, 0.35, this.mat.spike, 0.3, 1.05, 0));
+    } else if (ch.kind === 'reboot') {
+      const lamp = new THREE.Mesh(this.geo.sphere, new THREE.MeshBasicMaterial({ color: 0x30ff60 })); lamp.scale.setScalar(0.25); lamp.position.set(0, 2.3, 0); lamp.name = 'lamp';
+      g.add(this.box(3, 1.7, 1.6, this.mat.spike, 0, 1.15, 0), this.box(1, 1.1, 1.6, this.mat.pad, 1.95, 0.85, 0), lamp);
+      for (const [x, z] of [[1, 0.8], [-1, 0.8], [1, -0.8], [-1, -0.8], [2, 0.8], [2, -0.8]]) { const wh = new THREE.Mesh(this.geo.wheel, this.mat.cartRim); wh.rotation.x = Math.PI / 2; wh.position.set(x, 0.28, z); g.add(wh); }
+    } else if (ch.kind === 'vend') {
       const col = new THREE.MeshBasicMaterial({ color: RARITY[ch.it.r].col });
       g.add(this.box(1.1, 2.2, 0.8, this.mat.vend, 0, 1.1, 0), this.box(0.8, 1.1, 0.05, this.mat.glass, 0, 1.4, 0.42), this.box(1.14, 0.12, 0.84, col, 0, 2.26, 0));
       const it = this.weaponMesh(ch.it.w); it.position.set(0, 1.45, 0.47); it.scale.setScalar(0.9); it.name = 'spin'; g.add(it);
@@ -288,13 +337,14 @@ export class BattleRoyale {
       const lid = new THREE.Group(); lid.position.set(0, 0.5, 0.3); lid.add(this.box(0.97, 0.22, 0.62, this.mat.chest, 0, 0.11, -0.31), this.box(0.99, 0.06, 0.64, this.mat.band, 0, 0.1, -0.31)); lid.name = 'lid'; g.add(lid);
     }
     g.position.copy(this.T(ch.x, ch.y, ch.z));
-    g.rotation.y = (ch.x * 7.3 + ch.z * 3.1) % 6.283;
+    if (ch.kind !== 'fish') g.rotation.y = (ch.x * 7.3 + ch.z * 3.1) % 6.283;
     this.group.add(g);
     const o = { ...ch, g };
     this.chests.set(ch.k, o);
     if (ch.open) this.chestLook(o);
   }
   chestLook(ch) {
+    if (ch.kind === 'fish') { const b = ch.g.getObjectByName('bubbles'); if (b) b.visible = false; return; }
     if (ch.kind === 'vend') { ch.g.traverse(m => { if (m.isMesh && (m.material === this.mat.vend || m.material === this.mat.glass)) m.material = this.mat.vendOff; }); const s = ch.g.getObjectByName('spin'); if (s) s.visible = false; }
     const lid = ch.g.getObjectByName('lid'); if (lid) lid.rotation.x = -1.6;
     ch.g.traverse(m => { if (m.isMesh && m.material === this.mat.chest) m.material = this.mat.open; });
@@ -305,6 +355,8 @@ export class BattleRoyale {
     let m;
     if (it.t === 'w') { m = this.weaponMesh(it.w); m.scale.setScalar(1.2); if (it.r >= 1) { const b = new THREE.Mesh(this.geo.beam, this.mat.beam[it.r]); b.scale.set(1, 2.2 + it.r * 0.5, 1); b.position.y = 1; g.add(b); } }
     else if (it.t === 'h') m = this.box(0.35, 0.25, 0.25, this.mat.heal[it.h]);
+    else if (it.t === 'c') { m = this.box(0.45, 0.06, 0.32, this.mat.pad); const b = new THREE.Mesh(this.geo.beam, this.mat.beam[2]); b.scale.set(1.2, 4, 1.2); b.position.y = 2; g.add(b); }
+    else if (it.t === 'g') m = this.gadgetMesh(it.g);
     else if (it.t === 'a') m = this.box(0.3, 0.2, 0.2, this.mat.ammoBox);
     else m = this.box(0.4, 0.25, 0.4, this.mat.matBox[it.m]);
     m.position.y = 0.35; m.name = 'spin'; g.add(m);
@@ -331,6 +383,32 @@ export class BattleRoyale {
     Object.assign(o, { rider: ct.rider, tx: ct.x, ty: ct.y, tz: ct.z, th: ct.h });
     if (this.cart === o && ct.rider !== this.myId) this.cart = null;
   }
+  onDown(m) {
+    const c = this.c, p = this.players.get(m.id); if (p) { p.down = true; p.hp = BR.DOWN_HP; p.sh = 0; }
+    c.say(m.byName ? `${m.byName} knocked ${m.name}` : `${m.name} is down`, m.id === this.myId || p?.team === this.myTeam ? '#f80' : '#f6c');
+    if (m.id !== this.myId) return;
+    this.down = true; this.hp = BR.DOWN_HP; this.sh = 0; this.buildMode = null; this.cart = null; this.crouch = false; this.zip = null; this.fishing = null; this.reviving = null;
+    if (this.boardOn) this.toggleBoard();
+    c.hud.big('KNOCKED', '#f44', 'crawl to a teammate: they can pick you up', 2.5, true);
+  }
+  onUp(m) {
+    const p = this.players.get(m.id); if (p) p.down = false;
+    if (m.id === this.myId) { this.down = false; this.c.hud.pop('BACK ON YOUR FEET', '#0f0'); }
+    if (m.by === this.myId) this.c.hud.pop(`REVIVED ${p?.name.toUpperCase() || ''}`, '#0f0');
+  }
+  onReboot(m) {
+    const c = this.c, sk = c.sk, p = this.players.get(m.id), van = this.chests.get(m.k);
+    if (van) van.cool = m.cool;
+    if (p) { p.alive = true; p.down = false; p.hp = BR.HP; p.sh = 0; }
+    const i = this.cards.indexOf(m.id); if (i >= 0) this.cards.splice(i, 1);
+    c.say(`${p?.name || '?'} was rebooted`, '#4cf');
+    if (m.id !== this.myId) return;
+    this.ph = 'fall'; this.glide = false; this.launchT = 0; this.vy = -2; this.vx = this.vz = 0; this.hp = BR.HP; this.sh = 0; this.down = false; this.myPlace = 0;
+    this.slots = [{ t: 'w', w: 'pick' }, null, null, null, null, null]; this.sel = 0; this.ammo = {}; this.mats = { wood: 0, stone: 0, metal: 0 };
+    sk.x = m.x; sk.y = m.y; sk.z = m.z; sk.mode = 'walk'; sk.footAir = true;
+    this.overEl.style.display = 'none';
+    c.hud.big('REBOOTED', '#4cf', 'back in: find gear fast', 2.5, true); c.audio.event({ type: 'levelup' });
+  }
   onGone(m) {
     const o = this.items.get(m.id); if (!o) return;
     this.group.remove(o.g); this.items.delete(m.id); this.pending.delete(m.id);
@@ -340,6 +418,7 @@ export class BattleRoyale {
   take(it) {
     const c = this.c; c.audio.event({ type: 'pickup' });
     if (it.t === 'a') { this.ammo[it.a] = Math.min(999, (this.ammo[it.a] || 0) + it.n); return; }
+    if (it.t === 'c') { if (!this.cards.includes(it.id)) this.cards.push(it.id); c.hud.pop(`GOT ${it.name.toUpperCase()}'S CARD: TAKE IT TO A REBOOT VAN`, '#4cf'); return; }
     if (it.t === 'm') { this.mats[it.m] = Math.min(MAT_MAX, this.mats[it.m] + it.n); return; }
     if (it.t === 'h' || it.t === 'g') {
       const cap = it.t === 'h' ? HEALS[it.h].stack : GADGETS[it.g].stack;
@@ -357,7 +436,8 @@ export class BattleRoyale {
     const c = this.c;
     if (Math.abs(m.mt - this.t) > 0.6) this.t = m.mt; else this.t += (m.mt - this.t) * 0.2;
     this.aliveN = m.n;
-    for (const [id, x, y, z, h, md, wk, w, em] of m.b) {
+    for (const [id, x, y, z, h, md, wk, w, em, dn] of m.b) {
+      const pl = this.players.get(id); if (pl) pl.down = !!dn;
       const r = c.remotes.get(id); if (!r) continue;
       r.tgt = { ...BOT_SNAP, x, y, z, heading: h, body: h, mode: md === 2 ? 'air' : 'walk', wk, fa: md === 1 ? 1 : 0, hide: md === 0 ? 1 : 0, bw: em ? '' : w, br: 1, em: em || 0 };
     }
@@ -370,6 +450,7 @@ export class BattleRoyale {
   onHp(m) {
     const c = this.c, p = this.players.get(m.id);
     if (p) { p.hp = m.hp; p.sh = m.sh; }
+    if (m.id === this.myId && this.down && !m.down && m.d === 0) { this.hp = m.hp; this.sh = m.sh; return; }
     if (m.id === this.myId) {
       const was = this.hp + this.sh; this.hp = m.hp; this.sh = m.sh;
       if (m.d > 0) {
@@ -399,7 +480,7 @@ export class BattleRoyale {
     if (at && this.group.visible) { const gs = this.box(0.6, 0.8, 0.18, this.mat.stone); gs.position.copy(this.T(at.x, this.c.world.height(at.x, at.z) + 0.4, at.z)); this.group.add(gs); }
     if (m.by === this.myId) { this.kills++; c.hud.big(`ELIMINATED ${m.name.toUpperCase()}`, '#ff0', `${m.left} left`, 1.6, true); c.audio.event({ type: 'elim' }); }
     if (m.id === this.myId) {
-      this.cart = null; this.crouch = false;
+      this.cart = null; this.crouch = false; this.down = false; this.zip = null; this.fishing = null; this.reviving = null;
       this.ph = 'dead'; this.myPlace = m.place; this.buildMode = null;
       const drops = [...this.slots.slice(1).filter(Boolean)];
       for (const [a, n] of Object.entries(this.ammo)) if (n > 0) drops.push({ t: 'a', a, n });
@@ -414,16 +495,19 @@ export class BattleRoyale {
   onOver(m) {
     const c = this.c;
     this.state = 'over'; this.overT = 0; this.firing = false;
-    const won = m.id === this.myId, me = m.board.find(r => r.id === this.myId);
+    const won = this.team > 1 && m.team != null ? m.team === this.myTeam : m.id === this.myId, me = m.board.find(r => r.id === this.myId);
+    const place = won ? 1 : me ? me.place : BR.SIZE;
+    const loot = this.locker.award({ won, place, kills: this.kills, size: BR.SIZE });
     try { document.exitPointerLock(); } catch {}
     this.overEl.innerHTML = `<div class="box"><h1>${won ? '#1 VICTORY ROYALE' : `#${me ? me.place : '?'}`}</h1>
-      <h2>${won ? 'Last one standing!' : m.name ? esc(m.name) + ' won the match' : 'Match over'} &middot; ${this.kills} elimination${this.kills === 1 ? '' : 's'}</h2>
+      <h2>${won ? (this.team > 1 ? 'Your team is the last standing!' : 'Last one standing!') : m.names?.length ? esc(m.names.join(', ')) + ' won the match' : m.name ? esc(m.name) + ' won the match' : 'Match over'} &middot; ${this.kills} elimination${this.kills === 1 ? '' : 's'}</h2>
+      <div style="color:#ffc830;font-size:13px;margin-bottom:8px">${esc(loot)}</div>
       <table>${m.board.slice(0, 10).map(r => `<tr style="color:${r.id === this.myId ? '#0f0' : r.place === 1 ? '#ffd23a' : '#fff'}"><td>#${r.place}</td><td>${esc(r.name)}${r.bot ? ' <span style="color:#a0927a">(bot)</span>' : ''}</td><td>${r.kills} kill${r.kills === 1 ? '' : 's'}</td></tr>`).join('')}</table>
-      <button data-a="done">BACK TO SKATING</button><div style="color:#a0927a;font-size:12px;margin-top:6px">(or wait a few seconds)</div></div>`;
+      <button data-a="done">BACK TO SKATING</button> <button data-a="locker">LOCKER</button><div style="color:#a0927a;font-size:12px;margin-top:6px">(or wait a few seconds)</div></div>`;
     this.overEl.style.display = 'flex';
     // XP: placement + eliminations (modest: a match against bots must not out-earn skating)
     const humans = [...this.players.values()].filter(p => !p.bot).length;
-    this.reward = Math.round(((won ? 1500 : 0) + Math.max(0, BR.SIZE - (me?.place || BR.SIZE)) * 40 + this.kills * 150) * (humans > 1 ? 1.5 : 1));
+    this.reward = Math.round(((won ? 1500 : 0) + Math.max(0, BR.SIZE - place) * 40 + this.kills * 150) * (humans > 1 ? 1.5 : 1));
     if (won) c.audio.event({ type: 'victory' });
     if (this.reward) { c.addXP?.(this.reward); c.say(`RuneRoyale: +${this.reward.toLocaleString()} XP (${won ? 'victory, ' : ''}${this.kills} kills)`, '#0f0'); }
   }
@@ -581,7 +665,7 @@ export class BattleRoyale {
     if (lb) { const dist = lb.t * best.dist; if (dist < best.dist - 0.05 && best.kind !== 'piece') best = { dist, kind: 'world', block: lb }; }
     // players: upright capsules
     for (const p of this.players.values()) {
-      if (!p.alive || p.id === this.myId) continue;
+      if (!p.alive || p.id === this.myId || (this.team > 1 && p.team === this.myTeam)) continue;
       const s = this.posOf(p.id); if (!s) continue;
       const r = c.remotes.get(p.id); if (r?.tgt?.hide) continue;
       const px = s.x, pz = -s.z, dx = d.x, dz = d.z, L2 = dx * dx + dz * dz || 1e-9;
@@ -702,7 +786,7 @@ export class BattleRoyale {
     if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
     if (this.boardOn && ['w', 'a', 's', 'd', ' ', 'shift', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) c.skKey(k, true);
     if (k === 'm') this.showMap = !this.showMap;
-    if (!this.alive) return true;
+    if (!this.alive || this.down) return true;
     if (k === ' ') this.jumpEdge = true;
     if (k >= '1' && k <= '6') this.select(+k - 1);
     else if (BUILD_KEYS[k] && this.ph === 'ground') { const b = BUILD_KEYS[k]; this.buildMode = this.buildMode === b ? null : b; this.useT = 0; this.using = null; }
@@ -718,6 +802,7 @@ export class BattleRoyale {
   }
   keyup(e) {
     const k = e.key.toLowerCase();
+    if (k === 'e') this.reviving = null;
     if (e.key === 'Tab') this.board = false;
     this.keys.delete(k);
     if (this.c.keys.has(k)) this.c.skKey(k, false);
@@ -743,14 +828,31 @@ export class BattleRoyale {
     }
     for (const o of this.items.values()) {
       if (this.pending.has(o.id) || Math.abs(o.y - sk.y) > 2.5) continue;
+      if (o.it.t === 'c' && this.players.get(o.it.id)?.team !== this.myTeam) continue;
       const s = score(o.x, o.z); if (Math.hypot(o.x - sk.x, o.z - sk.z) < BR.PICK_R && s < bd) { bd = s; best = { o }; }
     }
-    if (!best && !this.boardOn) for (const ct of this.carts.values()) if (!ct.rider && Math.hypot(ct.x - sk.x, ct.z - sk.z) < 3.5 && Math.abs(ct.y - sk.y) < 2) best = { cart: ct };
+    if (this.team > 1) for (const p of this.players.values()) {
+      if (!p.down || !p.alive || p.team !== this.myTeam || p.id === this.myId) continue;
+      const s = this.posOf(p.id); if (s && Math.hypot(s.x - sk.x, s.z - sk.z) < 2.6) return { mate: p };
+    }
+    for (const z of this.zips || []) for (const [e, dir] of [[z.a, 1], [z.b, -1]]) { const s = score(e.x, e.z) - 0.5; if (Math.hypot(e.x - sk.x, e.z - sk.z) < 2.4 && Math.abs(e.y - 6 - sk.y) < 2.5 && s < bd) { bd = s; best = { zip: z, dir }; } }
+    if (!this.boardOn) for (const ct of this.carts.values()) { const s = score(ct.x, ct.z) - 0.5; if (!ct.rider && Math.hypot(ct.x - sk.x, ct.z - sk.z) < 3.5 && Math.abs(ct.y - sk.y) < 2 && s < bd) { bd = s; best = { cart: ct }; } }
     return best;
   }
   interact() {
     if (this.cart) { this.leaveCart(); return; }
+    if (this.zip) { this.dropZip(); return; }
     const t = this.target(); if (!t) return;
+    if (t.mate) { this.reviving = t.mate.id; this.revT = 0; this.buildMode = null; return; }
+    if (t.zip) { this.zip = { z: t.zip, s: t.dir > 0 ? 0 : 1, dir: t.dir }; this.buildMode = null; this.c.audio.event({ type: 'glide' }); return; }
+    if (t.ch?.kind === 'fish') { this.fishing = { k: t.ch.k, t: BR.FISH_T }; this.c.hud.pop('CASTING...', '#4cf'); return; }
+    if (t.ch?.kind === 'bench') { this.upgrade(); return; }
+    if (t.ch?.kind === 'reboot') {
+      if (this.t < (t.ch.cool || 0)) { this.c.hud.pop('THE VAN IS RECHARGING', '#f80'); return; }
+      const id = this.cards.find(id => !this.players.get(id)?.alive);
+      if (!id) { this.c.hud.pop("BRING A FALLEN TEAMMATE'S REBOOT CARD", '#f80'); return; }
+      this.tx({ op: 'reboot', k: t.ch.k, id }); return;
+    }
     if (t.cart) { this.enterCart(t.cart); return; }
     if (t.ch?.kind === 'vend') {
       const ch = t.ch; if (this.mats[ch.mat] < ch.cost) { this.c.hud.pop(`NEEDS ${ch.cost} ${ch.mat.toUpperCase()}`, '#f80'); return; }
@@ -765,6 +867,30 @@ export class BattleRoyale {
     const p = h && this.pieces.get(h.object.userData.pid);
     if (!p || p.k === 'cone') { this.c.hud.pop('AIM AT A WALL, FLOOR OR RAMP TO EDIT IT', '#f80'); return; }
     this.tx({ op: 'edit', id: p.id });
+  }
+  upgrade() {
+    const c = this.c, it = this.slots[this.sel];
+    if (!it || it.t !== 'w' || WEAPONS[it.w].melee) { c.hud.pop('HOLD THE WEAPON YOU WANT UPGRADED', '#f80'); return; }
+    if (it.r >= 4) { c.hud.pop('ALREADY LEGENDARY', '#fb3'); return; }
+    const cost = benchCost(it.r); if (this.mats[cost.m] < cost.n) { c.hud.pop(`NEEDS ${cost.n} ${cost.m.toUpperCase()}`, '#f80'); return; }
+    this.mats[cost.m] -= cost.n; it.r++; this.heldW = null;
+    c.hud.pop(`UPGRADED TO ${RARITY[it.r].name.toUpperCase()}`, RARITY[it.r].col); c.audio.event({ type: 'build' });
+  }
+  dropZip() { const sk = this.c.sk; this.zip = null; this.air = true; this.vy = 0; this.peak = sk.y; this.vx = this.vx || 0; }
+  stepZip(dt, jump) {
+    const sk = this.c.sk, z = this.zip, Z = z.z;
+    z.s += z.dir * 13 / Z.L * dt;
+    const k = Math.max(0, Math.min(1, z.s));
+    sk.x = Z.a.x + (Z.b.x - Z.a.x) * k; sk.z = Z.a.z + (Z.b.z - Z.a.z) * k; sk.y = Z.a.y + (Z.b.y - Z.a.y) * k - 2.1;
+    this.vx = (Z.b.x - Z.a.x) / Z.L * 13 * z.dir; this.vz = (Z.b.z - Z.a.z) / Z.L * 13 * z.dir;
+    sk.mode = 'walk'; sk.footAir = true; sk.walking = 0; sk.heading = sk.body = Math.atan2(this.vz, this.vx);
+    if (jump || z.s <= 0 || z.s >= 1) this.dropZip();
+  }
+  riftJump() {
+    const c = this.c, sk = c.sk, g = (c.world.probeY = -Infinity, c.world.height(sk.x, sk.z));
+    this.ph = 'fall'; this.glide = false; this.launchT = 0; this.vy = 0; this.vx = this.vz = 0; this.crouch = false; this.slideT = 0; this.buildMode = null; this.zip = null;
+    sk.y = g + 50; sk.mode = 'walk'; sk.footAir = true; this.tx({ op: 'jump' });
+    c.audio.event({ type: 'glide' }); c.hud.pop('THROUGH THE RIFT!', '#c6f');
   }
   toggleCrouch() {
     if (this.ph !== 'ground' || this.cart || this.boardOn) return;
@@ -853,14 +979,30 @@ export class BattleRoyale {
     } else if (this.ph === 'fall') this.stepFall(dt, jump);
     else if (this.ph === 'ground') {
       if (this.cart) this.stepCart(dt);
+      else if (this.zip) this.stepZip(dt, jump);
       else if (this.boardOn) {
         c.skateStep(dt);
         this.vx = sk.vx; this.vz = sk.vz;
         if (sk.mode === 'walk') this.boardOn = false;           // (E-style dismount from the skate code)
       } else this.stepFoot(dt, jump);
-      if (!this.cart) this.combat(dt);
+      if (!this.cart && !this.down) this.combat(dt);
+      this.channels(dt);
     } else if (this.ph === 'dead') this.spectate(dt);
     this.visuals(dt);
+  }
+  /** things you hold still for: picking up a teammate, fishing */
+  channels(dt) {
+    const c = this.c, sk = c.sk;
+    if (this.reviving) {
+      const p = this.players.get(this.reviving), s = p && (this.c.remotes.get(p.id)?.tgt || this.posOf(p.id));
+      if (!p || !p.down || !p.alive || this.down || !s || Math.hypot(s.x - sk.x, s.z - sk.z) > 3.2) this.reviving = null;
+      else if ((this.revT += dt) >= BR.REVIVE) { this.tx({ op: 'revive', id: p.id }); this.reviving = null; }
+    }
+    if (this.fishing) {
+      const f = this.chests.get(this.fishing.k);
+      if (!f || f.open || this.down || Math.hypot(this.vx, this.vz) > 0.8 || Math.hypot(f.x - sk.x, f.z - sk.z) > BR.PICK_R + 1.5) this.fishing = null;
+      else if ((this.fishing.t -= dt) <= 0) { this.tx({ op: 'fish', k: f.k }); this.fishing = null; }
+    }
   }
   leaveBus() {
     const sk = this.c.sk, at = busAt(this.bus, this.t);
@@ -910,7 +1052,8 @@ export class BattleRoyale {
     const c = this.c, sk = c.sk, w = c.world;
     const m = this.wish(), sprint = this.keys.has('shift') && !this.ads && !this.crouch && m.f > 0.2;
     if (this.emoting && m.L > 0.1) { this.emoting = false; c.emote?.(0); }
-    const sp = (this.ads ? 2.8 : this.crouch ? 2.6 : sprint ? 6.8 : 4.8) * (this.useT > 0 ? 0.5 : 1);
+    const sp = this.down ? 1.3 : (this.ads ? 2.8 : this.crouch ? 2.6 : sprint ? 6.8 : 4.8) * (this.useT > 0 ? 0.5 : 1);
+    if (this.down) jump = false;
     const k = Math.min(1, dt * (this.air ? 3 : 14));
     if (this.slideT > 0 && !this.air) {                         // a slide: fast, then it bleeds off
       this.slideT -= dt; const v = 3 + 8 * Math.max(0, this.slideT) / 0.9;
@@ -947,7 +1090,9 @@ export class BattleRoyale {
     sk.x = Math.max(0.6, Math.min(w.W - 0.6, sk.x)); sk.z = Math.max(0.6, Math.min(w.W - 0.6, sk.z));
     // a launch pad underfoot: up you go
     if (this.padOn && Math.hypot(this.padOn.x - sk.x, this.padOn.z - sk.z) > 1.4) this.padOn = null;       // (step off a pad before it throws you again)
-    if (!this.air) for (const g of this.gadgets.values()) if (g.g === 'pad' && g !== this.padOn && Math.hypot(g.x - sk.x, g.z - sk.z) < 1 && Math.abs(g.y - sk.y) < 1.2) { this.padOn = g; this.padLaunch(); break; }
+    if (this.riftOn && Math.hypot(this.riftOn.x - sk.x, this.riftOn.z - sk.z) > 3) this.riftOn = null;
+    if (!this.air && !this.down) for (const r of this.rifts || []) if (r !== this.riftOn && Math.hypot(r.x - sk.x, r.z - sk.z) < 1.4 && Math.abs(r.y - sk.y) < 2) { this.riftOn = r; this.riftJump(); return; }
+    if (!this.air && !this.down) for (const g of this.gadgets.values()) if (g.g === 'pad' && g !== this.padOn && Math.hypot(g.x - sk.x, g.z - sk.z) < 1 && Math.abs(g.y - sk.y) < 1.2) { this.padOn = g; this.padLaunch(); break; }
   }
   padLaunch() {
     const c = this.c, sk = this.c.sk;
@@ -964,7 +1109,7 @@ export class BattleRoyale {
       const free = this.slots.some((s, i) => i > 0 && !s);
       for (const o of this.items.values()) {
         if (this.pending.has(o.id) || Math.hypot(o.x - sk.x, o.z - sk.z) > 1.3 || Math.abs(o.y - sk.y) > 1.5) continue;
-        if (o.it.t === 'a' || o.it.t === 'm' || (free && (o.it.t === 'w' || o.it.t === 'h'))) { this.pending.add(o.id); this.tx({ op: 'pick', id: o.id }); const id = o.id; setTimeout(() => this.pending.delete(id), 1500); break; }
+        if (o.it.t === 'a' || o.it.t === 'm' || (o.it.t === 'c' && this.players.get(o.it.id)?.team === this.myTeam && o.it.id !== this.myId) || (free && (o.it.t === 'w' || o.it.t === 'h'))) { this.pending.add(o.id); this.tx({ op: 'pick', id: o.id }); const id = o.id; setTimeout(() => this.pending.delete(id), 1500); break; }
       }
     }
     if (this.reloadT > 0) {
@@ -987,6 +1132,10 @@ export class BattleRoyale {
         if (this.useT <= 0) { this.useT = 0; this.tx({ op: 'heal', h: it.h }); if (--it.n <= 0) { this.slots[this.sel] = null; this.sel = 0; } this.using = null; }
       }
       return;
+    }
+    if (it.t === 'g' && it.g === 'rift') {
+      if (this.fireEdge) { if (--it.n <= 0) { this.slots[this.sel] = null; this.sel = 0; } this.riftJump(); }
+      this.fireEdge = false; return;
     }
     if (it.t === 'g') {
       if (this.fireEdge) {
@@ -1012,7 +1161,7 @@ export class BattleRoyale {
   spectate(dt) {
     const c = this.c;
     if (this.spec == null || !this.players.get(this.spec)?.alive) {
-      const alive = [...this.players.values()].filter(p => p.alive && p.id !== this.myId);
+      const alive = [...this.players.values()].filter(p => p.alive && p.id !== this.myId).sort((a, b) => (b.team === this.myTeam) - (a.team === this.myTeam));
       this.spec = alive.length ? alive[0].id : null;
     }
     void dt; void c;
@@ -1046,7 +1195,19 @@ export class BattleRoyale {
       ct.g.position.copy(this.T(ct.x, ct.y, ct.z)); ct.g.rotation.y = ct.h;
     }
     for (const g of this.gadgets.values()) if (g.g === 'trap') { const up = (g.snap = Math.max(0, (g.snap || 0) - dt)) > 0; g.mesh.traverse(o => { if (o.name === 'spike') o.position.y = up ? 0.3 : 0.1; }); }
-    for (const ch of this.chests.values()) if (ch.kind === 'vend' && !ch.open) { const s = ch.g.getObjectByName('spin'); if (s) s.rotation.y = now * 1.2; }
+    for (const ch of this.chests.values()) {
+      if (ch.kind === 'vend' && !ch.open) { const s = ch.g.getObjectByName('spin'); if (s) s.rotation.y = now * 1.2; }
+      else if (ch.kind === 'fish' && !ch.open) { const b = ch.g.getObjectByName('bubbles'); if (b) b.children.forEach((o, i) => { o.position.y = 0.05 + ((now * 0.6 + i * 0.17) % 1) * 0.3; }); }
+      else if (ch.kind === 'reboot') { const l = ch.g.getObjectByName('lamp'); if (l) l.material.color.setHex(this.t < (ch.cool || 0) ? 0xff3030 : 0x30ff60); }
+    }
+    for (const r of this.rifts || []) r.g.rotation.y = now * 0.8;
+    // your skydive trail (a locker cosmetic)
+    const tc = this.locker.col('trail');
+    if (tc && this.ph === 'fall' && (this.trailT -= dt) <= 0) {
+      this.trailT = 0.05; const col = tc === -1 ? new THREE.Color().setHSL((now * 0.5) % 1, 1, 0.55).getHex() : tc;
+      const m = new THREE.Mesh(this.geo.box, new THREE.MeshBasicMaterial({ color: col })); m.scale.setScalar(0.18); m.position.copy(this.T(sk.x, sk.y + 0.8, sk.z)); this.group.add(m);
+      this.fx.push({ o: m, t: 0.9, v: [0, 1.5, 0], dispose: () => m.material.dispose() });
+    }
     for (const o of this.items.values()) { const s = o.g.getObjectByName('spin'); if (s) { s.rotation.y = now * 1.6; s.position.y = 0.35 + Math.sin(now * 2 + o.x) * 0.06; } }
     // projectiles
     for (const p of this.proj) {
@@ -1114,7 +1275,7 @@ export class BattleRoyale {
     } else if (this.cart) { dist = 6; sh = 0; h = 2.2; }
     else if (this.ads) { dist = 1.9; sh = 0.55; }
     else if (this.buildMode) dist = 4.4;
-    if (this.crouch && this.ph === 'ground' && !this.cart) h -= 0.55;
+    if ((this.crouch || this.down) && this.ph === 'ground' && !this.cart) h -= this.down ? 0.8 : 0.55;
     c.cullChunks(fx, fz);
     const cp = Math.cos(this.pitch), f = new THREE.Vector3(Math.cos(this.yaw) * cp, Math.sin(this.pitch), Math.sin(this.yaw) * cp);
     const r = [Math.sin(this.yaw), -Math.cos(this.yaw)];
@@ -1152,7 +1313,8 @@ export class BattleRoyale {
       const bw = Math.min(W * 0.32, 260 * k1 / 1.5), bx = 16, by = H - 18 - K * 10 - 46;
       x.fillStyle = 'rgba(0,0,0,0.6)'; x.fillRect(bx - 2, by - 2, bw + 4, 30);
       x.fillStyle = '#2a7cff'; x.fillRect(bx, by, bw * this.sh / 100, 10);
-      x.fillStyle = '#2ec23a'; x.fillRect(bx, by + 14, bw * Math.max(0, this.hp) / 100, 12);
+      x.fillStyle = this.down ? '#e02020' : '#2ec23a'; x.fillRect(bx, by + 14, bw * Math.max(0, this.hp) / (this.down ? BR.DOWN_HP : 100), 12);
+      if (this.down) hud.text('KNOCKED: BLEEDING OUT', bx, by - 16, '#f44', k1, 'l', 'p12');
       hud.text(`${Math.round(this.sh)}`, bx + bw + 8, by - 3, '#8cf', k1, 'l', 'p12');
       hud.text(`${Math.max(0, Math.round(this.hp))}`, bx + bw + 8, by + 11, '#8f8', k1, 'l', 'p12');
       if (this.useT > 0 && this.using) {
@@ -1192,11 +1354,21 @@ export class BattleRoyale {
         const rel = d.a - this.yaw, ang = -rel - Math.PI / 2;
         x.strokeStyle = `rgba(255,30,30,${Math.min(1, d.t)})`; x.lineWidth = 6; x.beginPath(); x.arc(cx, cy, 90, ang - 0.3, ang + 0.3); x.stroke();
       }
+      // holding still: reviving, fishing
+      const ch = this.reviving ? { n: 'REVIVING ' + (this.players.get(this.reviving)?.name || '').toUpperCase(), k: this.revT / BR.REVIVE, col: '#0f0' } : this.fishing ? { n: 'FISHING...', k: 1 - this.fishing.t / BR.FISH_T, col: '#4cf' } : null;
+      if (ch) { x.fillStyle = 'rgba(0,0,0,0.6)'; x.fillRect(W / 2 - 70, H * 0.62, 140, 8); x.fillStyle = ch.col; x.fillRect(W / 2 - 68, H * 0.62 + 2, 136 * Math.min(1, ch.k), 4); hud.text(ch.n, W / 2, H * 0.62 + 12, ch.col, k1, 'c', 'p12'); }
+      if (this.zip) hud.text(`${c.TOUCH ? 'USE / JUMP' : 'E / SPACE'}: LET GO`, W / 2, H * 0.62 + 12, '#ff0', k1, 'c', 'p12');
+      if (this.cards.length) hud.text(`REBOOT CARDS: ${this.cards.map(id => this.players.get(id)?.name || '?').join(', ').toUpperCase()}`, W / 2, H * 0.62 + 26, '#4cf', k1, 'c', 'p12');
       // what E does
-      if (this.ph === 'ground') {
+      if (this.ph === 'ground' && !this.down) {
         const t = this.cart ? { out: 1 } : this.target(), E = c.TOUCH ? 'USE' : 'E';
         if (t?.out) hud.text(`${E}: GET OUT   ${Math.round(Math.abs(this.cartV) * 3.6)} KM/H`, cx, cy + 40, '#ff0', k1, 'c', 'p12');
         else if (t?.cart) hud.text(`${E}: DRIVE THE MINE CART`, cx, cy + 40, '#ff0', k1, 'c', 'p12');
+        else if (t?.mate) hud.text(`HOLD ${E}: REVIVE ${t.mate.name.toUpperCase()}`, cx, cy + 40, '#0f0', k1, 'c', 'p12');
+        else if (t?.zip) hud.text(`${E}: RIDE THE ZIPLINE`, cx, cy + 40, '#ff0', k1, 'c', 'p12');
+        else if (t?.ch?.kind === 'fish') hud.text(`${E}: FISH HERE (${t.ch.uses} LEFT)`, cx, cy + 40, '#4cf', k1, 'c', 'p12');
+        else if (t?.ch?.kind === 'bench') { const it = this.slots[this.sel], ok = it?.t === 'w' && !WEAPONS[it.w].melee && it.r < 4, cost = ok && benchCost(it.r); hud.text(ok ? `${E}: UPGRADE TO ${RARITY[it.r + 1].name.toUpperCase()} FOR ${cost.n} ${cost.m.toUpperCase()}` : 'UPGRADE BENCH: HOLD A WEAPON BELOW LEGENDARY', cx, cy + 40, ok ? RARITY[it.r + 1].col : '#bbb', k1, 'c', 'p12'); }
+        else if (t?.ch?.kind === 'reboot') hud.text(this.t < (t.ch.cool || 0) ? `REBOOT VAN RECHARGING ${fmtT(t.ch.cool - this.t)}` : this.cards.some(id => !this.players.get(id)?.alive) ? `${E}: REBOOT ${this.players.get(this.cards.find(id => !this.players.get(id)?.alive))?.name.toUpperCase()}` : "REBOOT VAN: BRING A FALLEN TEAMMATE'S CARD", cx, cy + 40, '#4cf', k1, 'c', 'p12');
         else if (t?.ch?.kind === 'vend') hud.text(`${E}: BUY ${itemName(t.ch.it).toUpperCase()} FOR ${t.ch.cost} ${t.ch.mat.toUpperCase()}`, cx, cy + 40, this.mats[t.ch.mat] >= t.ch.cost ? RARITY[t.ch.it.r].col : '#f66', k1, 'c', 'p12');
         else if (t) hud.text(`${E}: ${t.ch ? (t.ch.sd ? 'OPEN THE SUPPLY DROP' : t.ch.kind === 'ammo' ? 'OPEN AMMO BOX' : 'OPEN CHEST') : 'PICK UP ' + itemName(t.o.it).toUpperCase()}`, cx, cy + 40, t.o?.it.t === 'w' ? RARITY[t.o.it.r].col : '#ff0', k1, 'c', 'p12');
         if (this.crouch && !this.cart) hud.text(this.slideT > 0 ? 'SLIDING' : 'CROUCHED', cx, cy + 40 + k1 * 12, '#bbb', k1, 'c', 'p12', 0.8);
@@ -1208,8 +1380,25 @@ export class BattleRoyale {
       hud.text(`#${this.myPlace}   ${s ? 'SPECTATING ' + s.name.toUpperCase() : ''}`, W / 2, H * 0.18, '#fff', K, 'c', 'b12');
       hud.text(c.TOUCH ? 'MENU: back to skating' : 'ESC: back to skating', W / 2, H * 0.18 + K * 14, '#ff981f', k1, 'c', 'p12');
     }
+    if (this.team > 1 && this.live) this.drawTeam(hud, x, W, H, K);
     if (this.showMap) this.drawMap(hud, x, W, H, K, st);
     if (this.board) this.drawScores(hud, x, W, H, K);
+  }
+  /** your team: names + health down the side, markers over their heads */
+  drawTeam(hud, x, W, H, K) {
+    const c = this.c, k1 = Math.max(1, K - 1), { THREE } = c, mates = [...this.players.values()].filter(p => p.team === this.myTeam && p.id !== this.myId);
+    let y = c.TOUCH ? H * 0.42 : 18 + k1 * 6;
+    for (const p of mates) {
+      const st = !p.alive ? 'OUT' : p.down ? 'DOWN' : '', col = !p.alive ? '#777' : p.down ? '#f44' : '#0f0';
+      hud.text(`${p.name}${st ? '  ' + st : ''}`, 16, y, col, k1, 'l', 'p12');
+      if (p.alive) { x.fillStyle = 'rgba(0,0,0,0.6)'; x.fillRect(16, y + k1 * 11, 90, 5); x.fillStyle = p.down ? '#e02020' : '#2ec23a'; x.fillRect(16, y + k1 * 11, 90 * Math.max(0, p.hp) / (p.down ? BR.DOWN_HP : 100), 5); }
+      y += k1 * 11 + 10;
+      const s = p.alive && this.posOf(p.id); if (!s) continue;
+      const v = new THREE.Vector3(s.x, s.y + 2.3, -s.z).project(c.camera); if (v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) continue;
+      const sx = (v.x + 1) / 2 * W, sy = (1 - v.y) / 2 * H;
+      x.fillStyle = col; x.beginPath(); x.moveTo(sx - 6, sy - 8); x.lineTo(sx + 6, sy - 8); x.lineTo(sx, sy); x.fill();
+      hud.text(p.down ? p.name + ' (REVIVE)' : p.name, sx, sy - 10 - k1 * 11, col, k1, 'c', 'p12');
+    }
   }
   drawMap(hud, x, W, H, K, st) {
     const m = hud.mini; if (!m) return;
@@ -1223,6 +1412,10 @@ export class BattleRoyale {
     if (this.ph === 'bus') { x.strokeStyle = '#ff0'; x.setLineDash([6, 6]); x.lineWidth = 2; x.beginPath(); x.moveTo(mx(this.bus.ax), mz(this.bus.az)); x.lineTo(mx(this.bus.bx), mz(this.bus.bz)); x.stroke(); x.setLineDash([]); }
     for (const ch of this.chests.values()) if ((ch.sd || ch.kind === 'vend') && !ch.open) { x.fillStyle = ch.sd ? '#4af' : '#fb3'; x.fillRect(mx(ch.x) - 4, mz(ch.z) - 4, 8, 8); }
     for (const ct of this.carts.values()) if (!ct.rider) { x.fillStyle = '#c84'; x.fillRect(mx(ct.x) - 3, mz(ct.z) - 3, 6, 6); }
+    for (const ch of this.chests.values()) { const col = { fish: '#4cf', bench: '#ddd', reboot: '#30ff60' }[ch.kind]; if (col && !ch.open) { x.fillStyle = col; x.fillRect(mx(ch.x) - 3, mz(ch.z) - 3, 6, 6); } }
+    for (const r of this.rifts || []) { x.strokeStyle = '#c6f'; x.lineWidth = 2; x.beginPath(); x.arc(mx(r.x), mz(r.z), 5, 0, 6.283); x.stroke(); }
+    for (const z of this.zips || []) { x.strokeStyle = '#222'; x.lineWidth = 2; x.beginPath(); x.moveTo(mx(z.a.x), mz(z.a.z)); x.lineTo(mx(z.b.x), mz(z.b.z)); x.stroke(); }
+    for (const p of this.players.values()) if (this.team > 1 && p.team === this.myTeam && p.id !== this.myId && p.alive) { const s = this.posOf(p.id); if (s) { x.fillStyle = '#0f0'; x.beginPath(); x.arc(mx(s.x), mz(s.z), 4, 0, 6.283); x.fill(); } }
     const sk = this.c.sk; x.fillStyle = '#ff0'; x.strokeStyle = '#000'; x.beginPath(); x.arc(mx(sk.x), mz(sk.z), 6, 0, Math.PI * 2); x.fill(); x.stroke();
     x.restore();
     hud.text('MAP (M)', W / 2, oy - 6 - K * 12, '#fff', K, 'c', 'b12');
@@ -1278,7 +1471,7 @@ export class BattleRoyale {
         else if (a === 'dance') this.doEmote(3);
         else if (a === 'menu') { if (this.ph === 'dead' || this.state === 'over') this.exit(true); else this.showMenu(true); }
       });
-      const up = () => { b.classList.remove('on'); if (a === 'fire') this.firing = false; };
+      const up = () => { b.classList.remove('on'); if (a === 'fire') this.firing = false; if (a === 'use') this.reviving = null; };
       b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
     }
     const stick = el.querySelector('.stick'), base = el.querySelector('.base'), nub = el.querySelector('.nub'), R = 46;
@@ -1329,7 +1522,7 @@ export class BattleRoyale {
     if (!this.local) c.net.send({ t: 'br', op: 'done' });
     this.cleanup();
     this.local = null; this.inbox = null; this.shared = false;
-    this.state = 'idle'; this.boardOn = false; this.buildMode = null; this.cart = null; this.crouch = false; this.slideT = 0; this.emoting = false; this.firing = false; this.ads = false; this.keys.clear();
+    this.state = 'idle'; this.boardOn = false; this.buildMode = null; this.cart = null; this.crouch = false; this.slideT = 0; this.emoting = false; this.down = false; this.zip = null; this.fishing = null; this.reviving = null; this.firing = false; this.ads = false; this.keys.clear();
     for (const k of [...c.keys]) c.skKey(k, false);
     this.overEl.style.display = 'none'; this.menuEl.style.display = 'none'; this.tint.style.opacity = '0'; this.hurtEl.style.opacity = '0'; this.scopeEl.style.display = 'none';
     if (this.touchEl) this.touchEl.style.display = 'none';

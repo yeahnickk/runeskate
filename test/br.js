@@ -1,8 +1,9 @@
 // RuneRoyale checks (the shared match core on the real world):  bun runeskate/test/br.js
 import { readFileSync } from 'fs';
 import { World } from '../src/world.js';
-import { BR, BRMatch, stormPlan, stormAt, busPath, busAt, arenaOf, unsupported, segObjKey, treeKey, objKind } from '../src/br-core.js';
+import { BR, BRMatch, benchCost, stormPlan, stormAt, busPath, busAt, arenaOf, unsupported, segObjKey, treeKey, objKind } from '../src/br-core.js';
 import { WORLD_SCALE } from '../src/mapdata.js';
+import { Locker, COSMETICS, PASS_TIERS } from '../src/br-locker.js';
 
 const S = WORLD_SCALE;
 const w = new World(JSON.parse(readFileSync(new URL('../assets/world.json', import.meta.url))), { scale: S });
@@ -144,6 +145,69 @@ for (const seed of [3, 11]) {
   m.eliminate(bots[3], bots[4].id, 'ar');
   check('a bot dances after an elim', bots[4].emT > 0 && bots[4].em > 300);
   m.reset();
+}
+
+// 7. duos / squads: teams, no friendly fire, knocks, revives, reboot cards and vans, team wins
+for (const [mode, n] of [['duos', 2], ['squads', 4]]) {
+  let over = null;
+  const m = new BRMatch({ world: w, seed: 12, team: n, send: (to, msg) => { if (msg.op === 'over') over = msg; } });
+  m.join('h', 'Human'); m.fillBots(); m.start();
+  const me = m.p.get('h'), mates = m.mates(me), foe = [...m.p.values()].find(p => p.team !== me.team);
+  check(`${mode}: teams of ${n}`, mates.length === n - 1 && new Set([...m.p.values()].map(p => p.team)).size === 16 / n);
+  for (const p of m.p.values()) p.ph = 'ground';
+  const hp0 = mates[0].hp; m.damage(mates[0], 50, 'h', 'ar'); check(`${mode}: no friendly fire`, mates[0].hp === hp0);
+  Object.assign(me, { x: m.arena.x, z: m.arena.z, y: w.height(m.arena.x, m.arena.z) }); Object.assign(mates[0], { x: me.x + 1, z: me.z, y: me.y });
+  m.damage(mates[0], 250, foe.id, 'ar');
+  check(`${mode}: knocked, not out`, mates[0].alive && mates[0].down);
+  m.msg(mates[0].id, { op: 'build', p: { k: 'wall', i: 0, j: 0, y: 0 } }); check(`${mode}: knocked players can't build`, m.pieces.size === 0);
+  m.msg('h', { op: 'revive', id: mates[0].id }); check(`${mode}: a teammate picks them up`, !mates[0].down && mates[0].hp === 30);
+  m.damage(mates[0], 250, foe.id, 'ar'); m.damage(mates[0], 200, foe.id, 'ar');
+  check(`${mode}: finished off`, !mates[0].alive);
+  const card = [...m.items.values()].find(o => o.it.t === 'c' && o.it.id === mates[0].id);
+  check(`${mode}: drops a reboot card`, !!card);
+  Object.assign(foe, { x: card.x, z: card.z }); m.msg(foe.id, { op: 'pick', id: card.id }); check(`${mode}: enemies can't take it`, m.items.has(card.id));
+  Object.assign(me, { x: card.x, z: card.z }); m.msg('h', { op: 'pick', id: card.id }); check(`${mode}: a teammate carries it`, me.cards.includes(mates[0].id));
+  const van = [...m.chests.values()].find(c => c.kind === 'reboot'); Object.assign(me, { x: van.x, z: van.z });
+  m.msg('h', { op: 'reboot', k: van.k, id: mates[0].id });
+  check(`${mode}: the van brings them back`, mates[0].alive && mates[0].ph === 'fall' && mates[0].y > van.y + 30 && van.cool > m.t);
+  m.msg('h', { op: 'reboot', k: van.k, id: mates[0].id }); check(`${mode}: no card, no second go`, me.cards.length === 0);
+  // a whole team down = a whole team out
+  if (n === 2) {
+    Object.assign(mates[0], { ph: 'ground', x: me.x + 1, z: me.z, y: me.y, sh: 0 });
+    m.damage(mates[0], 250, foe.id, 'ar'); me.sh = 0; m.damage(me, 250, foe.id, 'ar');
+    check(`${mode}: last one standing knocked = team wiped`, !me.alive && !mates[0].alive);
+  }
+  while (m.state === 'live' && m.t < 900) m.tick(1 / 20);
+  check(`${mode}: a team wins`, m.state === 'over' && over && over.team != null && m.alive.every(p => p.team === over.team), over && over.names.join(', '));
+  m.reset();
+}
+
+// 8. fishing, the upgrade bench price list, rifts and ziplines on the map
+{
+  const m = new BRMatch({ world: w, seed: 2, send: () => {} });
+  m.join('h', 'Human'); m.fillBots(); m.start();
+  const me = m.p.get('h'), f = [...m.chests.values()].find(c => c.kind === 'fish'); me.ph = 'ground';
+  check('fishing spots by the water', [...m.chests.values()].filter(c => c.kind === 'fish').length >= 5 && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => { const [tx, tz] = w.tileOf(f.x, f.z); return w.blocked[(tz + b) * w.N + tx + a] === 2; }));
+  Object.assign(me, { x: f.x, z: f.z }); const n0 = m.items.size;
+  m.msg('h', { op: 'fish', k: f.k }); m.msg('h', { op: 'fish', k: f.k });
+  check('a cast lands a catch (and casts take time)', f.uses === 2 && m.items.size > n0);
+  check('upgrade benches', [...m.chests.values()].filter(c => c.kind === 'bench').length >= 3 && benchCost(0).n < benchCost(3).n);
+  check('rifts and ziplines', m.rifts.length >= 2 && m.zips.length >= 2 && m.zips.every(z => Math.hypot(z.b.x - z.a.x, z.b.z - z.a.z) >= 35), `${m.rifts.length} rifts ${m.zips.length} ziplines`);
+  check('no reboot vans in solo', ![...m.chests.values()].some(c => c.kind === 'reboot'));
+  m.reset();
+}
+
+// 9. the locker: GP and pass XP from matches, pass tiers unlock cosmetics, the shop sells for GP only
+{
+  const L = new Locker();
+  const line = L.award({ won: true, place: 1, kills: 5 });
+  check('a win pays GP and pass tiers', L.s.gp > 300 && L.tier >= 2 && /PASS TIER/.test(line), line);
+  check('pass tiers unlock cosmetics', L.s.owned.includes('trail_smoke') && L.s.owned.includes('pick_iron'));
+  const shop = L.shop(20000); check('the shop has four items a day, the same all day', shop.length === 4 && JSON.stringify(shop) === JSON.stringify(L.shop(20000)) && JSON.stringify(shop) !== JSON.stringify(L.shop(20001)));
+  L.s.gp = 0; check('no GP, no sale', !L.buy(shop[0]));
+  L.s.gp = 5000; const ok = L.buy(shop[0]); check('buying with GP equips it', ok && L.s.eq[COSMETICS[shop[0]].k] === shop[0] && L.s.gp === 5000 - COSMETICS[shop[0]].shop);
+  for (let i = 0; i < 40; i++) L.award({ won: false, place: 8, kills: 1 });
+  check('the pass tops out at 20', L.tier === PASS_TIERS && L.s.owned.includes('pick_gilded'));
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');

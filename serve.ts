@@ -12,7 +12,7 @@ import { SPOTS_ALL } from './src/spots.js';
 import { cleanPark, footprint, PARK_PER, PARK_MAX } from './src/park-shape.js';
 import { nearFarPlan } from './src/nearfirst.js';
 import { World } from './src/world.js';
-import { BRMatch, BR } from './src/br-core.js';
+import { BRMatch, BR, MODES } from './src/br-core.js';
 const ROOT = import.meta.dir;
 const port = Number(process.argv[2] || process.env.PORT || 8123);
 
@@ -256,7 +256,7 @@ function skateMsg(s: Sess, m: any) {
 // One match at a time. ::br / V / the button queues you; the lobby waits BR.LOBBY seconds (5 once everyone online
 // has queued), tops the match up with bots and runs it here at 20 Hz. The collision world it plays on is made
 // once (the first match) and put back the way it was after each one.
-let brWorld: any = null, brMatch: any = null, brLobbyT = 0;
+let brWorld: any = null, brMatch: any = null, brLobbyT = 0, brMode = 'solo';      // mode: solo / duos / squads (the queue picks it)
 const brQueue = new Set<number>(), brIds = new Set<number>();
 function brSend(to: any, msg: any, except?: any) {
   const m = JSON.stringify({ ...msg, t: 'br' });                    // (t is the message type: match messages never use it)
@@ -264,17 +264,17 @@ function brSend(to: any, msg: any, except?: any) {
   else sessions.get(to)?.ws.send(m);
 }
 function brLobby() {
-  const m = JSON.stringify({ t: 'br', op: 'lobby', n: brQueue.size, secs: Math.max(0, brLobbyT), running: !!brMatch });
+  const m = JSON.stringify({ t: 'br', op: 'lobby', n: brQueue.size, secs: Math.max(0, brLobbyT), running: !!brMatch, mode: brMode });
   for (const id of brQueue) sessions.get(id)?.ws.send(m);
 }
 function brStart() {
   brWorld ||= new World(WORLD_JSON, { scale: WORLD_SCALE });
   brIds.clear();
-  brMatch = new BRMatch({ world: brWorld, send: brSend });
+  brMatch = new BRMatch({ world: brWorld, send: brSend, team: MODES[brMode] || 1 });
   for (const id of brQueue) { const s = sessions.get(id); if (s && brMatch.join(id, s.name, { outfit: s.outfit })) brIds.add(id); }
   brQueue.clear();
   brMatch.fillBots(); brMatch.start();
-  console.log(`RuneRoyale: match started with ${brIds.size} player(s) + ${BR.SIZE - brIds.size} bots`);
+  console.log(`RuneRoyale (${brMode}): match started with ${brIds.size} player(s) + ${BR.SIZE - brIds.size} bots`);
 }
 setInterval(() => {
   if (brMatch || !brQueue.size) return;
@@ -298,9 +298,10 @@ setInterval(() => {
 function brMsg(s: Sess, m: any) {
   if (m.op === 'join') {
     if (brIds.has(s.id) || brQueue.has(s.id)) return;
-    if (!brQueue.size) brLobbyT = BR.LOBBY;
+    if (!brQueue.size) { brLobbyT = BR.LOBBY; if (MODES[m.mode]) brMode = m.mode; }
     brQueue.add(s.id); brLobby();
-  } else if (m.op === 'unjoin') { brQueue.delete(s.id); s.ws.send(JSON.stringify({ t: 'br', op: 'left' })); brLobby(); }
+  } else if (m.op === 'mode') { if (brQueue.has(s.id) && MODES[m.mode]) { brMode = m.mode; brLobby(); } }
+  else if (m.op === 'unjoin') { brQueue.delete(s.id); s.ws.send(JSON.stringify({ t: 'br', op: 'left' })); brLobby(); }
   else if (m.op === 'done') { if (brMatch && brIds.has(s.id)) { brMatch.msg(s.id, { op: 'leave' }); brIds.delete(s.id); } }
   else if (brMatch && brIds.has(s.id)) brMatch.msg(s.id, m);
 }

@@ -21,7 +21,13 @@ export const BR = {
   GLIDE_AT: 16,        // gliders open this high above the ground at the latest
   PICK_R: 3.2,         // reach for chests and items
   END_WAIT: 9,         // seconds the result shows before everyone is back skating
+  DOWN_HP: 100,        // knocked (duos / squads): this much to bleed out or be finished off
+  BLEED: 4,            // knocked: hit points lost a second
+  REVIVE: 5,           // seconds a teammate holds E to pick you up
+  REBOOT_COOL: 30,     // a reboot van rests this long after use
+  FISH_T: 2.5,         // seconds a cast takes
 };
+export const MODES = { solo: 1, duos: 2, squads: 4 };
 
 export const RARITY = [
   { name: 'Common', col: '#b4b4b4', m: 1 }, { name: 'Uncommon', col: '#4c4', m: 1.06 }, { name: 'Rare', col: '#4af', m: 1.12 },
@@ -49,7 +55,10 @@ export const HEALS = {
 };
 // gadgets: a launch pad throws whoever steps on it into the sky (then they glide); a spike trap hurts the
 // next enemies to walk over it (3 goes, a couple of seconds apart)
-export const GADGETS = { pad: { name: 'Launch pad', stack: 1, col: '#4cf' }, trap: { name: 'Spike trap', stack: 3, col: '#ccc', dmg: 75, uses: 3 } };
+export const GADGETS = { pad: { name: 'Launch pad', stack: 1, col: '#4cf' }, trap: { name: 'Spike trap', stack: 3, col: '#ccc', dmg: 75, uses: 3 },
+  rift: { name: 'Teleport tablet', stack: 2, col: '#c6f' } };    // (a rift in your pocket: up into the sky to skydive again)
+/** the upgrade bench: what taking a weapon up a rarity costs */
+export const benchCost = r => ({ m: MAT_ORDER[Math.min(2, r)], n: 100 + r * 75 });
 export const EDITS = { wall: ['', 'door', 'window', 'half'], floor: ['', 'hole'] };
 export const CART = { MAX: 15, RAM: 7 };    // mine carts: top speed, and the speed a ram starts to hurt at
 export const MATS = { wood: { name: 'Wood', hp: 150, col: 0x9a6a3a }, stone: { name: 'Stone', hp: 300, col: 0x8a8a8e }, metal: { name: 'Metal', hp: 500, col: 0x6a7a8e } };
@@ -132,7 +141,9 @@ export function rollWeapon(r, bonus = 0) {
 }
 export const ammoFor = (w, k = 1) => ({ t: 'a', a: WEAPONS[w].ammo, n: AMMO_PACK[WEAPONS[w].ammo] * k });
 const rollHeal = r => { const h = pickW(r, [['shrimp', 34], ['shark', 14], ['brew', 34], ['superdef', 18]]); return { t: 'h', h, n: h === 'shrimp' ? 5 : h === 'brew' ? 3 : 1 }; };
-const rollGadget = r => { const g = r() < 0.5 ? 'pad' : 'trap'; return { t: 'g', g, n: g === 'trap' ? 2 : 1 }; };
+const rollGadget = r => { const x = r(), g = x < 0.4 ? 'pad' : x < 0.75 ? 'trap' : 'rift'; return { t: 'g', g, n: g === 'pad' ? 1 : 2 }; };
+/** what a fishing spot gives: mostly food, now and then a weapon (as a fish would) */
+export function rollFish(r) { const x = r(); return x < 0.45 ? [{ t: 'h', h: 'shrimp', n: 3 }] : x < 0.65 ? [{ t: 'h', h: 'shark', n: 1 }] : x < 0.88 ? [{ t: 'h', h: 'brew', n: 2 }] : [rollWeapon(r, 2)]; }
 const rollAmmo = r => { const a = pickW(r, [['arrows', 30], ['bolts', 30], ['death', 24], ['dragon', 10], ['fire', 6]]); return { t: 'a', a, n: AMMO_PACK[a] }; };
 /** what a chest / floor spot / ammo box / supply drop holds */
 export function rollLoot(r, kind) {
@@ -159,12 +170,12 @@ export function cleanItem(it) {
   if (it.t === 'm' && MATS[it.m]) return { t: 'm', m: it.m, n: Math.max(1, Math.min(MAT_MAX, it.n | 0)) };
   return null;
 }
-export const itemName = it => it.t === 'w' ? `${RARITY[it.r].name} ${WEAPONS[it.w].name}` : it.t === 'a' ? `${AMMO[it.a]} x${it.n}` : it.t === 'h' ? `${HEALS[it.h].name}${it.n > 1 ? ' x' + it.n : ''}` : it.t === 'g' ? `${GADGETS[it.g].name}${it.n > 1 ? ' x' + it.n : ''}` : `${MATS[it.m].name} x${it.n}`;
+export const itemName = it => it.t === 'c' ? `${it.name}'s reboot card` : it.t === 'w' ? `${RARITY[it.r].name} ${WEAPONS[it.w].name}` : it.t === 'a' ? `${AMMO[it.a]} x${it.n}` : it.t === 'h' ? `${HEALS[it.h].name}${it.n > 1 ? ' x' + it.n : ''}` : it.t === 'g' ? `${GADGETS[it.g].name}${it.n > 1 ? ' x' + it.n : ''}` : `${MATS[it.m].name} x${it.n}`;
 
 /** chests (inside buildings, by walls), floor loot and ammo boxes, spread over the arena; deterministic */
 export function lootSpots(world, seed, arena) {
   const r = rng(seed ^ 0x1007), S = world.S, N = world.N, rect = world.rects[0];
-  const byWall = [], open = [];
+  const byWall = [], open = [], shore = [];
   for (let tz = rect.z0 + 1; tz < rect.z0 + rect.h - 1; tz++) for (let tx = rect.x0 + 1; tx < rect.x0 + rect.w - 1; tx++) {
     if (world.blocked[tz * N + tx] !== 0) continue;
     const x = (tx + 0.5) * S, z = (tz + 0.5) * S;
@@ -175,11 +186,13 @@ export function lootSpots(world, seed, arena) {
       if (d < 0.35 * S) near = true;
       if (s.kind === 'wall' && d < 0.75 * S) walls++;
     }
+    const wet = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => world.blocked[(tz + b) * N + tx + a] === 2);
+    if (wet) shore.push([x, z]);
     if (near && !walls) continue;                              // squeezed against a fence or a hedge: not a spot
     if (walls) byWall.push([x, z]); else if (r() < 0.12) open.push([x, z]);
   }
   const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-  shuffle(byWall); shuffle(open);
+  shuffle(byWall); shuffle(open); shuffle(shore);
   const taken = [], far = (x, z, d) => taken.every(([a, b]) => Math.hypot(a - x, b - z) >= d);
   const take = (list, n, gap, own = 0) => { const out = []; for (const [x, z] of list) { if (out.length >= n) break; if (!far(x, z, gap) || out.some(([a, b]) => Math.hypot(a - x, b - z) < own)) continue; taken.push([x, z]); out.push([x, z]); } return out; };
   const at = ([x, z]) => ({ x: Math.round(x * 100) / 100, z: Math.round(z * 100) / 100, y: Math.round(world.height(x, z) * 100) / 100 });
@@ -189,7 +202,30 @@ export function lootSpots(world, seed, arena) {
     floor: take([...byWall.slice(0, 600), ...open], 130, 7).map(p => at(p)),
     vend: take(byWall, 6, 6, 40).map((p, i) => ({ k: 'v' + i, kind: 'vend', ...at(p) })),    // vending machines
     carts: take(open, 8, 5, 30).map(p => at(p)),                                              // mine carts to drive
+    fish: take(shore, 10, 4, 25).map((p, i) => ({ k: 'f' + i, kind: 'fish', ...at(p) })),     // fishing spots
+    bench: take(byWall, 5, 6, 45).map((p, i) => ({ k: 'u' + i, kind: 'bench', ...at(p) })),   // upgrade benches
+    reboot: take(open, 4, 6, 70).map((p, i) => ({ k: 'r' + i, kind: 'reboot', ...at(p) })),   // reboot vans
+    rifts: take(open, 4, 6, 60).map(p => at(p)),                                              // rifts: step in, skydive again
+    zips: zipLines(world, open, taken, at),
   };
+}
+/** ziplines: pairs of open spots 35-70 apart with the ground well under the cable all the way */
+function zipLines(world, open, taken, at) {
+  const out = [], used = [], clear = ([x, z]) => taken.every(([a, b]) => Math.hypot(a - x, b - z) >= 6);   // (not on top of a chest, a cart, a van...)
+  for (const a of open) {
+    if (out.length >= 5) break;
+    if (!clear(a) || used.some(([x, z]) => Math.hypot(x - a[0], z - a[1]) < 50)) continue;
+    for (const b of open) {
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]); if (L < 35 || L > 70 || !clear(b)) continue;
+      const A = at(a), B = at(b), ya = A.y + 6, yb = B.y + 6;
+      let ok = true;
+      for (let k = 1; k < 16 && ok; k++) { const t = k / 16, x = a[0] + (b[0] - a[0]) * t, z = a[1] + (b[1] - a[1]) * t; if (world.height(x, z) > ya + (yb - ya) * t - 3.2 || world.tileKind(x, z) === 1) ok = false; }
+      if (!ok) continue;
+      out.push({ k: 'z' + out.length, a: { ...A, y: Math.round(ya * 100) / 100 }, b: { ...B, y: Math.round(yb * 100) / 100 } }); used.push(a, b); taken.push(a, b);
+      break;
+    }
+  }
+  return out;
 }
 
 // ------------------------------------------------------------------ building
@@ -342,8 +378,10 @@ export function restoreWorld(world, undos) {
 const now0 = () => 0;
 export class BRMatch {
   /** world: a collision World it may change (builds, breaks); send(to, msg, except): to = id | null (everyone) */
-  constructor({ world, seed = (Math.random() * 2 ** 31) | 0, send, clock = now0 }) {
+  constructor({ world, seed = (Math.random() * 2 ** 31) | 0, send, clock = now0, team = 1 }) {
     this.w = world; this.seed = seed; this.send = send; this.clock = clock;
+    this.team = [1, 2, 4].includes(team) ? team : 1;     // players a team (solo / duos / squads)
+    this.rifts = []; this.zips = [];
     this.arena = arenaOf(world);
     this.state = 'lobby'; this.t = 0;
     this.p = new Map();                     // id -> player (people and bots)
@@ -356,6 +394,8 @@ export class BRMatch {
     this.stormTick = 0; this.botTick = 0; this.sendTick = 0; this.overT = 0;
   }
   get alive() { return [...this.p.values()].filter(p => p.alive); }
+  mates(p) { return this.team > 1 ? [...this.p.values()].filter(q => q !== p && q.team === p.team) : []; }
+  teamsLeft() { return new Set(this.alive.map(p => p.team)).size; }
   join(id, name, { bot = false, outfit = null } = {}) {
     if (this.state !== 'lobby' || this.p.has(id) || this.p.size >= BR.SIZE) return false;
     this.p.set(id, { id, name, bot, outfit, hp: BR.HP, sh: 0, alive: true, kills: 0, x: 0, y: 0, z: 0, ph: 'bus', dealt: 0 });
@@ -377,19 +417,24 @@ export class BRMatch {
     const spots = lootSpots(w, this.seed, this.arena), r = this.r = rng(this.seed ^ 0x17e5);
     for (const c of [...spots.chests, ...spots.ammo]) this.chests.set(c.k, { ...c, open: false });
     spots.vend.forEach((v, i) => { const it = rollWeapon(r, 3); it.r = Math.max(2, it.r); this.chests.set(v.k, { ...v, open: false, it, mat: MAT_ORDER[i % 3], cost: [100, 100, 150, 250, 400][it.r] }); });
+    for (const f of spots.fish) this.chests.set(f.k, { ...f, open: false, uses: 3 });
+    for (const b of [...spots.bench, ...(this.team > 1 ? spots.reboot : [])]) this.chests.set(b.k, { ...b, open: false, cool: 0 });
+    this.rifts = spots.rifts; this.zips = spots.zips;
     this.carts = new Map(spots.carts.map((c, i) => ['m' + i, { id: 'm' + i, ...c, h: Math.round(r() * 628) / 100, rider: null }]));
     this.gadgets = new Map(); this.gid = 1;
     for (const f of spots.floor) for (const it of rollLoot(r, 'floor')) this.addItem(it, f.x + (r() - 0.5) * 0.8, f.y, f.z + (r() - 0.5) * 0.8, false);
     // supply drops: one into each of the first circles, as it is announced
     this.drops = this.plan.slice(0, 4).map((p, i) => ({ at: (i ? this.plan[i - 1].t2 : 40) + 6, c: p.to }));
     const br = rng(this.seed ^ 0xd209);
+    [...this.p.values()].sort((a, b) => a.bot - b.bot).forEach((p, i) => { p.team = Math.floor(i / this.team); });   // people first, so friends share a team
     for (const p of this.p.values()) {
-      p.hp = BR.HP; p.sh = 0; p.alive = true; p.kills = 0; p.ph = 'bus';
+      p.hp = BR.HP; p.sh = 0; p.alive = true; p.kills = 0; p.ph = 'bus'; p.down = false; p.cards = [];
       if (p.bot) Object.assign(p, { jumpAt: 3 + br() * (BR.BUS_T - 6), inv: null, heals: [], mats: 60, think: 0, goal: null, enemy: null, react: 0, fireT: 0, mag: 0, reloadT: 0, strafe: 1, strafeT: 0, stuck: 0, lastX: 0, lastZ: 0, detour: 0, buildT: 0, calm: 0, useT: 0, h: 0, wk: 0 });
     }
     this.state = 'live'; this.t = 0;
     this.send(null, { op: 'start', seed: this.seed, arena: this.arena, plan: this.plan, bus: this.bus,
-      chests: [...this.chests.values()], items: [...this.items.values()], carts: [...this.carts.values()], players: [...this.p.values()].map(p => ({ id: p.id, name: p.name, bot: p.bot ? 1 : 0, outfit: p.outfit })) });
+      chests: [...this.chests.values()], items: [...this.items.values()], carts: [...this.carts.values()], team: this.team, rifts: this.rifts, zips: this.zips,
+      players: [...this.p.values()].map(p => ({ id: p.id, name: p.name, bot: p.bot ? 1 : 0, outfit: p.outfit, team: p.team })) });
   }
   addItem(it, x, y, z, announce = true) {
     const o = { id: 'i' + this.iid++, it, x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100, z: Math.round(z * 100) / 100 };
@@ -407,12 +452,41 @@ export class BRMatch {
   // ---------------------------------------------------------------- damage
   damage(v, amt, by = null, w = '', hd = false) {
     if (!v || !v.alive || this.state !== 'live' || !(amt > 0)) return;
+    if (by != null && by !== v.id && this.team > 1 && this.p.get(by)?.team === v.team) return;   // no friendly fire
     amt = Math.round(amt);
+    if (v.down) {                                       // knocked: bleeding out, or finished off
+      v.hp -= amt; this.send(null, { op: 'hp', id: v.id, hp: Math.max(0, v.hp), sh: 0, by, d: amt, hd: 0, w, down: 1 });
+      if (v.hp <= 0) this.eliminate(v, by ?? v.downBy, by == null ? 'bleed' : w);
+      return;
+    }
     const toSh = Math.min(v.sh, amt); v.sh -= toSh; v.hp -= amt - toSh;
     const k = by != null ? this.p.get(by) : null; if (k && k !== v) k.dealt += amt;
     this.send(null, { op: 'hp', id: v.id, hp: Math.max(0, v.hp), sh: v.sh, by, d: amt, hd: hd ? 1 : 0, w });
     if (v.bot && by != null && by !== v.id) { v.hurtBy = by; v.calm = 0; }
-    if (v.hp <= 0) this.eliminate(v, by, w);
+    if (v.hp <= 0) {
+      if (this.mates(v).some(q => q.alive && !q.down)) this.knock(v, by, w);
+      else this.eliminate(v, by, w);
+    }
+  }
+  /** duos / squads: down, not out (a teammate can pick you up) */
+  knock(v, by, w) {
+    const k = by != null ? this.p.get(by) : null;
+    Object.assign(v, { down: true, hp: BR.DOWN_HP, sh: 0, downBy: by, useT: 0, using: null, revT: 0 });
+    if (v.cart) { const c = this.carts.get(v.cart); if (c) { c.rider = null; this.send(null, { op: 'cart', c }); } v.cart = null; }
+    this.send(null, { op: 'down', id: v.id, name: v.name, by: k ? k.id : null, byName: k ? k.name : null, w: w || '' });
+  }
+  revive(v, by) {
+    if (!v.alive || !v.down) return;
+    v.down = false; v.hp = 30; v.sh = 0;
+    this.send(null, { op: 'up', id: v.id, by });
+    this.send(null, { op: 'hp', id: v.id, hp: v.hp, sh: 0, by: null, d: 0 });
+  }
+  /** a reboot van brings a fallen teammate back (they drop in from the sky) */
+  reboot(d, van) {
+    Object.assign(d, { alive: true, hp: BR.HP, sh: 0, down: false, place: undefined, ph: 'fall', x: van.x, z: van.z, y: van.y + 40 });
+    if (d.bot) Object.assign(d, { inv: null, heals: [], mats: 30, launch: 0, goal: { x: van.x + (Math.random() - 0.5) * 30, z: van.z + (Math.random() - 0.5) * 30 }, enemy: null, useT: 0, using: null, emT: 0 });
+    van.cool = this.t + BR.REBOOT_COOL;
+    this.send(null, { op: 'reboot', id: d.id, x: r2(d.x), y: r2(d.y), z: r2(d.z), k: van.k, cool: r2(van.cool) });
   }
   eliminate(v, by, w) {
     if (!v.alive) return;
@@ -422,6 +496,11 @@ export class BRMatch {
     v.place = left + 1;
     if (v.cart) { const c = this.carts.get(v.cart); if (c) { c.rider = null; this.send(null, { op: 'cart', c }); } v.cart = null; }
     this.send(null, { op: 'elim', id: v.id, name: v.name, by: k ? k.id : null, byName: k ? k.name : null, w: w || '', place: v.place, left });
+    v.down = false;
+    if (this.team > 1) {
+      this.addItem({ t: 'c', id: v.id, name: v.name }, v.x, this.w.height(v.x, v.z), v.z);        // the reboot card
+      if (!this.mates(v).some(q => q.alive && !q.down)) for (const q of this.mates(v)) if (q.alive && q.down) this.eliminate(q, q.downBy, 'bleed');   // nobody left to pick them up
+    }
     if (v.bot) {                                         // a bot's loot spills out where it fell
       const out = [];
       if (v.inv) out.push(v.inv, ammoFor(v.inv.w));
@@ -430,14 +509,15 @@ export class BRMatch {
       out.forEach((it, i) => out[i] = this.addItem(it, v.x + Math.cos(i * 1.7) * 0.9, this.w.height(v.x, v.z), v.z + Math.sin(i * 1.7) * 0.9, false));
       if (out.length) this.send(null, { op: 'items', list: out });
     }
-    if (left <= 1) this.finish();
+    if (this.state === 'live' && this.teamsLeft() <= 1) this.finish();
   }
   finish() {
     if (this.state !== 'live') return;
     const win = this.alive[0] || null;
     if (win) win.place = 1;
     this.state = 'over'; this.overT = 0;
-    this.send(null, { op: 'over', id: win ? win.id : null, name: win ? win.name : null, kills: win ? win.kills : 0,
+    for (const p of this.alive) p.place = 1;
+    this.send(null, { op: 'over', id: win ? win.id : null, name: win ? win.name : null, kills: win ? win.kills : 0, team: win ? win.team : null, names: this.alive.map(p => p.name),
       board: [...this.p.values()].sort((a, b) => (a.place || 99) - (b.place || 99)).map(p => ({ id: p.id, name: p.name, place: p.place || 1, kills: p.kills, bot: p.bot ? 1 : 0 })) });
   }
   explode(x, y, z, r, dmg, by, w = 'rocket') {
@@ -503,9 +583,10 @@ export class BRMatch {
     if (m.op === 'fx') { this.send(null, { op: 'fx', by: id, w: String(m.w || '').slice(0, 10), a: (m.a || []).slice(0, 6).map(Number), b: (m.b || []).slice(0, 36).map(Number) }, id); return; }
     if (m.op === 'jump') { p.ph = 'fall'; return; }
     if (!p.alive) return;
+    if (p.down && m.op !== 'self' && m.op !== 'drop') return;          // knocked: crawl and wait
     if (m.op === 'open') {
       const c = this.chests.get(String(m.k));
-      if (!c || c.open || c.kind === 'vend' || (c.land && this.t < c.land) || Math.hypot(c.x - p.x, c.z - p.z) > BR.PICK_R + 1.5) return;
+      if (!c || c.open || (c.kind !== 'chest' && c.kind !== 'ammo') || (c.land && this.t < c.land) || Math.hypot(c.x - p.x, c.z - p.z) > BR.PICK_R + 1.5) return;
       this.openChest(c, id);
     } else if (m.op === 'buy') {                       // a vending machine (the client paid the materials)
       const c = this.chests.get(String(m.k));
@@ -531,7 +612,22 @@ export class BRMatch {
     } else if (m.op === 'pick') {
       const it = this.items.get(String(m.id));
       if (!it || Math.hypot(it.x - p.x, it.z - p.z) > BR.PICK_R + 1.5) return;
+      if (it.it.t === 'c') { const d = this.p.get(it.it.id); if (!d || d.team !== p.team) return; p.cards.push(d.id); }   // only a teammate can carry your card
       this.items.delete(it.id); this.send(null, { op: 'gone', id: it.id, by: id });
+    } else if (m.op === 'revive') {
+      const v = this.p.get(m.id);
+      if (v && v !== p && v.team === p.team && Math.hypot(v.x - p.x, v.z - p.z) < 3.5) this.revive(v, id);
+    } else if (m.op === 'reboot') {
+      const van = this.chests.get(String(m.k)), d = this.p.get(m.id);
+      if (!van || van.kind !== 'reboot' || this.t < van.cool || Math.hypot(van.x - p.x, van.z - p.z) > BR.PICK_R + 1.5) return;
+      if (!d || d.alive || d.team !== p.team || !p.cards.includes(d.id)) return;
+      p.cards.splice(p.cards.indexOf(d.id), 1); this.reboot(d, van);
+    } else if (m.op === 'fish') {
+      const f = this.chests.get(String(m.k));
+      if (!f || f.kind !== 'fish' || f.uses <= 0 || Math.hypot(f.x - p.x, f.z - p.z) > BR.PICK_R + 2 || this.t - (p.fishAt ?? -9) < BR.FISH_T - 0.6) return;
+      p.fishAt = this.t; f.uses--; if (!f.uses) f.open = true;
+      const out = rollFish(rng(this.seed ^ hash(f.k) ^ (f.uses * 977))).map((it, i) => this.addItem(it, p.x + Math.cos(i * 2) * 0.6, this.w.height(p.x, p.z), p.z + Math.sin(i * 2) * 0.6, false));
+      this.send(null, { op: 'fished', k: f.k, uses: f.uses, by: id }); this.send(null, { op: 'items', list: out });
     } else if (m.op === 'drop') {
       const it = cleanItem(m.it); if (!it) return;
       this.addItem(it, p.x + (Math.random() - 0.5), this.w.height(p.x, p.z), p.z + (Math.random() - 0.5));
@@ -586,6 +682,7 @@ export class BRMatch {
     if ((this.stormTick += dt) >= 1) {
       this.stormTick -= 1;
       for (const p of this.p.values()) if (p.alive && p.ph !== 'bus' && Math.hypot(p.x - st.x, p.z - st.z) > st.r) this.damage(p, st.dmg, null, 'storm');
+      for (const p of this.p.values()) if (p.alive && p.down) this.damage(p, BR.BLEED, null, 'bleed');
     }
     for (const d of this.drops) if (!d.done && this.t >= d.at) {
       d.done = true;
@@ -603,7 +700,7 @@ export class BRMatch {
         if (p.padOn === g.id && Math.hypot(p.x - g.x, p.z - g.z) > 1.5) p.padOn = null;
         if (!p.alive || p.ph !== 'ground' || Math.hypot(p.x - g.x, p.z - g.z) > 1.1 || Math.abs(p.y - g.y) > 1.6) continue;
         if (g.g === 'pad') { if (p.bot && p.padOn !== g.id) { p.padOn = g.id; p.ph = 'fall'; p.launch = 26; p.useT = 0; p.using = null; p.goal = { x: p.x + Math.cos(p.h) * 30, z: p.z + Math.sin(p.h) * 30 }; this.send(null, { op: 'trap', id: g.id }); } continue; }
-        if (p.id === g.by) continue;
+        if (p.id === g.by || (this.team > 1 && this.p.get(g.by)?.team === p.team)) continue;
         this.damage(p, GADGETS.trap.dmg, g.by, 'trap'); g.cd = 2; g.uses--;
         this.send(null, { op: 'trap', id: g.id });
         break;
@@ -616,7 +713,7 @@ export class BRMatch {
     if ((this.sendTick += dt) >= 0.1) {
       this.sendTick = 0;
       const b = [];
-      for (const p of this.p.values()) if (p.bot && p.alive) b.push([p.id, r2(p.x), r2(p.y), r2(p.z), r2(p.h), p.ph === 'bus' ? 0 : p.ph === 'fall' ? (p.y - this.w.height(p.x, p.z) > BR.GLIDE_AT ? 1 : 2) : 3, p.wk, p.inv ? p.inv.w : '', p.emT > 0 ? p.em : 0]);
+      for (const p of this.p.values()) if (p.bot && p.alive) b.push([p.id, r2(p.x), r2(p.y), r2(p.z), r2(p.h), p.ph === 'bus' ? 0 : p.ph === 'fall' ? (p.y - this.w.height(p.x, p.z) > BR.GLIDE_AT ? 1 : 2) : 3, p.wk, p.inv ? p.inv.w : '', p.emT > 0 ? p.em : 0, p.down ? 1 : 0]);
       this.send(null, { op: 'bots', mt: r2(this.t), b, n: this.alive.length });
     }
   }
@@ -629,7 +726,7 @@ export class BRMatch {
       if (this.t >= b.jumpAt) {
         b.ph = 'fall';
         // aim for a chest somewhere near (most drop close to the line, a few go far)
-        const cs = [...this.chests.values()].filter(c => !c.sd && c.kind !== 'vend'), r = Math.random() * 70;
+        const cs = [...this.chests.values()].filter(c => !c.sd && c.kind === 'chest'), r = Math.random() * 70;
         const want = [b.x + (Math.random() - 0.5) * r * 2, b.z + (Math.random() - 0.5) * r * 2];
         let best = null, bd = Infinity; for (const c of cs) { const d = Math.hypot(c.x - want[0], c.z - want[1]); if (d < bd) { bd = d; best = c; } }
         b.goal = best ? { x: best.x, z: best.z, chest: best.k } : { x: this.arena.x, z: this.arena.z };
@@ -642,6 +739,20 @@ export class BRMatch {
       if (d > 0.5) { b.x += dx / d * Math.min(d, sp * dt); b.z += dz / d * Math.min(d, sp * dt); b.h = Math.atan2(dz, dx); }
       if (b.launch > 0) { b.y += b.launch * dt; b.launch -= 30 * dt; } else b.y -= (glide ? 5 : 22) * dt;
       if (b.y <= w.height(b.x, b.z)) { b.y = w.height(b.x, b.z); b.ph = 'ground'; b.lastX = b.x; b.lastZ = b.z; this.botUnstick(b); }
+      return;
+    }
+    // ---- knocked: crawl toward the nearest teammate standing
+    if (b.down) {
+      if (this.mates(b).some(q => (q.revT > 0 && q.revId === b.id) || (!q.bot && q.alive && !q.down && Math.hypot(q.x - b.x, q.z - b.z) < 3))) { b.wk = 0; b.y = w.height(b.x, b.z); return; }   // being picked up (or a person is right there): hold still
+      let m = null, md = 1e9; for (const q of this.mates(b)) if (q.alive && !q.down) { const d = Math.hypot(q.x - b.x, q.z - b.z); if (d < md) { md = d; m = q; } }
+      if (m && md > 1.5) { this.botMove(b, (m.x - b.x) / md * 1.2 * dt, (m.z - b.z) / md * 1.2 * dt); b.h = Math.atan2(m.z - b.z, m.x - b.x); b.wk = 1; } else b.wk = 0;
+      b.y = w.height(b.x, b.z); return;
+    }
+    // ---- picking up a teammate
+    if (b.revT > 0) {
+      b.wk = 0; const v = this.p.get(b.revId);
+      if (!v || !v.alive || !v.down || Math.hypot(v.x - b.x, v.z - b.z) > 3.5) b.revT = 0;
+      else if ((b.revT -= dt) <= 0) this.revive(v, b.id);
       return;
     }
     // ---- on the ground: think now and then
@@ -666,7 +777,8 @@ export class BRMatch {
       b.h = Math.atan2(dz, dx);
     } else if (b.goal) {
       const dx = b.goal.x - b.x, dz = b.goal.z - b.z, d = Math.hypot(dx, dz);
-      if (d > 0.8) { mx = dx / d; mz = dz / d; }
+      if (b.goal.revive && d < 1.6) { b.revT = BR.REVIVE; b.revId = b.goal.revive; b.goal = null; mx = mz = 0; }
+      else if (d > 0.8) { mx = dx / d; mz = dz / d; }
       else { mx = mz = 0; if (b.goal.chest) { const c = this.chests.get(b.goal.chest); if (c && !c.open && !(c.land && this.t < c.land)) this.botLoot(b, this.openChest(c, b.id)); } else if (b.goal.item) { const it = this.items.get(b.goal.item); if (it) this.botLoot(b, [it]); } b.goal = null; }
     }
     if (b.detour > 0) { mx = Math.cos(b.detourA); mz = Math.sin(b.detourA); }
@@ -698,7 +810,7 @@ export class BRMatch {
     // a target: the nearest player it can see (or whoever just shot it)
     let best = null, bd = 55;
     for (const p of this.p.values()) {
-      if (p === b || !p.alive || p.ph !== 'ground') continue;
+      if (p === b || !p.alive || p.ph !== 'ground' || (this.team > 1 && p.team === b.team)) continue;
       const d = Math.hypot(p.x - b.x, p.z - b.z);
       if (d < bd && (p.id === b.hurtBy && d < 70 || !lineBlock(w, b.x, b.y + 1.5, b.z, p.x, p.y + 1.2, p.z))) { bd = d; best = p; }
     }
@@ -717,6 +829,8 @@ export class BRMatch {
       if (!b.goal || !b.goal.safe) b.goal = { x: tx + (Math.random() - 0.5) * next.r * 0.4, z: tz + (Math.random() - 0.5) * next.r * 0.4, safe: true };
       return;
     }
+    // a teammate down: go and pick them up (unless someone is right on top of you)
+    if (!best || bd > 22) for (const q of this.mates(b)) if (q.alive && q.down && Math.hypot(q.x - b.x, q.z - b.z) < 45) { b.goal = { x: q.x, z: q.z, revive: q.id }; if (best && bd > 22) b.enemy = null; return; }
     if (best) return;
     if (b.goal && !b.goal.safe) return;
     // loot: a better weapon on the floor, an unopened chest, else wander inside the next circle
@@ -727,7 +841,7 @@ export class BRMatch {
       const d = Math.hypot(it.x - b.x, it.z - b.z); if (d < gd) { gd = d; g = { x: it.x, z: it.z, item: it.id }; }
     }
     for (const c of this.chests.values()) {
-      if (c.open || c.kind === 'vend' || (c.land && this.t < c.land)) continue;
+      if (c.open || (c.kind !== 'chest' && c.kind !== 'ammo') || (c.land && this.t < c.land)) continue;
       const d = Math.hypot(c.x - b.x, c.z - b.z) * (b.inv ? 1.4 : 1); if (d < gd) { gd = d; g = { x: c.x, z: c.z, chest: c.k }; }
     }
     if (!g) { const a = Math.random() * 6.283, q = Math.random() * next.r * 0.8; g = { x: next.x + Math.cos(a) * q, z: next.z + Math.sin(a) * q }; }

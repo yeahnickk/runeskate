@@ -75,7 +75,12 @@ map data and running in the browser. Every door and gate stands open.
   pickaxe and build walls, floors, ramps and cones (turbo-build by holding fire), then edit them: walls into doors,
   windows or half walls, holes in floors, ramps turned round. Launch pads and spike traps drop as loot, mine carts
   wait around the map to drive (and run people over), you can sprint, crouch and slide, and emote or dance
-  (the bots dance after an elimination).
+  (the bots dance after an elimination). Play **solo, duos or squads** (tap the mode on the button): teammates
+  get knocked instead of eliminated, can be picked up (hold E), and a fallen teammate's reboot card brings them
+  back at a reboot van. Fish at the bubbling spots by the water, take a weapon up a rarity at an upgrade bench,
+  ride ziplines, and step into a rift (or snap a teleport tablet) to skydive again. Matches pay GP and pass XP
+  into the **locker**: a 20-tier RuneRoyale Pass and a daily item shop of pickaxes, skydive trails and weapon
+  wraps (GP is only earned by playing; nothing costs real money).
   Everything breaks: castle walls, fences, trees, houses and other players' builds, and anything left hanging
   collapses. A storm circle closes in over six phases, supply drops fall from the sky, and the last one standing
   wins. Ride your board between fights with **B**. The world comes back whole when the match ends. Plays solo
@@ -109,11 +114,11 @@ A gamepad works too. Press **H** in game for the full list.
 
 | Key | Action |
 |---|---|
-| V | queue for a match (`::br`), `::leave` to quit |
+| V | queue for a match (`::br`), `::leave` to quit; click the mode chip for solo / duos / squads |
 | Mouse | look (click to lock the pointer), left click fire, right click aim / scope |
 | WASD, SPACE | move, jump (jump off the dragon, open the glider) |
 | 1-6, wheel | hotbar |
-| E | open chests, pick up loot, buy from a vending machine, get in / out of a mine cart |
+| E | open chests, pick up loot, buy from a vending machine, get in / out of a mine cart, fish, upgrade at a bench, ride a zipline, use a reboot van; hold E to revive a teammate |
 | R | reload (rotate the piece in build mode) |
 | Q / F / C / V | build wall / floor / ramp / cone, click to place |
 | T, G | change material, edit the piece you aim at (wall: door / window / half; floor: hole; ramp: turn) |
@@ -153,7 +158,8 @@ with `.gz` siblings, whenever they are missing or stale (a few seconds, gitignor
 - `bun test/sim.js` runs the headless physics checks (collisions, grinds, rune placement, regions, ragdoll, board).
 - `bun test/br.js` checks RuneRoyale on the real world: storm, dragon path, building and collapse, breaking and
   restoring the world, full bot matches to a winner, capped player messages, build edits, vending machines,
-  launch pads, spike traps, mine carts and victory dances.
+  launch pads, spike traps, mine carts, victory dances, duos and squads (knocks, revives, reboots, team wins),
+  fishing, upgrade benches, rifts, ziplines and the locker (pass tiers, shop).
 - `bun test/net.js` starts the server on a spare port and plays it: S.K.A.T.E. turns, park limits, spot claims.
 - `bun tools/spot-check.ts` checks every challenge spot is reachable from spawn.
 - `bun tools/pocket-check.ts` (after split) checks spawn and every teleport drop land in a big connected area, never a pocket you cannot skate out of.

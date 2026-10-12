@@ -49,6 +49,14 @@ A first-person COD-style shooter vs bots in the Castle Wars arena; the home page
 - The world renders 1:1 linear like the skate game; the gun pass uses sRGB + filmic (`withGunPass`).
 - Dev pages: `test/guns.html` (armoury gallery), `test/vmsheet.html?gun=..&what=reload|empty|sights` (reload sheets).
 
+## RuneRoyale (battle royale inside the skate game)
+
+- `br-core.js` is the match (pure, shared by serve.ts and the offline browser match): storm, dragon drop, loot, builds,
+  breaking the world, bots, teams (solo / duos / squads with knocks, revives, reboot vans), gadgets, carts, fishing.
+- `br.js` is the client (input, HUD, meshes, phone buttons); `br-locker.js` the cosmetics (GP, pass, shop, localStorage).
+- Match messages go out as `{ ...msg, t: 'br' }`, so they never use the field `t` themselves.
+- `bun test/br.js` covers it; real-browser runs are slow in headless (game time runs ~10x slow there).
+
 ## Conventions
 
 - Coordinates: game x = east, y = up, z = north. Three.js uses z = -north: `T(x, y, z) => Vector3(x, y, -z)`.
