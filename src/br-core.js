@@ -10,15 +10,16 @@
 // rest of the game trusts its clients); the match checks the numbers stay sane.
 
 export const BR = {
-  SIZE: 16,            // a match is topped up with bots to this many
+  SIZE: 48,            // a match is topped up with bots to this many (divides into duos and squads)
   LOBBY: 20,           // seconds the lobby waits for more players
-  BUS_T: 28,           // seconds the dragon takes to cross
-  BUS_Y: 52,           // flying height
+  BUS_T: 42,           // seconds the dragon takes to cross
+  BUS_Y: 95,           // flying height
   G: 3,                // build grid cell (game units)
   H: 2.7,              // build piece height
   HP: 100, SH: 100,
   FALL_SAFE: 6,        // a drop (on foot) this far is free; more hurts
-  GLIDE_AT: 16,        // gliders open this high above the ground at the latest
+  GLIDE_AT: 30,        // gliders open this high above the ground at the latest
+  DIVE: 15, GLIDE: 15, SINK: 2.4,   // skydive / glide: across (units/s), and how fast a glider sinks
   PICK_R: 3.2,         // reach for chests and items
   END_WAIT: 9,         // seconds the result shows before everyone is back skating
   DOWN_HP: 100,        // knocked (duos / squads): this much to bleed out or be finished off
@@ -82,15 +83,22 @@ export function rng(seed) {
 const hash = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
 const pickW = (r, list) => { let tot = 0; for (const [, w] of list) tot += w; let x = r() * tot; for (const [v, w] of list) if ((x -= w) < 0) return v; return list[list.length - 1][0]; };
 
-/** where the match is played: the always-loaded core of the map (Lumbridge, Draynor, Al Kharid's edge) */
+/** where the match is played: the core of the map (Lumbridge, Draynor, Al Kharid's edge) and the packs round it
+ *  (Varrock, Falador, Port Sarim and the south coast). Whoever runs a match loads these first (serve.ts, br.js). */
+export const ARENA_PACKS = ['varrock', 'falador', 'portsarim', 'south'];
+export function arenaRect(world) {
+  const rs = world.rects.filter((r, i) => i === 0 || ARENA_PACKS.includes(r.name));
+  const x0 = Math.min(...rs.map(r => r.x0)), z0 = Math.min(...rs.map(r => r.z0));
+  return { x0, z0, w: Math.max(...rs.map(r => r.x0 + r.w)) - x0, h: Math.max(...rs.map(r => r.z0 + r.h)) - z0 };
+}
 export function arenaOf(world) {
-  const r = world.rects[0], S = world.S;
+  const r = arenaRect(world), S = world.S;
   return { x: (r.x0 + r.w / 2) * S, z: (r.z0 + r.h / 2) * S, r: Math.min(r.w, r.h) / 2 * S - 8 };
 }
 
 // ------------------------------------------------------------------ the storm
 // [seconds before it moves, seconds it takes, next radius as a share of this one, damage per second outside]
-const PHASES = [[64, 40, 0.58, 1], [40, 32, 0.5, 2], [30, 26, 0.5, 4], [24, 22, 0.45, 6], [18, 20, 0.4, 8], [14, 22, 0, 10]];
+const PHASES = [[80, 60, 0.55, 1], [50, 40, 0.5, 2], [36, 30, 0.5, 4], [28, 24, 0.45, 6], [20, 22, 0.4, 8], [16, 22, 0, 10]];
 export function stormPlan(seed, arena, ok) {
   const r = rng(seed ^ 0x5eed); let t = 0, cur = { x: arena.x, z: arena.z, r: arena.r };
   const out = [];
@@ -174,10 +182,11 @@ export const itemName = it => it.t === 'c' ? `${it.name}'s reboot card` : it.t =
 
 /** chests (inside buildings, by walls), floor loot and ammo boxes, spread over the arena; deterministic */
 export function lootSpots(world, seed, arena) {
-  const r = rng(seed ^ 0x1007), S = world.S, N = world.N, rect = world.rects[0];
+  const r = rng(seed ^ 0x1007), S = world.S, N = world.N, rect = arenaRect(world);
+  const k = Math.max(1, (arena.r / 184) ** 2), n = x => Math.round(x * k);    // (counts were set for the core alone)
   const byWall = [], open = [], shore = [];
   for (let tz = rect.z0 + 1; tz < rect.z0 + rect.h - 1; tz++) for (let tx = rect.x0 + 1; tx < rect.x0 + rect.w - 1; tx++) {
-    if (world.blocked[tz * N + tx] !== 0) continue;
+    if (world.blocked[tz * N + tx] !== 0 || !world.isLive(tx, tz)) continue;
     const x = (tx + 0.5) * S, z = (tz + 0.5) * S;
     if (Math.hypot(x - arena.x, z - arena.z) > arena.r - 3) continue;
     let walls = 0, near = false;
@@ -197,23 +206,23 @@ export function lootSpots(world, seed, arena) {
   const take = (list, n, gap, own = 0) => { const out = []; for (const [x, z] of list) { if (out.length >= n) break; if (!far(x, z, gap) || out.some(([a, b]) => Math.hypot(a - x, b - z) < own)) continue; taken.push([x, z]); out.push([x, z]); } return out; };
   const at = ([x, z]) => ({ x: Math.round(x * 100) / 100, z: Math.round(z * 100) / 100, y: Math.round(world.height(x, z) * 100) / 100 });
   return {
-    chests: take(byWall, 80, 11).map((p, i) => ({ k: 'c' + i, kind: 'chest', ...at(p) })),
-    ammo: take([...open, ...byWall], 36, 9).map((p, i) => ({ k: 'a' + i, kind: 'ammo', ...at(p) })),
-    floor: take([...byWall.slice(0, 600), ...open], 130, 7).map(p => at(p)),
-    vend: take(byWall, 6, 6, 40).map((p, i) => ({ k: 'v' + i, kind: 'vend', ...at(p) })),    // vending machines
-    carts: take(open, 8, 5, 30).map(p => at(p)),                                              // mine carts to drive
-    fish: take(shore, 10, 4, 25).map((p, i) => ({ k: 'f' + i, kind: 'fish', ...at(p) })),     // fishing spots
-    bench: take(byWall, 5, 6, 45).map((p, i) => ({ k: 'u' + i, kind: 'bench', ...at(p) })),   // upgrade benches
-    reboot: take(open, 4, 6, 70).map((p, i) => ({ k: 'r' + i, kind: 'reboot', ...at(p) })),   // reboot vans
-    rifts: take(open, 4, 6, 60).map(p => at(p)),                                              // rifts: step in, skydive again
-    zips: zipLines(world, open, taken, at),
+    chests: take(byWall, n(80), 11).map((p, i) => ({ k: 'c' + i, kind: 'chest', ...at(p) })),
+    ammo: take([...open, ...byWall], n(36), 9).map((p, i) => ({ k: 'a' + i, kind: 'ammo', ...at(p) })),
+    floor: take([...byWall.slice(0, 600 * k), ...open], n(130), 7).map(p => at(p)),
+    vend: take(byWall, n(6), 6, 40).map((p, i) => ({ k: 'v' + i, kind: 'vend', ...at(p) })),    // vending machines
+    carts: take(open, n(8), 5, 30).map(p => at(p)),                                              // mine carts to drive
+    fish: take(shore, n(10), 4, 25).map((p, i) => ({ k: 'f' + i, kind: 'fish', ...at(p) })),     // fishing spots
+    bench: take(byWall, n(5), 6, 45).map((p, i) => ({ k: 'u' + i, kind: 'bench', ...at(p) })),   // upgrade benches
+    reboot: take(open, n(4), 6, 70).map((p, i) => ({ k: 'r' + i, kind: 'reboot', ...at(p) })),   // reboot vans
+    rifts: take(open, n(4), 6, 60).map(p => at(p)),                                              // rifts: step in, skydive again
+    zips: zipLines(world, open, taken, at, n(5)),
   };
 }
 /** ziplines: pairs of open spots 35-70 apart with the ground well under the cable all the way */
-function zipLines(world, open, taken, at) {
+function zipLines(world, open, taken, at, max = 5) {
   const out = [], used = [], clear = ([x, z]) => taken.every(([a, b]) => Math.hypot(a - x, b - z) >= 6);   // (not on top of a chest, a cart, a van...)
   for (const a of open) {
-    if (out.length >= 5) break;
+    if (out.length >= max) break;
     if (!clear(a) || used.some(([x, z]) => Math.hypot(x - a[0], z - a[1]) < 50)) continue;
     for (const b of open) {
       const L = Math.hypot(b[0] - a[0], b[1] - a[1]); if (L < 35 || L > 70 || !clear(b)) continue;
@@ -726,7 +735,7 @@ export class BRMatch {
       if (this.t >= b.jumpAt) {
         b.ph = 'fall';
         // aim for a chest somewhere near (most drop close to the line, a few go far)
-        const cs = [...this.chests.values()].filter(c => !c.sd && c.kind === 'chest'), r = Math.random() * 70;
+        const cs = [...this.chests.values()].filter(c => !c.sd && c.kind === 'chest'), r = Math.random() * 130;
         const want = [b.x + (Math.random() - 0.5) * r * 2, b.z + (Math.random() - 0.5) * r * 2];
         let best = null, bd = Infinity; for (const c of cs) { const d = Math.hypot(c.x - want[0], c.z - want[1]); if (d < bd) { bd = d; best = c; } }
         b.goal = best ? { x: best.x, z: best.z, chest: best.k } : { x: this.arena.x, z: this.arena.z };
@@ -735,9 +744,9 @@ export class BRMatch {
     }
     if (b.ph === 'fall') {
       const g = w.height(b.x, b.z), glide = b.y - g < BR.GLIDE_AT;
-      const dx = b.goal.x - b.x, dz = b.goal.z - b.z, d = Math.hypot(dx, dz), sp = glide ? 10 : 7;
+      const dx = b.goal.x - b.x, dz = b.goal.z - b.z, d = Math.hypot(dx, dz), sp = glide ? BR.GLIDE : BR.DIVE;
       if (d > 0.5) { b.x += dx / d * Math.min(d, sp * dt); b.z += dz / d * Math.min(d, sp * dt); b.h = Math.atan2(dz, dx); }
-      if (b.launch > 0) { b.y += b.launch * dt; b.launch -= 30 * dt; } else b.y -= (glide ? 5 : 22) * dt;
+      if (b.launch > 0) { b.y += b.launch * dt; b.launch -= 30 * dt; } else b.y -= (glide ? BR.SINK : 24) * dt;
       if (b.y <= w.height(b.x, b.z)) { b.y = w.height(b.x, b.z); b.ph = 'ground'; b.lastX = b.x; b.lastZ = b.z; this.botUnstick(b); }
       return;
     }

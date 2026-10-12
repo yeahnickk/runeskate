@@ -60,7 +60,7 @@ export class World {
       }
     }
     this.loaded.add(p.name);
-    this.rects.push({ x0, z0, w, h });
+    this.rects.push({ x0, z0, w, h, name: p.name });
     this.frontier();
     this.weldGround(x0 - 1, z0 - 1, x0 + w + 1, z0 + h + 1);
   }

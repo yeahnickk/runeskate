@@ -53,7 +53,8 @@ for (const line of readFileSync(join(DATA, 'obj.sym'), 'utf8').split(/\r?\n/)) {
 
 // ---------------------------------------------------------------- part export
 const WEAR_SLOTS = new Set(['hat', 'back', 'front', 'torso', 'lefthand', 'legs', 'hands', 'feet']);
-const OWNER_WEAPONS = new Set(['rune_scimitar']);   // weapons are not in the designer; this one is the owner's (serve.ts)
+const OWNER_WEAPONS = new Set(['rune_scimitar',   // weapons are not in the designer; this one is the owner's (serve.ts),
+  'rune_pickaxe', 'bronze_pickaxe', 'iron_pickaxe', 'steel_pickaxe', 'mithril_pickaxe', 'adamant_pickaxe', 'magic_shortbow', 'phoenix_crossbow', 'battlestaff', 'magic_longbow', 'staff_of_fire']);   // RuneRoyale's weapons, held in the hand
 const BANNED = /^null$|^dwarf remains/i;             // (party hats allowed again 2026-09-29, user rule)
 type Part = { id: number; kind: 'kit' | 'item'; name: string; key?: string; slot: number; hide: number[]; nv: number; nf: number; off: number };
 function packModel(m: any): Uint8Array | null {
@@ -125,7 +126,8 @@ for (const [g, gname] of (process.env.ANIM_ONLY ? [] : [[0, 'm'], [1, 'f']]) as 
 
 // ---------------------------------------------------------------- the skater's anims (frames + bases)
 const SEQS: Record<string, number> = { ready: 808, walk: 819, run: 824, sidestep: 755, spot_jump: 741, balance: 763, falling: 766, cheer: 862,
-  wave: 863, dance: 866, laugh: 861, clap: 865, slash: 390 };   // slash: the owner's scimitar swing   // emotes on keys 1-5 (with cheer)
+  wave: 863, dance: 866, laugh: 861, clap: 865, slash: 390,   // slash: the owner's scimitar swing   // emotes on keys 1-5 (with cheer)
+  pound: 401, bow: 426, xbow: 427, cast: 711, eat: 829, death: 836, bend: 827, mine: 624, fish: 622 };   // RuneRoyale's actions
 const frames: any[] = [], bases: any[] = [], baseIdx = new Map<any, number>(), anims: any = {};
 for (const [label, sid] of Object.entries(SEQS)) {
   const seq: any = SeqType.list[sid]; const fi: number[] = [], delay: number[] = [];

@@ -12,7 +12,7 @@ import { SPOTS_ALL } from './src/spots.js';
 import { cleanPark, footprint, PARK_PER, PARK_MAX } from './src/park-shape.js';
 import { nearFarPlan } from './src/nearfirst.js';
 import { World } from './src/world.js';
-import { BRMatch, BR, MODES } from './src/br-core.js';
+import { BRMatch, BR, MODES, ARENA_PACKS } from './src/br-core.js';
 const ROOT = import.meta.dir;
 const port = Number(process.argv[2] || process.env.PORT || 8123);
 
@@ -268,7 +268,10 @@ function brLobby() {
   for (const id of brQueue) sessions.get(id)?.ws.send(m);
 }
 function brStart() {
-  brWorld ||= new World(WORLD_JSON, { scale: WORLD_SCALE });
+  if (!brWorld) {
+    brWorld = new World(WORLD_JSON, { scale: WORLD_SCALE });
+    for (const n of ARENA_PACKS) brWorld.addRegion(JSON.parse(readFileSync(join(ROOT, 'assets', `world_${n}.json`), 'utf8')));   // the match spans these too
+  }
   brIds.clear();
   brMatch = new BRMatch({ world: brWorld, send: brSend, team: MODES[brMode] || 1 });
   for (const id of brQueue) { const s = sessions.get(id); if (s && brMatch.join(id, s.name, { outfit: s.outfit })) brIds.add(id); }

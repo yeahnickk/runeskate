@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#8aa;font:12px monospace;color:#fff}#g{display:grid;grid-template-columns:repeat(8,200px);gap:2px}div.c{position:relative}img{display:block}span{position:absolute;left:4px;top:2px;text-shadow:1px 1px #000}</style>
+<base href="../"><script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script></head><body><div id="g"></div>
+<script type="module">
+// every RS clip an outfit carries, frame by frame, side on (dev tool: headless screenshots)
+//   test/poses.html?anims=bow,cast&w=1275&yaw=1.57
+import * as THREE from 'three';
+import { buildOutfitModel } from './src/rsanim.js';
+const q = new URLSearchParams(location.search);
+const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); r.setSize(200, 260); r.setClearColor(0x9fb4c8);
+const s = new THREE.Scene();
+const m = await buildOutfitModel({ g: 0, items: { 0: 1163, 4: 1127, 7: 1079, ...(q.get('w') ? { 3: +q.get('w') } : {}) }, kits: {} });
+s.add(m.group); m.group.rotation.y = +(q.get('yaw') || 1.57);
+const cam = new THREE.PerspectiveCamera(35, 200 / 260, 0.05, 50); cam.position.set(0, 1.0, 4.2); cam.lookAt(0, 0.9, 0);
+for (const a of (q.get('anims') || Object.keys(m.meta.anims).join(',')).split(',')) {
+  const fr = m.meta.anims[a]?.frames || [];
+  fr.forEach((f, i) => {
+    if (fr.length > 8 && i % 2) return;
+    m.setFrame(f); r.render(s, cam);
+    const e = document.createElement('div'); e.className = 'c'; const im = new Image(); im.src = r.domElement.toDataURL(); e.appendChild(im);
+    const t = document.createElement('span'); t.textContent = a + ' ' + i; e.appendChild(t); document.getElementById('g').appendChild(e);
+  });
+}
+document.title = 'ok';
+</script></body></html>

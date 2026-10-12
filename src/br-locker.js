@@ -4,12 +4,12 @@
 // browser (localStorage), and only changes how things look on your own screen.
 
 export const COSMETICS = {
-  pick_rune: { k: 'pick', name: 'Rune pickaxe', col: 0x55c8e8, tier: 0 },
-  pick_bronze: { k: 'pick', name: 'Bronze pickaxe', col: 0xa86a3a, tier: 0 },
-  pick_iron: { k: 'pick', name: 'Iron pickaxe', col: 0x8a8a8a, tier: 2 },
-  pick_steel: { k: 'pick', name: 'Steel pickaxe', col: 0xb8c0c8, shop: 300 },
-  pick_mithril: { k: 'pick', name: 'Mithril pickaxe', col: 0x4a5aa8, tier: 6 },
-  pick_adamant: { k: 'pick', name: 'Adamant pickaxe', col: 0x3a7a4a, shop: 500 },
+  pick_rune: { k: 'pick', item: 1275, name: 'Rune pickaxe', col: 0x55c8e8, tier: 0 },
+  pick_bronze: { k: 'pick', item: 1265, name: 'Bronze pickaxe', col: 0xa86a3a, tier: 0 },
+  pick_iron: { k: 'pick', item: 1267, name: 'Iron pickaxe', col: 0x8a8a8a, tier: 2 },
+  pick_steel: { k: 'pick', item: 1269, name: 'Steel pickaxe', col: 0xb8c0c8, shop: 300 },
+  pick_mithril: { k: 'pick', item: 1273, name: 'Mithril pickaxe', col: 0x4a5aa8, tier: 6 },
+  pick_adamant: { k: 'pick', item: 1271, name: 'Adamant pickaxe', col: 0x3a7a4a, shop: 500 },
   pick_dragon: { k: 'pick', name: 'Dragon pickaxe', col: 0xc02020, tier: 12 },
   pick_crystal: { k: 'pick', name: 'Crystal pickaxe', col: 0xc8f0ff, shop: 900 },
   pick_gilded: { k: 'pick', name: 'Gilded pickaxe', col: 0xffc830, tier: 20 },

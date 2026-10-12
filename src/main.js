@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { World } from './world.js';
 import { Skater, P, TRICK_KEYS, wheelContact } from './skater.js';
-import { loadRSModel, buildBoard, TOP_Z, DECK_Z } from './model.js';
+import { loadRSModel, buildBoard, TOP_Z, DECK_Z, RSModel } from './model.js';
 import { RSFont, loadHitsplat, HUD } from './hud.js';
 import { SkateAudio } from './audio.js';
 import { Net } from './net.js';
@@ -579,13 +579,25 @@ async function main() {
 
   // ---------------- outfits: any armour from the game on your own skater (see designer.js / rsanim.js)
   // no outfit saved yet = the plain RS body (an outfit model carries the bone labels the skate body is built from)
-  window.RS.modelFor = o => buildOutfitModel(o && o.items ? o : { g: 0, items: {}, kits: {} });
+  // Same outfit = same baked frames (and the same skin cache): a RuneRoyale lobby is mostly bots in a dozen armour
+  // sets, so the second wearer of an outfit costs a colour buffer, not another megabyte of frames
+  const outfitData = new Map();
+  window.RS.modelFor = async o => {
+    o = o && o.items ? o : { g: 0, items: {}, kits: {} };
+    const k = JSON.stringify(o);
+    let p = outfitData.get(k);
+    if (!p) { p = buildOutfitModel(o); outfitData.set(k, p); if (outfitData.size > 96) outfitData.delete(outfitData.keys().next().value); }
+    const base = await p;
+    if (!base._used) { base._used = true; return base; }
+    const m = new RSModel(base.meta, base.frames, base.faces, base.fcol); m._base = base; return m;
+  };
   window.RS.player = () => player;                          // test hook
   let wearing = 0;
   async function wearOutfit(o) {
     const n = ++wearing, m = await window.RS.modelFor(o);
     if (n !== wearing) return;                              // a newer preview already won
     scene.remove(player.group); player = m; scene.add(m.group);
+    return m;
   }
   var designer = new Designer({
     onPreview: o => wearOutfit(o),
@@ -692,6 +704,7 @@ async function main() {
   const SNAP = ['x', 'y', 'z', 'heading', 'body', 'boardYaw', 'boardRoll', 'charge', 'airTime', 'pushing', 'tumble', 'tumbleAxis', 'speed', 'manual', 'lean', 'balance', 'vy', 'grabT'];
   function snapshot() {
     const o = { mode: sk.mode, gk: sk.grindKind, gr: sk.grab || '', sl: sk.slide ? 1 : 0, w: sk.inWater ? 1 : 0, wk: sk.walking || 0, fa: sk.footAir ? 1 : 0, fk: sk._fk ? 1 : 0, em: emote ? emote * 100 + emoteSeq : 0 };   // wk: 0 stand, 1 walk, 2 run; em: emote*100+seq
+    if (sk.gl) o.gl = sk.gl; if (sk.ac) o.ac = sk.ac; if (sk.cr) o.cr = sk.cr;
     for (const k of SNAP) o[k] = Math.round((sk[k] || 0) * 1000) / 1000;
     if (sk.mode === 'bail' && sk.board) o.b = [sk.board.x, sk.board.y, sk.board.z, sk.board.yaw, sk.board.roll, sk.board.pitch || 0].map(v => Math.round(v * 1000) / 1000);
     return o;
@@ -709,7 +722,9 @@ async function main() {
       for (const f of ['manual', 'lean', 'balance', 'vy', 'grabT']) s[f] = t[f] || 0;
       s.grab = t.gr || null;
       s.mode = t.mode; s.grindKind = t.gk; s.slide = !!t.sl; s.inWater = !!t.w; s.walking = t.wk || 0; s.footAir = !!t.fa; s.fk = !!t.fk; s.em = t.em || 0;
+      s.gl = t.gl || 0; s.ac = t.ac || ''; s.cr = t.cr || 0;   // RuneRoyale: skydive / glider, an action (swing, shot, bite), crouched / knocked
       if (t.b) s.board = { x: t.b[0], y: t.b[1], z: t.b[2], yaw: t.b[3], roll: t.b[4], pitch: t.b[5] || 0 };
+      if (r.cull) { r.m.group.visible = false; r.board.root.visible = false; if (r.shadow) r.shadow.visible = false; continue; }   // (a match: too far off to see)
       drawRider(dt, s, r.m, r.board);
       r.shadow ||= makeShadow(); placeShadow(r.shadow, s.x, s.y, s.z, true);
     }
@@ -855,7 +870,55 @@ async function main() {
     return !!sk._fk;
   }
   const _v = new THREE.Vector3(), _lfocus = new THREE.Vector3();
+  // ---- RuneRoyale bodies: always on foot, never a board, the RS clips as the cache has them (no skate rig).
+  // The legs run the walk / run cycle and the arms play an action over it (a pickaxe swing, a shot, a bite),
+  // so you can shoot on the move; skydivers take RS's dive pose, crouching / knocked hold a low frame.
+  const clipFrame = (m, label, t, loop) => {
+    const a = m.meta.anims[label]; if (!a) return 0;
+    const tot = a.delay.reduce((n, d) => n + Math.max(1, d), 0); let u = t / 0.02; u = loop ? u % tot : Math.min(u, tot - 0.001);
+    let i = 0; while (i < a.frames.length - 1 && u >= Math.max(1, a.delay[i])) { u -= Math.max(1, a.delay[i]); i++; }
+    return a.frames[i];
+  };
+  const clipLen = (m, label) => { const a = m.meta.anims[label]; return a ? a.delay.reduce((n, d) => n + Math.max(1, d), 0) * 0.02 : 0; };
+  function legMask(m) {                                    // the vertices below the belt (bind pose), shared by one outfit's wearers
+    const b = m._base || m; if (b._legs) return b._legs;
+    const F = b.frames, nv = b.nv; let top = -Infinity; for (let v = 0; v < nv; v++) top = Math.max(top, F[v * 3 + 1]);
+    const L = new Uint8Array(nv); for (let v = 0; v < nv; v++) L[v] = F[v * 3 + 1] < top * 0.47 ? 1 : 0;
+    return (b._legs = L);
+  }
+  function drawRoyale(dt, sk, m, board) {
+    lighting.ensure(m.mesh); board.root.visible = false;
+    m._t = (m._t || 0) + dt;
+    let leg = sk.walking === 2 ? 'run' : sk.walking ? 'walk' : 'ready', legLoop = true;
+    if (sk.gl === 1) leg = 'falling';
+    else if (sk.gl === 2) leg = 'ready';
+    else if (sk.footAir) { leg = 'spot_jump'; legLoop = false; }
+    if (leg !== m._leg) { m._leg = leg; m._lt = 0; } m._lt = (m._lt || 0) + dt;
+    // an action: 'name.seq' (the seq restarts it)
+    const [an, aseq] = (sk.ac || '').split('.');
+    if (sk.ac && sk.ac !== m._ac) { m._ac = sk.ac; m._at = 0; }
+    m._at = (m._at || 0) + dt;
+    const acting = an && m.meta.anims[an] && m._at < clipLen(m, an) && !sk.gl; void aseq;
+    let fl = clipFrame(m, leg, m._lt, legLoop), ft = fl;
+    const low = sk.cr && !sk.gl && !sk.footAir;
+    if (low) { const a = m.meta.anims[sk.cr === 2 ? 'death' : 'bend']; if (a) fl = ft = a.frames[sk.cr === 2 ? a.frames.length - 1 : 4]; }
+    if (acting) ft = clipFrame(m, an, m._at, false);
+    if (em0(sk) && !sk.walking && !sk.footAir && !sk.gl) { const e = EMOTES[Math.floor(sk.em / 100)]; if (m._em !== sk.em) { m._em = sk.em; m._et = 0; } m._et = (m._et || 0) + dt; if (m.meta.anims[e]) fl = ft = clipFrame(m, e, m._et, false); } else m._em = 0;
+    if (ft === fl || (an === 'death' && acting)) m.setFrame(an === 'death' && acting ? ft : fl);
+    else if (!sk.walking && !low) m.setFrame(ft);           // standing still: the whole body plays it
+    else {
+      const F = m.frames, nv = m.nv, L = legMask(m), oL = fl * nv * 3, oT = ft * nv * 3, out = m._mix ||= new Float32Array(nv * 3);
+      for (let v = 0; v < nv; v++) { const o = (L[v] ? oL : oT) + v * 3; out[v * 3] = F[o]; out[v * 3 + 1] = F[o + 1]; out[v * 3 + 2] = F[o + 2]; }
+      m.setVerts(out);
+    }
+    const g = m.group; g.quaternion.identity(); g.scale.set(1, 1, 1);
+    g.rotation.set(0, sk.body + Math.PI / 2, 0);
+    g.position.set(sk.x, sk.y + (sk.gl === 1 ? 0.6 : 0), -sk.z);
+    sk.ragPose = null;
+  }
+  const em0 = sk => sk.em && EMOTES[Math.floor(sk.em / 100)];
   function drawRider(dt, sk, m, board) {
+    if (br?.active && sk.mode === 'walk') return drawRoyale(dt, sk, m, board);
     lighting.ensure(m.mesh); lighting.ensure(board.mesh);
     let clip = 'sidestep', yawOff = -Math.PI / 2, loop = true;
     const has = c => !!m.meta.anims[c];                      // (the default nickai3 model predates push/emotes)
@@ -1269,6 +1332,8 @@ async function main() {
     THREE, scene, camera, renderer, world, wjson, sk, hud, audio, net, me, CH, chunkMeshes, nearOccluders, cullChunks, remotes, addRemote, dropRemote,
     TOUCH, touch, teleports, lighting, loadRSModel, skateStep, skKey, keys, unblock, addXP,
     say: (text, col) => chatLog.push({ text, col, t: 0, msg: 1 }),
+    wear: o => wearOutfit(o), reskin: (id, o) => reskin(id, o),
+    loadRegion: name => { const r = world.regions.find(q => q.name === name); return r ? loadRegion(r) : Promise.resolve(); },
     player: () => player, board: () => board, get myShadow() { return myShadow; },
     emote: n => startEmote(n), shake: x => { shake = Math.max(shake, x); },
   });

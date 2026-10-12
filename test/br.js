@@ -1,12 +1,13 @@
 // RuneRoyale checks (the shared match core on the real world):  bun runeskate/test/br.js
 import { readFileSync } from 'fs';
 import { World } from '../src/world.js';
-import { BR, BRMatch, benchCost, stormPlan, stormAt, busPath, busAt, arenaOf, unsupported, segObjKey, treeKey, objKind } from '../src/br-core.js';
+import { BR, ARENA_PACKS, BRMatch, benchCost, stormPlan, stormAt, busPath, busAt, arenaOf, unsupported, segObjKey, treeKey, objKind } from '../src/br-core.js';
 import { WORLD_SCALE } from '../src/mapdata.js';
 import { Locker, COSMETICS, PASS_TIERS } from '../src/br-locker.js';
 
 const S = WORLD_SCALE;
 const w = new World(JSON.parse(readFileSync(new URL('../assets/world.json', import.meta.url))), { scale: S });
+for (const n of ARENA_PACKS) w.addRegion(JSON.parse(readFileSync(new URL(`../assets/world_${n}.json`, import.meta.url))));   // the match is played over these too
 let fails = 0;
 function check(name, ok, info) { console.log((ok ? 'PASS ' : 'FAIL ') + name + (info ? '  ' + info : '')); if (!ok) fails++; }
 const segCount = () => w.segs.length;
@@ -71,7 +72,7 @@ for (const seed of [3, 11]) {
   const sent = {}; let winner = null;
   const m = new BRMatch({ world: w, seed, send: (to, msg) => { sent[msg.op] = (sent[msg.op] || 0) + 1; if (msg.op === 'over') winner = msg; } });
   m.fillBots(); m.start();
-  check(`seed ${seed}: 16 in the match`, m.p.size === BR.SIZE);
+  check(`seed ${seed}: ${BR.SIZE} in the match`, m.p.size === BR.SIZE);
   check(`seed ${seed}: loot on the map`, m.chests.size > 20 && m.items.size > 20, `${m.chests.size} chests ${m.items.size} items`);
   while (m.state === 'live' && m.t < 900) m.tick(1 / 20);
   check(`seed ${seed}: match ends with a winner`, m.state === 'over' && winner && m.alive.length === 1, `t=${m.t.toFixed(0)} elims=${sent.elim || 0}`);
@@ -153,7 +154,7 @@ for (const [mode, n] of [['duos', 2], ['squads', 4]]) {
   const m = new BRMatch({ world: w, seed: 12, team: n, send: (to, msg) => { if (msg.op === 'over') over = msg; } });
   m.join('h', 'Human'); m.fillBots(); m.start();
   const me = m.p.get('h'), mates = m.mates(me), foe = [...m.p.values()].find(p => p.team !== me.team);
-  check(`${mode}: teams of ${n}`, mates.length === n - 1 && new Set([...m.p.values()].map(p => p.team)).size === 16 / n);
+  check(`${mode}: teams of ${n}`, mates.length === n - 1 && new Set([...m.p.values()].map(p => p.team)).size === BR.SIZE / n);
   for (const p of m.p.values()) p.ph = 'ground';
   const hp0 = mates[0].hp; m.damage(mates[0], 50, 'h', 'ar'); check(`${mode}: no friendly fire`, mates[0].hp === hp0);
   Object.assign(me, { x: m.arena.x, z: m.arena.z, y: w.height(m.arena.x, m.arena.z) }); Object.assign(mates[0], { x: me.x + 1, z: me.z, y: me.y });

@@ -67,9 +67,12 @@ map data and running in the browser. Every door and gate stands open.
 - **Fast start.** Only the meshes around spawn (about 2 MB) load before you can skate; the rest of Lumbridge
   streams in behind you, and other towns load as you get near (or teleport).
 - **Live map** at `/map`: the whole world with runes, teleports, challenges and everyone online.
-- **RuneRoyale, a battle royale mode.** Press **V** (or the BATTLE ROYALE button) to queue. Up to 16 players,
-  topped up with bots, ride the King Black Dragon across Lumbridge and jump off where they like, skydive, then
-  open a board-glider to land. Loot chests, ammo boxes and floor loot in five rarities (shortbow, crossbow,
+- **RuneRoyale, a battle royale mode.** Press **V** (or the BATTLE ROYALE button, or pick
+  RUNEROYALE on the home page) to queue. 48 players, topped up with bots, ride the King Black Dragon high over
+  Lumbridge, Varrock, Falador, Port Sarim and Draynor (the map loads those regions while you queue) and jump off
+  where they like, skydive in RS's dive pose, then open a glider and float a long way down. It is all on foot,
+  no boards: everyone holds the real RS item (rune pickaxe, magic shortbow, crossbow, battlestaff, longbow, staff
+  of fire) and swings, shoots, eats and fishes with RS's own animations, legs running underneath. Loot chests, ammo boxes and floor loot in five rarities (shortbow, crossbow,
   staffs, dark bow, fire wave staff) plus shrimp, sharks, brews and super defence for health and shield, and
   vending machines that sell rare-or-better weapons for materials. Harvest wood, stone and metal with the rune
   pickaxe and build walls, floors, ramps and cones (turbo-build by holding fire), then edit them: walls into doors,
@@ -83,7 +86,8 @@ map data and running in the browser. Every door and gate stands open.
   wraps (GP is only earned by playing; nothing costs real money).
   Everything breaks: castle walls, fences, trees, houses and other players' builds, and anything left hanging
   collapses. A storm circle closes in over six phases, supply drops fall from the sky, and the last one standing
-  wins. Ride your board between fights with **B**. The world comes back whole when the match ends. Plays solo
+  wins. TAB opens your bag: click a slot to hold it, drag to swap, DROP buttons for items, materials and ammo.
+  The world comes back whole when the match ends. Plays solo
   against bots offline, and on phones with its own touch controls.
 
 ![The world map](assets/map.png)
@@ -125,7 +129,8 @@ A gamepad works too. Press **H** in game for the full list.
 | SHIFT, X | sprint, crouch (sprint + X slides) |
 | H J K L | dance, wave, cheer, laugh |
 | Z | drop what you hold |
-| B / M / ESC | board on or off, big map, menu |
+| TAB / I | your bag: hold, swap (drag), drop items, materials and ammo; the players left |
+| M / ESC | big map, menu |
 
 ## Running it
 

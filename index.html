@@ -97,7 +97,7 @@
   <div class="pickt">PICK A GAME</div>
   <div class="games">
     <a class="game" id="pick-skate" href="index.html?play=skate"><div class="shot" style="background-image:url(docs/grind.png)"></div><div class="name">RUNESKATE</div><div class="what">Skate all of 2004 RuneScape. Multiplayer.</div></a>
-    <a class="game" id="pick-royale" href="index.html?play=royale"><div class="shot" style="background-image:url(docs/runeroyale.jpg)"></div><div class="name">RUNEROYALE</div><div class="what">Battle royale over Lumbridge. Drop, loot, build, break everything.</div></a>
+    <a class="game" id="pick-royale" href="index.html?play=royale"><div class="shot" style="background-image:url(docs/runeroyale.jpg)"></div><div class="name">RUNEROYALE</div><div class="what">48-player battle royale over Lumbridge, Varrock and Falador. Drop, loot, build, break everything.</div></a>
     <a class="game" id="pick-cod" href="cod.html"><div class="shot" style="background-image:url(docs/codscape.jpg)"></div><div class="name">CODSCAPE</div><div class="what">Call of Duty in Castle Wars. Saradomin vs Zamorak, vs bots.</div></a>
   </div>
 </div>
@@ -140,6 +140,27 @@
   <div class="sub" id="lerr" style="color:#f66; min-height: 1.2em"></div>
   <div class="keys" style="font-size:12px">New name? You're signed up on the spot. Or join from a link: <b>?name=You&amp;password=secret</b></div>
 </div>
+<div class="keys desk royale" style="display:none" id="brkeys-tpl">
+    <b>WASD</b> move &nbsp; <b>MOUSE</b> aim, click to fire &nbsp; <b>RIGHT CLICK</b> aim down sights &nbsp; <b>SPACE</b> jump / leave the dragon / glider<br>
+    <b>SHIFT</b> sprint &nbsp; <b>X</b> crouch (slide when sprinting) &nbsp; <b>E</b> open, pick up, revive &nbsp; <b>1-6</b> or wheel: hotbar &nbsp; <b>R</b> reload<br>
+    <b>Q F C V</b> wall, floor, ramp, roof &nbsp; <b>G</b> edit &nbsp; <b>T</b> material &nbsp; <b>TAB</b> your bag (drop, swap) &nbsp; <b>Z</b> drop &nbsp; <b>M</b> map<br>
+    48 in a match, bots fill the empty spots. Last one (or team) standing wins.
+  </div>
+<script>
+  // came from the RuneRoyale card: its own loading screen and start panel (the game underneath is the same page)
+  if (new URLSearchParams(location.search).get('play') === 'royale') {
+    document.title = 'RuneRoyale';
+    for (const t of document.querySelectorAll('#loading .title, #start .title')) { t.textContent = 'RUNEROYALE'; t.style.color = '#ff66cc'; }
+    const ld = document.getElementById('loading');
+    ld.style.background = 'linear-gradient(rgba(20,6,30,.55), rgba(20,6,30,.85)), url(docs/runeroyale.jpg) center / cover';
+    ld.insertAdjacentHTML('beforeend', '<div class="sub">48-player battle royale. Varrock, Falador, Port Sarim, Lumbridge.</div>');
+    const st = document.getElementById('start');
+    st.querySelector('.sub').textContent = 'Drop off the King Black Dragon. Last one standing wins.';
+    for (const k of st.querySelectorAll('.keys.desk, .keys.touchkeys')) k.style.display = 'none';
+    const tpl = document.getElementById('brkeys-tpl'); tpl.style.display = ''; tpl.removeAttribute('id'); st.querySelector('.login').before(tpl);
+    document.getElementById('skate').textContent = 'PLAY';
+  } else document.getElementById('brkeys-tpl').remove();
+</script>
 <div id="social" onmousedown="event.stopPropagation()" onpointerdown="event.stopPropagation()" onclick="setTimeout(() => document.activeElement?.blur(), 0)">
 <a id="discord" href="https://discord.gg/FGhCDv9BEr" target="_blank" rel="noopener" title="Join our Discord"
   >

@@ -117,7 +117,9 @@ export async function buildOutfitModel(outfit) {
   }
   // labels: the RS bone group of every vertex (src/ragskin.js builds the skate body from them); bodyRef: where
   // each label sits on the plain body, so the skeleton is the same whatever is worn
-  return new RSModel({ verts: nv, nframes: nf, anims, labels: Uint8Array.from(L), bodyRef: bodyRef(kit) }, new Float32Array(all), Uint32Array.from(faces), Uint8Array.from(cols));
+  const fcol = Uint8Array.from(cols), m = new RSModel({ verts: nv, nframes: nf, anims, labels: Uint8Array.from(L), bodyRef: bodyRef(kit) }, new Float32Array(all), Uint32Array.from(faces), fcol);
+  m.fcol = fcol;                                           // (main.js shares the frames between wearers of one outfit)
+  return m;
 }
 
 /** per label on the default (unarmoured) body: [cx, cy, cz, minY, maxY] in model space, and the sole height */

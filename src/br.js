@@ -8,12 +8,14 @@
 // SHIFT sprint, X crouch (slide when sprinting), 1-6 hotbar (1 = pickaxe), wheel cycles, R reload (rotates a
 // ramp in build mode), E open / pick up / buy / drive a mine cart, Q wall, F floor, C ramp, V roof (again or 1-6
 // = back to weapons), T material, G edit (walls: door, window, half wall; floors: a hole; ramps: turn round),
-// H J K L emotes, B board on / off, M map, TAB scores, ESC menu (leave). Phones get their own buttons.
+// H J K L emotes, Z drop what you hold, TAB / I your bag (click to drop or swap, drop materials and ammo), M map,
+// ESC menu (leave). Phones get their own buttons. Nobody skates in here: it's all on foot.
 import {
-  BR, MODES, WEAPONS, RARITY, HEALS, GADGETS, CART, benchCost, MATS, MAT_ORDER, BUILD_COST, MAT_MAX, OBJ_MAT, BRMatch, stormAt, busAt, pieceKey, addPiece, removePiece,
+  BR, MODES, ARENA_PACKS, AMMO, WEAPONS, RARITY, HEALS, GADGETS, CART, benchCost, MATS, MAT_ORDER, BUILD_COST, MAT_MAX, OBJ_MAT, BRMatch, stormAt, busAt, pieceKey, addPiece, removePiece,
   breakInWorld, restoreWorld, segObjKey, treeKey, tileKey, segDist, lineBlock, itemName,
 } from './br-core.js';
-import { Locker } from './br-locker.js';
+import { Locker, COSMETICS } from './br-locker.js';
+import { loadKit } from './rsanim.js';
 
 const SLOTS = 6;                         // 0 = the pickaxe, 1-5 = what you carry
 const BUILD_KEYS = { q: 'wall', f: 'floor', c: 'ramp', v: 'cone' };
@@ -21,6 +23,12 @@ const PIECE_NAME = { wall: 'WALL', floor: 'FLOOR', ramp: 'RAMP', cone: 'ROOF' };
 const EMOTE_KEYS = { h: 3, j: 1, k: 2, l: 4 };           // dance, wave, cheer, laugh
 const MODE_ORDER = ['solo', 'duos', 'squads'];
 const HOT_NAME = { pick: 'PICK', smg: 'SBOW', ar: 'XBOW', shotgun: 'STAFF', sniper: 'DARK', rocket: 'FIRE', shrimp: 'SHRMP', shark: 'SHARK', brew: 'BREW', superdef: 'S.DEF', pad: 'PAD', trap: 'TRAP', rift: 'TELE' };
+// what each weapon is in the hand (RS item ids, worn in the weapon slot so they animate with the body) and the
+// RS clip it swings / shoots with
+const W_ITEM = { pick: 1275, smg: 861, ar: 767, shotgun: 1391, sniper: 859, rocket: 1387 };
+const W_ACT = { pick: 'pound', smg: 'bow', ar: 'xbow', shotgun: 'cast', sniper: 'bow', rocket: 'cast' };
+/** an outfit holding weapon w (or empty-handed): the owner's scimitar and anything else in the slot is swapped out */
+const armed = (o, w, pick = 0) => { const b = o && o.items ? o : { g: 0, items: {}, kits: {} }, items = { ...b.items }; delete items[3]; if (W_ITEM[w]) items[3] = w === 'pick' && pick ? pick : W_ITEM[w]; return { ...b, items }; };
 const W_HEAD = { smg: 1.5, ar: 1.6, shotgun: 1.5, sniper: 2.5, rocket: 1, pick: 1 };
 const BOT_SNAP = { x: 0, y: 0, z: 0, heading: 0, body: 0, boardYaw: 0, boardRoll: 0, charge: -1, airTime: 1, pushing: 0, tumble: 0, tumbleAxis: 0, speed: 0, manual: 0, lean: 0, balance: 0, vy: -5, grabT: 0, mode: 'walk', gk: '', gr: '', sl: 0, w: 0, wk: 0, fa: 0, fk: 0, em: 0 };
 const fmtT = s => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -49,6 +57,17 @@ body.inbr #social { display: none !important; }
 #brover h1 { margin: 0 0 4px; font: bold 34px monospace; color: #ffd23a; text-shadow: 3px 3px 0 #000; letter-spacing: 2px; }
 #brover h2 { margin: 0 0 12px; font: bold 18px monospace; color: #fff; }
 #brover table { margin: 0 auto 12px; border-collapse: collapse; font-size: 13px; } #brover td { padding: 2px 8px; text-align: left; }
+#brbag { position: fixed; inset: 0; z-index: 8; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.45); font: 13px monospace; color: #fff; }
+#brbag .box { display: flex; gap: 14px; background: rgba(30,24,16,.95); border: 3px solid #5a4a2a; box-shadow: 4px 4px 0 #000; padding: 14px 16px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; flex-wrap: wrap; justify-content: center; }
+#brbag h3 { margin: 0 0 8px; color: #ff981f; font: bold 15px monospace; } #brbag small { color: #bba; }
+#brbag .slots { display: grid; grid-template-columns: repeat(3, 104px); gap: 6px; }
+#brbag .slot { height: 74px; border: 2px solid #5a4a2a; background: #3e3529; padding: 4px; cursor: pointer; position: relative; box-sizing: border-box; user-select: none; }
+#brbag .slot.sel { border-color: #ff0; } #brbag .slot.drag { opacity: .4; } #brbag .slot.over { border-color: #4cf; }
+#brbag .slot b { display: block; font-size: 12px; } #brbag .slot i { position: absolute; left: 4px; bottom: 3px; font-style: normal; color: #bba; font-size: 11px; }
+#brbag .slot button { position: absolute; right: 3px; bottom: 3px; font-size: 10px; padding: 1px 5px; }
+#brbag .row { display: flex; align-items: center; gap: 6px; margin: 4px 0; } #brbag .row span { min-width: 120px; }
+#brbag .row button { font-size: 11px; padding: 2px 7px; } #brbag .who { max-height: 330px; overflow: auto; min-width: 230px; }
+#brbag .who div { display: flex; justify-content: space-between; gap: 10px; padding: 1px 0; } #brbag .who .dead { color: #777; } #brbag .who .me { color: #0f0; } #brbag .who .mate { color: #4cf; }
 #brtouch { position: fixed; inset: 0; z-index: 3; pointer-events: none; display: none; -webkit-user-select: none; user-select: none; }
 #brtouch .zone { position: absolute; pointer-events: auto; touch-action: none; }
 #brtouch .stick { left: 0; top: 30%; bottom: 0; width: 40%; } #brtouch .look { right: 0; top: 0; bottom: 0; width: 60%; }
@@ -86,9 +105,23 @@ export class BattleRoyale {
     this.tint = el('brtint'); this.hurtEl = el('brhurt'); this.scopeEl = el('brscope');
     this.menuEl = el('brmenu', '<div class="box"><h2 style="color:#f6c;margin:0 0 8px">RUNEROYALE</h2><button data-a="back">Back to the match</button><button data-a="locker">Locker</button><button data-a="leave">Leave the match</button></div>');
     this.menuEl.addEventListener('click', e => { const a = e.target.dataset?.a; if (a === 'back') this.showMenu(false); if (a === 'locker') { this.showMenu(false); this.locker.open(); } if (a === 'leave') { this.showMenu(false); this.exit(true); } });
+    this.bagEl = el('brbag'); this.bagOpen = false;
+    this.bagEl.addEventListener('click', e => {
+      const d = e.target.dataset || {};
+      if (e.target === this.bagEl || d.a === 'close') return this.bag(false);
+      if (d.drop !== undefined) this.dropSlot(+d.drop);
+      else if (d.slot !== undefined) { this.select(+d.slot); this.drawBag(); }
+      else if (d.mat) this.dropStuff('m', d.mat, d.n === 'all' ? this.mats[d.mat] : +d.n);
+      else if (d.ammo) this.dropStuff('a', d.ammo, d.n === 'all' ? this.ammo[d.ammo] : +d.n);
+    });
+    // drag a slot onto another to swap them (the pickaxe stays put)
+    this.bagEl.addEventListener('dragstart', e => { const i = e.target.dataset?.slot; if (i === undefined || i === '0') return e.preventDefault(); this.dragI = +i; e.target.classList.add('drag'); });
+    this.bagEl.addEventListener('dragover', e => { if (this.dragI != null && e.target.closest?.('.slot')) e.preventDefault(); });
+    this.bagEl.addEventListener('drop', e => { const t = e.target.closest?.('.slot'); if (!t || this.dragI == null) return; e.preventDefault(); const j = +t.dataset.slot; if (j > 0 && j !== this.dragI) { const a = this.slots; [a[this.dragI], a[j]] = [a[j], a[this.dragI]]; if (this.sel === this.dragI) this.sel = j; else if (this.sel === j) this.sel = this.dragI; } this.dragI = null; this.drawBag(); });
+    this.bagEl.addEventListener('dragend', () => { this.dragI = null; this.drawBag(); });
     this.overEl = el('brover');
     this.overEl.addEventListener('click', e => { if (e.target.dataset?.a === 'done') this.exit(); if (e.target.dataset?.a === 'locker') this.locker.open(); });
-    for (const x of [this.lobbyEl, this.menuEl, this.overEl]) for (const ev of ['pointerdown', 'touchstart', 'mousedown']) x.addEventListener(ev, stop, { passive: true });
+    for (const x of [this.lobbyEl, this.menuEl, this.overEl, this.bagEl]) for (const ev of ['pointerdown', 'touchstart', 'mousedown']) x.addEventListener(ev, stop, { passive: true });
     if (c.TOUCH) this.mkTouch();
     // mouse: aim, fire, sights
     const gl = c.renderer.domElement;
@@ -132,7 +165,7 @@ export class BattleRoyale {
     this.mat = {
       chest: basic(0x7a4a1c), band: basic(0xd8b040), open: basic(0x3a2410), ammo: basic(0x4a6a2a), crate: basic(0x2a5ab0), balloon: basic(0xe03030),
       stone: basic(0x777777), beam: RARITY.map(r => new THREE.MeshBasicMaterial({ color: r.col, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending })),
-      storm: new THREE.MeshBasicMaterial({ color: 0x9a3ae0, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false, fog: false }),
+      storm: new THREE.MeshBasicMaterial({ map: this.stormTex(), color: 0xc070ff, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false, fog: false }),
       tracer: { def: new THREE.LineBasicMaterial({ color: 0xfff2a0, transparent: true, opacity: 0.9 }), shotgun: new THREE.LineBasicMaterial({ color: 0xc080ff, transparent: true, opacity: 0.9 }) },
       fire: basic(0xff7020, { transparent: true, opacity: 0.9 }), boom: basic(0xffa040, { transparent: true, opacity: 0.8, depthWrite: false }),
       dust: basic(0x9a8a70), heal: Object.fromEntries(Object.entries(HEALS).map(([k, h]) => [k, basic(new THREE.Color(h.col))])),
@@ -144,6 +177,17 @@ export class BattleRoyale {
     this.storm = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 96, 1, true), this.mat.storm);
     this.storm.renderOrder = 3; this.group.add(this.storm);
     this.held = new THREE.Group(); this.group.add(this.held);
+  }
+  /** the storm wall: purple, streaked, rolling (the texture scrolls in visuals) */
+  stormTex() {
+    const { THREE } = this.c, cv = document.createElement('canvas'); cv.width = 256; cv.height = 128;
+    const x = cv.getContext('2d'), gr = x.createLinearGradient(0, 0, 0, 128);
+    gr.addColorStop(0, 'rgba(120,40,200,0.15)'); gr.addColorStop(0.5, 'rgba(150,60,230,0.55)'); gr.addColorStop(1, 'rgba(90,20,170,0.8)');
+    x.fillStyle = gr; x.fillRect(0, 0, 256, 128);
+    let r = 7; const rnd = () => (r = (r * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 70; i++) { x.fillStyle = `rgba(${200 + rnd() * 55 | 0},${130 + rnd() * 90 | 0},255,${0.08 + rnd() * 0.25})`; x.fillRect(rnd() * 256, 0, 1 + rnd() * 5, 128); }
+    const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(60, 1); t.colorSpace = THREE.SRGBColorSpace;
+    return (this.stormMap = t);
   }
   /** a mine cart: forward is +x */
   cartMesh() {
@@ -179,16 +223,23 @@ export class BattleRoyale {
   }
   box(w, h, d, mat, x = 0, y = 0, z = 0) { const m = new this.c.THREE.Mesh(this.geo.box, mat); m.scale.set(w, h, d); m.position.set(x, y, z); return m; }
   /** a held / dropped weapon: forward is +x */
-  weaponMesh(w) {
-    const skin = w === 'pick' ? this.locker.col('pick') : this.locker.col('wrap');
-    const { THREE } = this.c, g = new THREE.Group(), col = new THREE.MeshBasicMaterial({ color: skin > 0 ? skin : WEAPONS[w].col }), wood = new THREE.MeshBasicMaterial({ color: 0x6a4420 });
-    if (w === 'pick') { g.add(this.box(0.7, 0.05, 0.05, wood, 0.1, 0, 0), this.box(0.06, 0.45, 0.07, col, 0.42, 0, 0)); }
-    else if (w === 'smg' || w === 'sniper') {
-      const L = w === 'sniper' ? 1 : 0.75;
-      for (const s of [1, -1]) { const b = this.box(0.05, L / 2, 0.05, col, 0.06, s * L / 4, 0); b.rotation.z = s * 0.35; g.add(b); }
-      const str = this.box(0.01, L * 0.95, 0.01, new THREE.MeshBasicMaterial({ color: 0xeeeeee }), -0.06, 0, 0); g.add(str);
-    } else if (w === 'ar') { g.add(this.box(0.6, 0.08, 0.08, wood, 0, 0, 0), this.box(0.06, 0.05, 0.6, col, 0.25, 0.02, 0), this.box(0.2, 0.05, 0.05, col, 0.32, 0.06, 0)); }
-    else { g.add(this.box(1.1, 0.05, 0.05, w === 'rocket' ? wood : col, 0.15, 0, 0)); const o = new THREE.Mesh(this.geo.sphere, w === 'rocket' ? this.mat.fire : new THREE.MeshBasicMaterial({ color: 0xb070ff })); o.scale.setScalar(0.09); o.position.x = 0.72; g.add(o); }
+  /** a weapon lying about: the RS item itself (its worn model lifted out of the hand, centred, ~0.8 long) */
+  weaponMesh(w) { return this.rsItem(W_ITEM[w], 0.8); }
+  rsItem(id, size) {
+    const { THREE } = this.c, g = new THREE.Group();
+    this.itemGeo ||= new Map();
+    let p = this.itemGeo.get(id);
+    if (!p) this.itemGeo.set(id, p = loadKit(0).then(([kit]) => {
+      const i = kit.byKey.get('item' + id); if (i === undefined) return null;
+      const part = kit.parts[i], pos = [], col = [];
+      for (let f = 0; f < part.tri.length; f++) { const v = part.tri[f]; pos.push(part.pos[v * 3] / 128, -part.pos[v * 3 + 1] / 128, -part.pos[v * 3 + 2] / 128); }
+      for (let c = 0; c < part.col.length; c++) col.push(part.col[c] / 255);
+      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      geo.computeBoundingBox(); const bb = geo.boundingBox, c = bb.getCenter(new THREE.Vector3()), L = bb.getSize(new THREE.Vector3()).length() || 1;
+      geo.translate(-c.x, -c.y, -c.z); geo.scale(1 / L, 1 / L, 1 / L);
+      return geo;
+    }).catch(() => null));
+    p.then(geo => { if (!geo) return; const m = new THREE.Mesh(geo, this.itemMat ||= new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })); m.scale.setScalar(size); g.add(m); this.c.lighting.ensure?.(m); });
     return g;
   }
 
@@ -200,9 +251,12 @@ export class BattleRoyale {
     this.btn.querySelector('.mode').textContent = m.toUpperCase();
     if (this.state === 'queue') this.c.net.send({ t: 'br', op: 'mode', mode: m });
   }
+  /** the match spans Varrock, Falador, Port Sarim and the south coast too: load them while the lobby fills */
+  loadArena() { return this.arenaP ||= Promise.all(ARENA_PACKS.map(n => this.c.loadRegion(n))).catch(e => { this.arenaP = null; throw e; }); }
   queue() {
     const c = this.c;
-    if (this.active) return;
+    if (this.active || this.starting) return;
+    this.loadArena().catch(() => {});
     if (this.state === 'queue') { c.net.send({ t: 'br', op: 'unjoin' }); this.state = 'idle'; this.lobbyEl.style.display = 'none'; c.say('Left the RuneRoyale queue.', '#f6c'); return; }
     c.audio.start?.();
     if (c.net.online) {
@@ -222,9 +276,12 @@ export class BattleRoyale {
     for (const b of this.lobbyEl.querySelectorAll('[data-m]')) b.onclick = () => this.setMode(b.dataset.m);
   }
   /** offline / solo: the whole match runs here */
-  startLocal() {
+  async startLocal() {
     const c = this.c;
-    c.say(`Starting a RuneRoyale (${this.mode}) against bots...`, '#f6c');
+    c.say(`Starting a RuneRoyale (${this.mode}) against ${BR.SIZE - 1} bots...`, '#f6c');
+    this.starting = true; c.hud.big('RUNEROYALE', '#f6c', 'loading the map...', 2, true);
+    try { await this.loadArena(); } catch { this.starting = false; c.say('Could not load the map, try again.', '#f00'); return; }
+    this.starting = false; if (this.active) return;
     // the match shares this page's collision world: it builds and breaks it, this side only draws the result
     this.inbox = []; this.shared = true;
     this.local = new BRMatch({ world: c.world, team: MODES[this.mode], send: (to, msg, except) => { if ((to == null || to === 'me') && except !== 'me') this.inbox.push(msg); } });
@@ -282,7 +339,7 @@ export class BattleRoyale {
     this.buildMode = null; this.rampRot = 0; this.reloadT = 0; this.fireT = 0; this.useT = 0; this.using = null; this.recoil = 0;
     this.pending = new Set(); this.feed = []; this.hurtT = 0; this.hitT = 0; this.dmgDir = [];
     this.pieces = new Map(); this.slotIds = new Map(); this.items = new Map(); this.chests = new Map();
-    this.undos = []; this.flat = new Map(); this.spec = null; this.showMap = false; this.boardOn = false;
+    this.undos = []; this.flat = new Map(); this.spec = null; this.showMap = false;
     this.crouch = false; this.slideT = 0; this.launchT = 0; this.cart = null; this.cartV = 0; this.driveT = 0; this.rams = new Map();
     this.carts = new Map(); this.gadgets = new Map();
     this.group.visible = true;
@@ -303,7 +360,7 @@ export class BattleRoyale {
     if (c.touch) { c.touch.on = false; c.touch.show(false); }
     if (this.touchEl) this.touchEl.style.display = 'block';
     c.hud.big('RUNEROYALE', '#f6c', c.TOUCH ? 'tap JUMP to leave the dragon' : 'SPACE: jump off the dragon · click to aim', 3, true);
-    c.say(`RuneRoyale: ${this.players.size} in the match. Last one standing wins. ${c.TOUCH ? '' : 'Q/F/C/V build, E loot, B board, M map, ESC menu.'}`, '#f6c');
+    c.say(`RuneRoyale: ${this.players.size} in the match. Last one standing wins. ${c.TOUCH ? '' : 'Q/F/C/V build, E loot, TAB bag, Z drop, M map, ESC menu.'}`, '#f6c');
     c.audio.event({ type: 'levelup' });
   }
 
@@ -388,7 +445,6 @@ export class BattleRoyale {
     c.say(m.byName ? `${m.byName} knocked ${m.name}` : `${m.name} is down`, m.id === this.myId || p?.team === this.myTeam ? '#f80' : '#f6c');
     if (m.id !== this.myId) return;
     this.down = true; this.hp = BR.DOWN_HP; this.sh = 0; this.buildMode = null; this.cart = null; this.crouch = false; this.zip = null; this.fishing = null; this.reviving = null;
-    if (this.boardOn) this.toggleBoard();
     c.hud.big('KNOCKED', '#f44', 'crawl to a teammate: they can pick you up', 2.5, true);
   }
   onUp(m) {
@@ -439,7 +495,7 @@ export class BattleRoyale {
     for (const [id, x, y, z, h, md, wk, w, em, dn] of m.b) {
       const pl = this.players.get(id); if (pl) pl.down = !!dn;
       const r = c.remotes.get(id); if (!r) continue;
-      r.tgt = { ...BOT_SNAP, x, y, z, heading: h, body: h, mode: md === 2 ? 'air' : 'walk', wk, fa: md === 1 ? 1 : 0, hide: md === 0 ? 1 : 0, bw: em ? '' : w, br: 1, em: em || 0 };
+      r.tgt = { ...BOT_SNAP, x, y, z, heading: h, body: h, mode: 'walk', wk, fa: md === 1 || md === 2 ? 1 : 0, gl: md === 1 || md === 2 ? md : 0, cr: dn ? 2 : 0, ac: r.tgt?.ac || '', hide: md === 0 ? 1 : 0, bw: em ? '' : w, br: 1, em: em || 0 };
     }
   }
   /** where a player is right now (you, a bot, a person) */
@@ -688,7 +744,7 @@ export class BattleRoyale {
     const c = this.c, W = WEAPONS[it.w], { THREE } = c;
     const { o, d } = this.aimRay();
     if (W.melee) {
-      c.emote?.(6); this.fireT = 1 / W.rate;
+      this.act('pound'); this.fireT = 1 / W.rate;
       const h = this.trace(o, d, 4.2);
       const sk = c.sk; if (h.kind === 'none' || h.point.distanceTo(this.T(sk.x, sk.y + 1.2, sk.z)) > W.range + 0.6) { c.audio.event({ type: 'shot', w: 'pick', v: 0.4 }); return; }
       if (h.kind === 'player') this.tx({ op: 'hit', v: h.id, d: W.dmg, hd: 0, w: 'pick' });
@@ -764,7 +820,8 @@ export class BattleRoyale {
     }
   }
   onFx(m) {
-    const c = this.c, [ax, ay, az] = m.a;
+    const c = this.c, [ax, ay, az] = m.a, r = c.remotes.get(m.by);
+    if (r?.tgt && W_ACT[m.w]) r.tgt.ac = W_ACT[m.w] + '.' + (this.acN = (this.acN || 0) + 1);   // (their shot, on their body)
     const d = Math.hypot(ax - c.sk.x, az - c.sk.z);
     if (d < 110) c.audio.event({ type: 'shot', w: m.w, v: Math.max(0.08, 1 - d / 110) });
     for (let i = 0; i + 2 < m.b.length; i += 3) {
@@ -778,13 +835,13 @@ export class BattleRoyale {
   key(e) {
     if (!this.active) return false;
     const k = e.key.toLowerCase(), c = this.c;
-    if (e.key === 'Tab') { e.preventDefault(); this.board = true; return true; }
+    if (e.key === 'Tab' || (k === 'i' && !e.repeat && this.live)) { e.preventDefault(); if (!e.repeat && this.live) this.bag(!this.bagOpen); return true; }
+    if (this.bagOpen && k === 'escape') { this.bag(false); return true; }
     if (this.state === 'over') { if (k === 'escape' || k === 'enter') this.exit(); return true; }
     if (k === 'escape') { if (this.ph === 'dead') this.exit(true); else this.showMenu(this.menuEl.style.display !== 'flex'); return true; }
     if (e.repeat) return true;
     this.keys.add(k);
     if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
-    if (this.boardOn && ['w', 'a', 's', 'd', ' ', 'shift', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) c.skKey(k, true);
     if (k === 'm') this.showMap = !this.showMap;
     if (!this.alive || this.down) return true;
     if (k === ' ') this.jumpEdge = true;
@@ -796,17 +853,50 @@ export class BattleRoyale {
     else if (k === 'x') this.toggleCrouch();
     else if (EMOTE_KEYS[k]) this.doEmote(EMOTE_KEYS[k]);
     else if (k === 'g') this.edit();
-    else if (k === 'b') this.toggleBoard();
-    else if (k === 'z') { const it = this.slots[this.sel]; if (this.sel > 0 && it) { this.tx({ op: 'drop', it }); this.slots[this.sel] = null; } }
+    else if (k === 'z') this.dropSlot(this.sel);
     return true;
   }
   keyup(e) {
     const k = e.key.toLowerCase();
     if (k === 'e') this.reviving = null;
-    if (e.key === 'Tab') this.board = false;
     this.keys.delete(k);
     if (this.c.keys.has(k)) this.c.skKey(k, false);
   }
+  // ---- the bag (TAB / I): what you carry, click to hold, DROP buttons, drag to swap; materials and ammo
+  bag(on) {
+    this.bagOpen = on && this.live; this.bagEl.style.display = this.bagOpen ? 'flex' : 'none';
+    if (this.bagOpen) { try { document.exitPointerLock(); } catch {} this.firing = false; this.drawBag(); }
+  }
+  drawBag() {
+    if (!this.bagOpen) return;
+    const slot = (it, i) => {
+      const name = !it ? '<small>empty</small>' : it.t === 'w' ? `<b style="color:${i ? RARITY[it.r].col : '#55c8e8'}">${esc(WEAPONS[it.w].name)}</b>` : `<b>${esc(itemName(it))}</b>`;
+      const sub = it?.t === 'w' && !WEAPONS[it.w].melee ? `<i>${it.a}/${WEAPONS[it.w].mag} · ${this.ammo[WEAPONS[it.w].ammo] || 0} spare</i>` : `<i>${i + 1}</i>`;
+      return `<div class="slot${i === this.sel ? ' sel' : ''}" data-slot="${i}" draggable="${i > 0 && !!it}">${name}${sub}${i > 0 && it ? `<button data-drop="${i}">DROP</button>` : ''}</div>`;
+    };
+    const mats = MAT_ORDER.map(m => `<div class="row"><span>${MATS[m].name}: ${this.mats[m]}</span>${this.mats[m] ? `<button data-mat="${m}" data-n="${Math.min(50, this.mats[m])}">DROP ${Math.min(50, this.mats[m])}</button><button data-mat="${m}" data-n="all">ALL</button>` : ''}</div>`).join('');
+    const ammo = Object.entries(this.ammo).filter(([, n]) => n > 0).map(([a, n]) => `<div class="row"><span>${esc(AMMO[a])}: ${n}</span><button data-ammo="${a}" data-n="${Math.min(30, n)}">DROP ${Math.min(30, n)}</button><button data-ammo="${a}" data-n="all">ALL</button></div>`).join('') || '<small>no ammo</small>';
+    const rows = [...this.players.values()].sort((a, b) => (b.alive - a.alive) || (b.kills || 0) - (a.kills || 0));
+    const who = rows.map(p => `<div class="${p.id === this.myId ? 'me' : !p.alive ? 'dead' : this.team > 1 && p.team === this.myTeam ? 'mate' : ''}"><span>${esc(p.name)}</span><span>${p.kills || 0}${p.alive ? '' : ' #' + (p.place || '?')}</span></div>`).join('');
+    this.bagEl.innerHTML = `<div class="box"><div><h3>YOUR BAG</h3><div class="slots">${this.slots.map(slot).join('')}</div>
+      <small>click to hold · drag to swap · Z drops what you hold</small><h3 style="margin-top:12px">MATERIALS</h3>${mats}<h3 style="margin-top:12px">AMMO</h3>${ammo}
+      <div class="row" style="margin-top:12px"><button data-a="close">CLOSE (TAB)</button></div></div>
+      <div><h3>PLAYERS (${rows.filter(p => p.alive).length} LEFT)</h3><div class="who">${who}</div></div></div>`;
+  }
+  dropSlot(i) {
+    const it = this.slots[i]; if (!(i > 0 && it) || !this.alive || this.down) return;
+    this.tx({ op: 'drop', it }); this.slots[i] = null; this.noPick();
+    if (this.sel === i) this.select(0);
+    this.c.hud.pop('DROPPED ' + itemName(it).toUpperCase(), '#fff'); this.drawBag();
+  }
+  dropStuff(t, k, n) {
+    if (!this.alive || this.down || !(n > 0)) return;
+    if (t === 'm') { n = Math.min(n, this.mats[k]); this.mats[k] -= n; this.tx({ op: 'drop', it: { t: 'm', m: k, n } }); }
+    else { n = Math.min(n, this.ammo[k] || 0); this.ammo[k] -= n; this.tx({ op: 'drop', it: { t: 'a', a: k, n } }); }
+    this.noPick(); this.drawBag();
+  }
+  /** what you just dropped lands at your feet: don't walk it straight back up */
+  noPick() { const sk = this.c.sk; this.dropAt = { x: sk.x, z: sk.z }; }
   showMenu(on) { this.menuEl.style.display = on ? 'flex' : 'none'; if (on) { try { document.exitPointerLock(); } catch {} } }
   select(i) {
     if (i < 0 || i >= SLOTS) return;
@@ -836,7 +926,7 @@ export class BattleRoyale {
       const s = this.posOf(p.id); if (s && Math.hypot(s.x - sk.x, s.z - sk.z) < 2.6) return { mate: p };
     }
     for (const z of this.zips || []) for (const [e, dir] of [[z.a, 1], [z.b, -1]]) { const s = score(e.x, e.z) - 0.5; if (Math.hypot(e.x - sk.x, e.z - sk.z) < 2.4 && Math.abs(e.y - 6 - sk.y) < 2.5 && s < bd) { bd = s; best = { zip: z, dir }; } }
-    if (!this.boardOn) for (const ct of this.carts.values()) { const s = score(ct.x, ct.z) - 0.5; if (!ct.rider && Math.hypot(ct.x - sk.x, ct.z - sk.z) < 3.5 && Math.abs(ct.y - sk.y) < 2 && s < bd) { bd = s; best = { cart: ct }; } }
+    for (const ct of this.carts.values()) { const s = score(ct.x, ct.z) - 0.5; if (!ct.rider && Math.hypot(ct.x - sk.x, ct.z - sk.z) < 3.5 && Math.abs(ct.y - sk.y) < 2 && s < bd) { bd = s; best = { cart: ct }; } }
     return best;
   }
   interact() {
@@ -893,7 +983,7 @@ export class BattleRoyale {
     c.audio.event({ type: 'glide' }); c.hud.pop('THROUGH THE RIFT!', '#c6f');
   }
   toggleCrouch() {
-    if (this.ph !== 'ground' || this.cart || this.boardOn) return;
+    if (this.ph !== 'ground' || this.cart) return;
     const sp = Math.hypot(this.vx, this.vz);
     if (!this.crouch && sp > 5.5 && !this.air) {            // sprinting: slide
       this.slideT = 0.9; this.slideDir = [this.vx / sp, this.vz / sp]; this.c.audio.event({ type: 'land', impact: 2 }); this.c.hud.pop('SLIDE', '#fff');
@@ -901,20 +991,9 @@ export class BattleRoyale {
     this.crouch = !this.crouch;
   }
   doEmote(n) {
-    if (this.ph !== 'ground' || this.cart || this.boardOn || this.air) return;
+    if (this.ph !== 'ground' || this.cart || this.air) return;
     this.buildMode = null; this.vx = this.vz = 0; this.emoting = true; this.c.emote?.(n);
   }
-  toggleBoard() {
-    const sk = this.c.sk;
-    if (this.ph !== 'ground' || this.cart) return;
-    if (this.boardOn) { this.boardOn = false; for (const k of [...this.c.keys]) this.c.skKey(k, false); if (sk.mode !== 'bail') { sk.mode = 'walk'; sk.vx = sk.vz = 0; } this.vx = this.vz = 0; return; }
-    if (this.air) return;
-    this.boardOn = true; this.buildMode = null; sk.mode = 'ground'; sk.charge = -1; sk.heading = this.yaw;
-    const sp = Math.hypot(this.vx, this.vz); sk.vx = Math.cos(this.yaw) * sp; sk.vz = Math.sin(this.yaw) * sp;
-    for (const k of this.keys) if (['w', 'a', 's', 'd', ' ', 'shift'].includes(k)) this.c.skKey(k, true);
-    this.c.hud.pop('BOARD ON (B TO WALK)', '#fff');
-  }
-
   // ================================================================== mine carts
   enterCart(ct) {
     const sk = this.c.sk;
@@ -980,11 +1059,7 @@ export class BattleRoyale {
     else if (this.ph === 'ground') {
       if (this.cart) this.stepCart(dt);
       else if (this.zip) this.stepZip(dt, jump);
-      else if (this.boardOn) {
-        c.skateStep(dt);
-        this.vx = sk.vx; this.vz = sk.vz;
-        if (sk.mode === 'walk') this.boardOn = false;           // (E-style dismount from the skate code)
-      } else this.stepFoot(dt, jump);
+      else this.stepFoot(dt, jump);
       if (!this.cart && !this.down) this.combat(dt);
       this.channels(dt);
     } else if (this.ph === 'dead') this.spectate(dt);
@@ -1026,23 +1101,22 @@ export class BattleRoyale {
     const c = this.c, sk = c.sk, w = c.world, g = (w.probeY = -Infinity, w.height(sk.x, sk.z)), above = sk.y - g;
     if (this.launchT > 0) this.launchT -= dt;
     else if (!this.glide && (above < BR.GLIDE_AT || (jump && above < 70))) { this.glide = true; c.audio.event({ type: 'glide' }); }
-    const m = this.wish(), sp = this.glide ? 12 : 9, k = Math.min(1, dt * 2.5);
+    const m = this.wish(), sp = this.glide ? BR.GLIDE : BR.DIVE, k = Math.min(1, dt * (this.glide ? 1.6 : 2.5));
     this.vx += (m.x * sp - this.vx) * k; this.vz += (m.z * sp - this.vz) * k;
-    const dive = this.glide ? -5.5 : -18 - Math.max(0, -this.pitch) * 14 * m.L;
+    const dive = this.glide ? -BR.SINK - Math.max(0, -this.pitch) * 3 * m.L : -20 - Math.max(0, -this.pitch) * 16 * m.L;   // (look down to come down quicker)
     if (this.launchT > 0) this.vy -= 22 * dt;                    // (thrown up by a launch pad: plain gravity until it tops out)
     else this.vy += (dive - this.vy) * Math.min(1, dt * 3);
     sk.x += this.vx * dt; sk.z += this.vz * dt; sk.y += this.vy * dt;
     // stay over the arena
-    const a = this.arena, d = Math.hypot(sk.x - a.x, sk.z - a.z); if (d > a.r + 20) { sk.x = a.x + (sk.x - a.x) * (a.r + 20) / d; sk.z = a.z + (sk.z - a.z) * (a.r + 20) / d; }
+    const a = this.arena, d = Math.hypot(sk.x - a.x, sk.z - a.z); if (d > a.r + 10) { sk.x = a.x + (sk.x - a.x) * (a.r + 10) / d; sk.z = a.z + (sk.z - a.z) * (a.r + 10) / d; }
     const sp2 = Math.hypot(this.vx, this.vz);
     if (sp2 > 0.5) sk.heading = sk.body = Math.atan2(this.vz, this.vx);
-    if (this.glide) { sk.mode = 'air'; sk.airTime = 1; sk.vy = -5; sk.grab = null; sk.charge = -1; sk.boardYaw = 0; sk.boardRoll = 0; sk.lean = 0; }
-    else { sk.mode = 'walk'; sk.footAir = true; sk.walking = 0; }
+    sk.mode = 'walk'; sk.footAir = true; sk.walking = 0; sk.gl = this.glide ? 2 : 1;      // (drawn as RS's dive pose / hanging under the glider)
     w.probeY = sk.y;
     const gg = w.height(sk.x, sk.z);
     if (sk.y <= gg) {
       sk.y = gg; this.ph = 'ground'; this.air = false; this.vy = 0;
-      sk.mode = 'walk'; sk.footAir = false; sk.vx = sk.vz = 0;
+      sk.mode = 'walk'; sk.footAir = false; sk.vx = sk.vz = 0; sk.gl = 0;
       const sx = sk.x, sz = sk.z; sk.unstick?.(0.2); if (sk.unstickTo) { sk.x = sk.unstickTo.x; sk.z = sk.unstickTo.z; sk.unstickTo = null; } void sx; void sz;
       c.audio.event({ type: 'land', impact: 6 }); c.hud.pop('LANDED: FIND A CHEST (E)', '#ff0');
     }
@@ -1107,7 +1181,9 @@ export class BattleRoyale {
     if ((this.apT = (this.apT || 0) - dt) <= 0) {
       this.apT = 0.15;
       const free = this.slots.some((s, i) => i > 0 && !s);
+      if (this.dropAt && Math.hypot(this.dropAt.x - sk.x, this.dropAt.z - sk.z) > 2.6) this.dropAt = null;
       for (const o of this.items.values()) {
+        if (this.dropAt && Math.hypot(o.x - this.dropAt.x, o.z - this.dropAt.z) < 2.6) continue;
         if (this.pending.has(o.id) || Math.hypot(o.x - sk.x, o.z - sk.z) > 1.3 || Math.abs(o.y - sk.y) > 1.5) continue;
         if (o.it.t === 'a' || o.it.t === 'm' || (o.it.t === 'c' && this.players.get(o.it.id)?.team === this.myTeam && o.it.id !== this.myId) || (free && (o.it.t === 'w' || o.it.t === 'h'))) { this.pending.add(o.id); this.tx({ op: 'pick', id: o.id }); const id = o.id; setTimeout(() => this.pending.delete(id), 1500); break; }
       }
@@ -1172,6 +1248,7 @@ export class BattleRoyale {
     const c = this.c, sk = c.sk, { THREE } = c, now = performance.now() / 1000;
     const st = this.st || stormAt(this.plan, this.t);
     this.storm.position.set(st.x, -20, -st.z); this.storm.scale.set(Math.max(0.5, st.r), 260, Math.max(0.5, st.r));
+    if (this.stormMap) { this.stormMap.offset.x = now * 0.02; this.stormMap.offset.y = -now * 0.05; }
     const out = this.alive && this.ph !== 'bus' && Math.hypot(sk.x - st.x, sk.z - st.z) > st.r;
     this.tint.style.opacity = out ? '1' : '0';
     this.hurtEl.style.opacity = String(Math.min(0.85, this.hurtT));
@@ -1224,16 +1301,46 @@ export class BattleRoyale {
     }
     this.fx = this.fx.filter(f => f.t > 0);
     this.updateGhost();
-    // what you hold
-    const it = this.alive && this.ph === 'ground' && !this.buildMode ? this.slots[this.sel] : null, hw = it?.t === 'w' ? it.w : '';
-    if (hw !== this.heldW) { this.held.clear(); if (hw) this.held.add(this.weaponMesh(hw)); this.heldW = hw; }
-    if (hw) {
-      const f = [Math.cos(this.yaw), Math.sin(this.yaw)], r = [Math.sin(this.yaw), -Math.cos(this.yaw)];
-      this.held.position.copy(this.T(sk.x + f[0] * 0.35 + r[0] * 0.32, sk.y + 1.2, sk.z + f[1] * 0.35 + r[1] * 0.32));
-      this.held.rotation.set(0, this.yaw, hw === 'pick' && this.fireT > 0.2 ? -1 : this.pitch);
-      this.held.visible = !this.scoped;
-    }
+    // what you hold: the real RS item in your hand (worn in the weapon slot, so it swings with the body)
+    const it = this.alive && this.ph === 'ground' && !this.buildMode && !this.down ? this.slots[this.sel] : null, hw = it?.t === 'w' ? it.w : '';
+    if (hw !== this.heldW) { this.heldW = hw; c.wear(armed(c.me.outfit, hw, COSMETICS[this.locker.s?.eq?.pick]?.item)); }   // (the locker's pickaxe, where the cache has one)
     this.lastW = hw;
+    sk.cr = this.down ? 2 : this.crouch && this.ph === 'ground' && !this.cart ? 1 : 0;
+    if (this.useT > 0 && this.using?.t === 'h' && (this.eatT = (this.eatT || 0) - dt) <= 0) { this.eatT = 0.6; this.act('eat'); }
+    if ((this.reviving || this.fishing) && (this.chT = (this.chT || 0) - dt) <= 0) { this.chT = this.fishing ? 1.2 : 0.7; this.act(this.fishing ? 'fish' : 'bend'); }
+    this.gliders(dt);
+  }
+  /** an RS clip over your arms (everyone sees it: it rides the state snapshot) */
+  act(name) { this.c.sk.ac = name + '.' + (this.acN = (this.acN || 0) + 1); }
+  /** gliders: a canopy over everyone hanging under one */
+  gliders() {
+    const c = this.c, { THREE } = c, on = new Set();
+    const put = (id, s) => {
+      if (!s || s.gl !== 2) return; on.add(id);
+      let g = this.glid.get(id);
+      if (!g) { g = this.gliderMesh(); this.glid.set(id, g); this.group.add(g); }
+      g.position.copy(this.T(s.x, s.y + 2.05, s.z)); g.rotation.set(0, s.body ?? s.heading, Math.sin(performance.now() / 600 + id.length) * 0.06);
+    };
+    this.glid ||= new Map();
+    if (this.alive) put(this.myId, c.sk);
+    for (const r of c.remotes.values()) if (this.players.has(r.id) && !r.cull) put(r.id, r.s);
+    for (const [id, g] of this.glid) if (!on.has(id)) { this.group.remove(g); this.glid.delete(id); }
+    void THREE;
+  }
+  gliderMesh() {
+    const { THREE } = this.c, g = new THREE.Group(), tc = this.locker.col('trail');
+    const cloth = new THREE.MeshBasicMaterial({ color: tc > 0 ? tc : 0xb02a2a, side: THREE.DoubleSide }), trim = new THREE.MeshBasicMaterial({ color: 0xe8d070, side: THREE.DoubleSide });
+    // a bowed canopy (forward is +x): six panels, alternating colours like a RS cape
+    for (let i = 0; i < 6; i++) {
+      const a0 = -0.9 + i * 0.3, a1 = a0 + 0.3, geo = new THREE.BufferGeometry();
+      const P = (a, x) => [x, 0.55 * Math.cos(a) - 0.35, 1.6 * Math.sin(a)];
+      geo.setAttribute('position', new THREE.Float32BufferAttribute([...P(a0, 0.7), ...P(a1, 0.7), ...P(a1, -0.6), ...P(a0, 0.7), ...P(a1, -0.6), ...P(a0, -0.6)], 3));
+      geo.computeVertexNormals(); g.add(new THREE.Mesh(geo, i % 2 ? trim : cloth));
+    }
+    const line = new THREE.LineBasicMaterial({ color: 0x3a2a1a });
+    for (const z of [-1.3, 1.3]) for (const x of [0.6, -0.5]) { const lg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x, -0.25, z), new THREE.Vector3(0.1, -1.0, 0)]); g.add(new THREE.Line(lg, line)); }
+    g.add(this.box(0.08, 0.08, 0.9, new THREE.MeshBasicMaterial({ color: 0x5a3a1a }), 0.1, -1.0, 0));    // the bar you hang off
+    return g;
   }
   /** after the skaters are drawn: hide who shouldn't show, weapons in bots' hands */
   postDraw() {
@@ -1244,13 +1351,11 @@ export class BattleRoyale {
       if (show && p) { if (r.tgt?.hide || (!p.alive && performance.now() - p.deadAt > 1200)) show = false; }
       if (!show) { if (r.m) r.m.group.visible = false; r.board.root.visible = false; if (r.shadow) r.shadow.visible = false; }
       else if (r.m) r.m.group.visible = true;
-      // their weapon
-      const want = show && this.active && r.tgt?.bw && r.s?.mode === 'walk' ? r.tgt.bw : '';
-      if (want !== (r.bwName || '')) { if (r.bwMesh) this.group.remove(r.bwMesh); r.bwMesh = want ? this.weaponMesh(want) : null; if (r.bwMesh) this.group.add(r.bwMesh); r.bwName = want; }
-      if (r.bwMesh && r.s) {
-        const h = r.s.heading, f = [Math.cos(h), Math.sin(h)], rr = [Math.sin(h), -Math.cos(h)];
-        r.bwMesh.position.copy(this.T(r.s.x + f[0] * 0.35 + rr[0] * 0.32, r.s.y + 1.2, r.s.z + f[1] * 0.35 + rr[1] * 0.32)); r.bwMesh.rotation.set(0, h, 0);
-      }
+      // too far to see: not drawn at all (a lobby is 48 strong); their weapon is the real item in their hand
+      const cam = c.camera.position;
+      r.cull = this.active && !!p && !!r.s && Math.hypot(r.s.x - cam.x, r.s.z + cam.z) > (c.scene.fog?.far || 160) + 10;
+      const want = show && this.active && r.tgt?.bw && !r.tgt.gl && !r.tgt.cr ? r.tgt.bw : '';
+      if (this.active && p && want !== (r.bwName ?? null) && !r.cull) { r.bwName = want; c.reskin(r.id, armed(r.outfit, want)); }
     }
     if (!this.active) return;
     const hide = this.ph === 'bus' || this.ph === 'dead';
@@ -1373,7 +1478,7 @@ export class BattleRoyale {
         else if (t) hud.text(`${E}: ${t.ch ? (t.ch.sd ? 'OPEN THE SUPPLY DROP' : t.ch.kind === 'ammo' ? 'OPEN AMMO BOX' : 'OPEN CHEST') : 'PICK UP ' + itemName(t.o.it).toUpperCase()}`, cx, cy + 40, t.o?.it.t === 'w' ? RARITY[t.o.it.r].col : '#ff0', k1, 'c', 'p12');
         if (this.crouch && !this.cart) hud.text(this.slideT > 0 ? 'SLIDING' : 'CROUCHED', cx, cy + 40 + k1 * 12, '#bbb', k1, 'c', 'p12', 0.8);
       }
-      if (this.ph === 'fall') hud.text(`${Math.round(sk.y - c.world.height(sk.x, sk.z))} UP   ${this.glide ? 'GLIDING ON YOUR BOARD' : (c.TOUCH ? 'JUMP: open glider' : 'SPACE: open glider')}`, cx, H * 0.7, '#fff', K, 'c', 'p12');
+      if (this.ph === 'fall') hud.text(`${Math.round(sk.y - c.world.height(sk.x, sk.z))} UP   ${this.glide ? 'GLIDING (LOOK DOWN TO DROP FASTER)' : (c.TOUCH ? 'JUMP: open glider' : 'SPACE: open glider')}`, cx, H * 0.7, '#fff', K, 'c', 'p12');
       if (this.ph === 'bus') hud.text(c.TOUCH ? 'TAP JUMP TO DROP' : 'SPACE TO JUMP OFF THE DRAGON', cx, H * 0.7, '#ff0', K, 'c', 'b12');
     } else if (this.ph === 'dead' && this.state === 'live') {
       const s = this.spec != null ? this.players.get(this.spec) : null;
@@ -1382,7 +1487,6 @@ export class BattleRoyale {
     }
     if (this.team > 1 && this.live) this.drawTeam(hud, x, W, H, K);
     if (this.showMap) this.drawMap(hud, x, W, H, K, st);
-    if (this.board) this.drawScores(hud, x, W, H, K);
   }
   /** your team: names + health down the side, markers over their heads */
   drawTeam(hud, x, W, H, K) {
@@ -1420,18 +1524,6 @@ export class BattleRoyale {
     x.restore();
     hud.text('MAP (M)', W / 2, oy - 6 - K * 12, '#fff', K, 'c', 'b12');
   }
-  drawScores(hud, x, W, H, K) {
-    const k1 = Math.max(1, K - 1), rows = [...this.players.values()].sort((a, b) => (b.alive - a.alive) || (b.kills || 0) - (a.kills || 0));
-    const pw = 320 * k1 / 1.5, ph = 30 + rows.length * k1 * 11, px = (W - pw) / 2, py = H * 0.12;
-    x.fillStyle = 'rgba(30,24,16,0.92)'; x.fillRect(px, py, pw, ph); x.strokeStyle = '#5a4a2a'; x.lineWidth = 3; x.strokeRect(px, py, pw, ph);
-    hud.text('RUNEROYALE', px + pw / 2, py + 6, '#f6c', k1, 'c', 'b12');
-    rows.forEach((p, i) => {
-      const y = py + 24 + i * k1 * 11, col = p.id === this.myId ? '#0f0' : p.alive ? '#fff' : '#777';
-      hud.text(p.name + (p.bot ? ' (bot)' : ''), px + 10, y, col, k1, 'l', 'p12');
-      hud.text(`${p.kills || 0} kills${p.alive ? '' : '  #' + (p.place || '?')}`, px + pw - 10, y, col, k1, 'r', 'p12');
-    });
-  }
-
   // ================================================================== phones
   mkTouch() {
     const el = this.touchEl = document.createElement('div'); el.id = 'brtouch';
@@ -1444,7 +1536,7 @@ export class BattleRoyale {
       <div class="b" data-b="build" style="right:170px;bottom:20px;width:56px;height:56px">BUILD</div>
       <div class="b" data-b="piece" style="right:170px;bottom:84px;width:52px;height:52px">PIECE</div>
       <div class="b" data-b="next" style="right:176px;bottom:150px;width:52px;height:52px">NEXT</div>
-      <div class="b" data-b="board" style="left:12px;top:58px;width:46px;height:46px;border-radius:10px">BOARD</div>
+      <div class="b" data-b="bag" style="left:12px;top:58px;width:46px;height:46px;border-radius:10px">BAG</div>
       <div class="b" data-b="map" style="left:64px;top:58px;width:46px;height:46px;border-radius:10px">MAP</div>
       <div class="b" data-b="menu" style="left:116px;top:58px;width:46px;height:46px;border-radius:10px">MENU</div>
       <div class="b" data-b="crouch" style="left:12px;top:110px;width:46px;height:46px;border-radius:10px">CROUCH</div>
@@ -1464,7 +1556,7 @@ export class BattleRoyale {
         else if (a === 'build') this.buildMode = this.buildMode ? null : 'wall';
         else if (a === 'piece') this.cycle(1);
         else if (a === 'next') this.cycle(1);
-        else if (a === 'board') this.toggleBoard();
+        else if (a === 'bag') this.bag(!this.bagOpen);
         else if (a === 'map') this.showMap = !this.showMap;
         else if (a === 'crouch') this.toggleCrouch();
         else if (a === 'edit') this.edit();
@@ -1482,10 +1574,9 @@ export class BattleRoyale {
       let dx = e.clientX - sx, dy = e.clientY - sy; const l = Math.hypot(dx, dy); if (l > R) { dx *= R / l; dy *= R / l; }
       nub.style.transform = `translate(${dx}px, ${dy}px)`;
       this.touchMove = { f: -dy / R, r: dx / R };
-      if (this.boardOn) { this.c.skKey('w', dy < -R * 0.4); this.c.skKey('s', dy > R * 0.5); this.c.skKey('a', dx < -R * 0.3); this.c.skKey('d', dx > R * 0.3); }
       if (Math.hypot(dx, dy) > R * 0.95 && dy < -R * 0.8) this.keys.add('shift'); else this.keys.delete('shift');
     });
-    const sEnd = e => { if (e.pointerId !== sid) return; sid = null; base.style.display = 'none'; this.touchMove = null; this.keys.delete('shift'); if (this.boardOn) for (const k of 'wasd') this.c.skKey(k, false); };
+    const sEnd = e => { if (e.pointerId !== sid) return; sid = null; base.style.display = 'none'; this.touchMove = null; this.keys.delete('shift'); };
     stick.addEventListener('pointerup', sEnd); stick.addEventListener('pointercancel', sEnd);
     const look = el.querySelector('.look'); const lk = new Map();
     look.addEventListener('pointerdown', e => { e.preventDefault(); cap(look, e); lk.set(e.pointerId, [e.clientX, e.clientY]); });
@@ -1508,10 +1599,12 @@ export class BattleRoyale {
     for (const [a, f] of this.flat) { a.array.set(f.arr); a.needsUpdate = true; f.geo.computeBoundingSphere(); if (f.geo.boundsTree?.refit) f.geo.boundsTree.refit(); }
     this.flat.clear();
     for (const o of [...this.group.children]) if (o !== this.storm && o !== this.buildGroup && o !== this.held) this.group.remove(o);
-    this.buildGroup.clear(); this.held.clear(); this.heldW = ''; this.ghost = null; this.ghostKey = '';
+    this.buildGroup.clear(); this.held.clear(); this.heldW = null; this.ghost = null; this.ghostKey = '';
     if (this.kbd) { c.scene.remove(this.kbd.group); this.kbd = null; }
     for (const p of this.players.values()) if (p.bot) c.dropRemote(p.id);
-    for (const r of c.remotes.values()) if (r.bwMesh) { this.group.remove(r.bwMesh); r.bwMesh = null; r.bwName = ''; }
+    for (const r of c.remotes.values()) { r.cull = false; if (r.bwName != null) { r.bwName = null; c.reskin(r.id, r.outfit); } }   // (people back in their own clothes)
+    this.glid?.clear(); this.bag(false);
+    const sk = c.sk; sk.gl = 0; sk.ac = ''; sk.cr = 0; c.wear(c.me.outfit || null);
     this.players = new Map(); this.pieces?.clear(); this.items?.clear(); this.chests?.clear();
     this.group.visible = false;
   }
@@ -1522,7 +1615,7 @@ export class BattleRoyale {
     if (!this.local) c.net.send({ t: 'br', op: 'done' });
     this.cleanup();
     this.local = null; this.inbox = null; this.shared = false;
-    this.state = 'idle'; this.boardOn = false; this.buildMode = null; this.cart = null; this.crouch = false; this.slideT = 0; this.emoting = false; this.down = false; this.zip = null; this.fishing = null; this.reviving = null; this.firing = false; this.ads = false; this.keys.clear();
+    this.state = 'idle'; this.buildMode = null; this.cart = null; this.crouch = false; this.slideT = 0; this.emoting = false; this.down = false; this.zip = null; this.fishing = null; this.reviving = null; this.firing = false; this.ads = false; this.keys.clear();
     for (const k of [...c.keys]) c.skKey(k, false);
     this.overEl.style.display = 'none'; this.menuEl.style.display = 'none'; this.tint.style.opacity = '0'; this.hurtEl.style.opacity = '0'; this.scopeEl.style.display = 'none';
     if (this.touchEl) this.touchEl.style.display = 'none';
