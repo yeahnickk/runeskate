@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { World } from './world.js';
 import { Skater, P, TRICK_KEYS, wheelContact } from './skater.js';
-import { loadRSModel, buildBoard, TOP_Z, DECK_Z } from './model.js';
+import { loadRSModel, buildBoard, TOP_Z, DECK_Z, RSModel } from './model.js';
 import { RSFont, loadHitsplat, HUD } from './hud.js';
 import { SkateAudio } from './audio.js';
 import { Net } from './net.js';
@@ -23,6 +23,7 @@ import { poseRider, rigDims } from './rig.js';
 import { Replay } from './replay.js';
 import { Parks } from './park.js';
 import { SPOTS_ALL } from './spots.js';
+import { BattleRoyale } from './br.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
@@ -363,6 +364,11 @@ async function main() {
     if (designer?.open) return;
     // start menu up: the game ignores keys (Enter on the menu skates, like the SKATE button)
     if (document.getElementById('start').style.display === 'flex') { if (e.key === 'Enter' && e.target?.tagName !== 'BUTTON') { e.preventDefault(); window.RS.autoLogin?.(); } return; }
+    if (br?.homeOn && !br.active) { if (e.key === 'Enter') { e.preventDefault(); br.play(); } return; }   // RuneRoyale's lobby: nothing to skate
+    if (br?.active) {                                       // RuneRoyale has the keys (chat still opens with Enter)
+      if (e.key === 'Enter' && net.online) { e.preventDefault(); openChat(); return; }
+      if (br.key(e)) return;
+    }
     if (e.key === 'Tab' || teleports?.open) {                // TAB: the teleport menu (with the leaderboard)
       e.preventDefault();
       if (e.repeat) return;
@@ -377,6 +383,7 @@ async function main() {
     audio.start();
     const k = e.key.toLowerCase();
     if (parks?.key(k, sk)) { e.preventDefault(); return; }
+    if (k === 'v') { br?.queue(); return; }                  // RuneRoyale (battle royale)
     keys.add(k); anyEdge = true;
     if (k === ' ') jumpEdge = true;
     const tricks = TRICK_KEYS;
@@ -399,7 +406,7 @@ async function main() {
     if (replay.key(k, shift) === 'record') { const why = replay.startRec(renderer.domElement); if (why) chatLog.push({ text: 'Replay: ' + why, col: '#f80', t: 0, msg: 1 }); }
   }
   replay.onKey = k => replayKey(k, false);
-  addEventListener('keyup', e => { keys.delete(e.key.toLowerCase()); });
+  addEventListener('keyup', e => { if (br?.active) br.keyup(e); keys.delete(e.key.toLowerCase()); });
   addEventListener('blur', () => keys.clear());
   const down = (...ks) => ks.some(k => keys.has(k));
   function readInput(first) {
@@ -421,7 +428,7 @@ async function main() {
   // in the air throws a trick. Double-length flicks do the double / 360 versions.
   let flick = null, gest = null;
   const gl = document.getElementById('gl');
-  gl.addEventListener('pointerdown', e => { if (e.button !== 0 || designer?.open || gest) return; audio.start(); gest = { id: e.pointerId, low: e.clientY, lowX: e.clientX, x0: e.clientX, y0: e.clientY, lowT: performance.now() }; });
+  gl.addEventListener('pointerdown', e => { if (e.button !== 0 || designer?.open || gest || br?.active) return; audio.start(); gest = { id: e.pointerId, low: e.clientY, lowX: e.clientX, x0: e.clientX, y0: e.clientY, lowT: performance.now() }; });
   addEventListener('pointermove', e => { if (gest && e.pointerId === gest.id && e.clientY > gest.low) { gest.low = e.clientY; gest.lowX = e.clientX; gest.lowT = performance.now(); } });
   addEventListener('pointercancel', e => { if (gest && e.pointerId === gest.id) gest = null; });
   addEventListener('pointerup', e => {
@@ -523,6 +530,7 @@ async function main() {
   }
   const qs = new URLSearchParams(location.search);
   const $ = id => document.getElementById(id);
+  var ROYALE = qs.get('play') === 'royale';                // came from the RuneRoyale card (see br.home)
   if (qs.get('name')) $('lname').value = qs.get('name');
   if (qs.get('password')) $('lpass').value = qs.get('password');
   async function login(offline) {
@@ -550,7 +558,7 @@ async function main() {
   const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
   const rnd = (n, abc) => Array.from(crypto.getRandomValues(new Uint32Array(n)), x => abc[x % abc.length]).join('');
   function freshIdentity() {
-    const who = ['Skater', 'Grinder', 'Ollie', 'Kickflip', 'Shredder', 'Rider', 'Deck'][Math.floor(Math.random() * 7)];
+    const who = (ROYALE ? ['Raider', 'Looter', 'Dropper', 'Glider', 'Builder', 'Sniper', 'Victor'] : ['Skater', 'Grinder', 'Ollie', 'Kickflip', 'Shredder', 'Rider', 'Deck'])[Math.floor(Math.random() * 7)];
     const name = (who + rnd(4, '0123456789')).slice(0, 12), pass = rnd(14, 'abcdefghjkmnpqrstuvwxyz23456789');
     store.set('rs_name', name); store.set('rs_pass', pass); return [name, pass];
   }
@@ -573,13 +581,25 @@ async function main() {
 
   // ---------------- outfits: any armour from the game on your own skater (see designer.js / rsanim.js)
   // no outfit saved yet = the plain RS body (an outfit model carries the bone labels the skate body is built from)
-  window.RS.modelFor = o => buildOutfitModel(o && o.items ? o : { g: 0, items: {}, kits: {} });
+  // Same outfit = same baked frames (and the same skin cache): a RuneRoyale lobby is mostly bots in a dozen armour
+  // sets, so the second wearer of an outfit costs a colour buffer, not another megabyte of frames
+  const outfitData = new Map();
+  window.RS.modelFor = async o => {
+    o = o && o.items ? o : { g: 0, items: {}, kits: {} };
+    const k = JSON.stringify(o);
+    let p = outfitData.get(k);
+    if (!p) { p = buildOutfitModel(o); outfitData.set(k, p); if (outfitData.size > 96) outfitData.delete(outfitData.keys().next().value); }
+    const base = await p;
+    if (!base._used) { base._used = true; return base; }
+    const m = new RSModel(base.meta, base.frames, base.faces, base.fcol); m._base = base; return m;
+  };
   window.RS.player = () => player;                          // test hook
   let wearing = 0;
   async function wearOutfit(o) {
     const n = ++wearing, m = await window.RS.modelFor(o);
     if (n !== wearing) return;                              // a newer preview already won
     scene.remove(player.group); player = m; scene.add(m.group);
+    return m;
   }
   var designer = new Designer({
     onPreview: o => wearOutfit(o),
@@ -610,7 +630,7 @@ async function main() {
     press: k => { active(); audio.start(); if (k) fakeKey('keydown', k); },
     release: k => fakeKey('keyup', k),
     chat: () => net.online ? openChat() : hud.pop('CHAT NEEDS YOU ONLINE', '#f80'),
-    menu: [['Teleport', () => teleports.show(true)], ['Outfit', () => fakeKey('keydown', 'o')], ['Graphics', () => fakeKey('keydown', 'g')],
+    menu: [['Battle Royale', () => br.queue()], ['Teleport', () => teleports.show(true)], ['Outfit', () => fakeKey('keydown', 'o')], ['Graphics', () => fakeKey('keydown', 'g')],
       ['Respawn', () => fakeKey('keydown', 'r')], ['Wave', () => fakeKey('keydown', '1')], ['Cheer', () => fakeKey('keydown', '2')],
       ['Dance', () => fakeKey('keydown', '3')], ['Clap', () => fakeKey('keydown', '5')]],
   }) : null;
@@ -618,6 +638,7 @@ async function main() {
   window.RS.touch = touch;
   window.RS.onLogin = async who => {
     teleports.ready(); playing = true; document.body.classList.add('playing');
+    if (ROYALE) br.home(true);                              // came from the RuneRoyale card: its own lobby, no skating
     // this browser's saved progress only counts for the account that made it (or a solo run)
     const lp = offlineProg && (!offlineProg.who || offlineProg.who === who.name || offlineProg.who === who.login || offlineProg.who === 'offline') ? offlineProg : null;
     if (lp) goals.load(lp);
@@ -630,7 +651,7 @@ async function main() {
     parks.load(who.parks); spotOwn = who.spots || {};
     if (who.own) { scene.remove(board.root); board = buildBoard(true); scene.add(board.root); }   // the owner's gold board
     if (who.outfit) await wearOutfit(who.outfit);
-    if (who.isNew && net.online) { keys.clear(); designer.show(who.outfit, true); }
+    if (who.isNew && net.online && !ROYALE) { keys.clear(); designer.show(who.outfit, true); }   // (RuneRoyale goes straight to its lobby)
   };
 
   // remote skaters: interpolate toward the last relayed state
@@ -680,10 +701,12 @@ async function main() {
        chatLog.push({ text: `${m.name} owns ${sp} (${m.score.toLocaleString()})` + (m.prev ? ` - taken from ${m.prev}` : ''), col: '#ff0', t: 0 });
      })
      .on('skate', m => skateEvent(m))
+     .on('br', m => br?.rx(m))
      .on('rejoined', w => { parks.load(w.parks); spotOwn = w.spots || spotOwn; me.xp = Math.max(me.xp, w.xp); chatLog.push({ text: 'Reconnected.', col: '#0f0', t: 0 }); });
   const SNAP = ['x', 'y', 'z', 'heading', 'body', 'boardYaw', 'boardRoll', 'charge', 'airTime', 'pushing', 'tumble', 'tumbleAxis', 'speed', 'manual', 'lean', 'balance', 'vy', 'grabT'];
   function snapshot() {
     const o = { mode: sk.mode, gk: sk.grindKind, gr: sk.grab || '', sl: sk.slide ? 1 : 0, w: sk.inWater ? 1 : 0, wk: sk.walking || 0, fa: sk.footAir ? 1 : 0, fk: sk._fk ? 1 : 0, em: emote ? emote * 100 + emoteSeq : 0 };   // wk: 0 stand, 1 walk, 2 run; em: emote*100+seq
+    if (sk.gl) o.gl = sk.gl; if (sk.ac) o.ac = sk.ac; if (sk.cr) o.cr = sk.cr;
     for (const k of SNAP) o[k] = Math.round((sk[k] || 0) * 1000) / 1000;
     if (sk.mode === 'bail' && sk.board) o.b = [sk.board.x, sk.board.y, sk.board.z, sk.board.yaw, sk.board.roll, sk.board.pitch || 0].map(v => Math.round(v * 1000) / 1000);
     return o;
@@ -701,7 +724,9 @@ async function main() {
       for (const f of ['manual', 'lean', 'balance', 'vy', 'grabT']) s[f] = t[f] || 0;
       s.grab = t.gr || null;
       s.mode = t.mode; s.grindKind = t.gk; s.slide = !!t.sl; s.inWater = !!t.w; s.walking = t.wk || 0; s.footAir = !!t.fa; s.fk = !!t.fk; s.em = t.em || 0;
+      s.gl = t.gl || 0; s.ac = t.ac || ''; s.cr = t.cr || 0;   // RuneRoyale: skydive / glider, an action (swing, shot, bite), crouched / knocked
       if (t.b) s.board = { x: t.b[0], y: t.b[1], z: t.b[2], yaw: t.b[3], roll: t.b[4], pitch: t.b[5] || 0 };
+      if (r.cull) { r.m.group.visible = false; r.board.root.visible = false; if (r.shadow) r.shadow.visible = false; continue; }   // (a match: too far off to see)
       drawRider(dt, s, r.m, r.board);
       r.shadow ||= makeShadow(); placeShadow(r.shadow, s.x, s.y, s.z, true);
     }
@@ -714,8 +739,10 @@ async function main() {
     const info = text => chatLog.push({ text, col: '#0ff', t: 0, msg: 1 });
     if (c.startsWith('skate')) { const n = c.slice(5).trim(); if (!n) info('::skate <name> challenges someone to a game of S.K.A.T.E.'); else net.send({ t: 'skate', op: 'challenge', name: n }); return; }
     if (c === 'accept') { net.send({ t: 'skate', op: 'accept' }); return; }
+    if (c === 'br' || c === 'royale') { br.queue(); return; }
+    if (c === 'leave') { if (br.active) br.exit(true); else info('Not in a RuneRoyale match.'); return; }
     if (c === 'quit') { if (skGame) net.send({ t: 'skate', op: 'quit' }); else info('Not in a game.'); return; }
-    if (c === 'help' || c === 'commands') { info('Commands: ::skate <name> · ::accept · ::quit' + (canNoclip ? ' · ::noclip' : '')); return; }
+    if (c === 'help' || c === 'commands') { info('Commands: ::br (battle royale) · ::leave · ::skate <name> · ::accept · ::quit' + (canNoclip ? ' · ::noclip' : '')); return; }
     if (c === 'noclip' && canNoclip) { sk.noclip = !sk.noclip; chatLog.push({ text: 'Noclip ' + (sk.noclip ? 'ON - skate through anything.' : 'OFF.'), col: me.own ? GOLD : '#0ff', crown: !!me.own, t: 0, msg: 1 }); }
     else if (c === 'noclip') chatLog.push({ text: `Collect all ${goals.runes.length} runes to unlock ::noclip (${goals.status().runes}/${goals.runes.length}).`, col: '#f00', t: 0, msg: 1 });
     else chatLog.push({ text: 'Unknown command. ::help lists them.', col: '#f00', t: 0, msg: 1 });
@@ -845,7 +872,55 @@ async function main() {
     return !!sk._fk;
   }
   const _v = new THREE.Vector3(), _lfocus = new THREE.Vector3();
+  // ---- RuneRoyale bodies: always on foot, never a board, the RS clips as the cache has them (no skate rig).
+  // The legs run the walk / run cycle and the arms play an action over it (a pickaxe swing, a shot, a bite),
+  // so you can shoot on the move; skydivers take RS's dive pose, crouching / knocked hold a low frame.
+  const clipFrame = (m, label, t, loop) => {
+    const a = m.meta.anims[label]; if (!a) return 0;
+    const tot = a.delay.reduce((n, d) => n + Math.max(1, d), 0); let u = t / 0.02; u = loop ? u % tot : Math.min(u, tot - 0.001);
+    let i = 0; while (i < a.frames.length - 1 && u >= Math.max(1, a.delay[i])) { u -= Math.max(1, a.delay[i]); i++; }
+    return a.frames[i];
+  };
+  const clipLen = (m, label) => { const a = m.meta.anims[label]; return a ? a.delay.reduce((n, d) => n + Math.max(1, d), 0) * 0.02 : 0; };
+  function legMask(m) {                                    // the vertices below the belt (bind pose), shared by one outfit's wearers
+    const b = m._base || m; if (b._legs) return b._legs;
+    const F = b.frames, nv = b.nv; let top = -Infinity; for (let v = 0; v < nv; v++) top = Math.max(top, F[v * 3 + 1]);
+    const L = new Uint8Array(nv); for (let v = 0; v < nv; v++) L[v] = F[v * 3 + 1] < top * 0.47 ? 1 : 0;
+    return (b._legs = L);
+  }
+  function drawRoyale(dt, sk, m, board) {
+    lighting.ensure(m.mesh); board.root.visible = false;
+    m._t = (m._t || 0) + dt;
+    let leg = sk.walking === 2 ? 'run' : sk.walking ? 'walk' : 'ready', legLoop = true;
+    if (sk.gl === 1) leg = 'falling';
+    else if (sk.gl === 2) leg = 'ready';
+    else if (sk.footAir) { leg = 'spot_jump'; legLoop = false; }
+    if (leg !== m._leg) { m._leg = leg; m._lt = 0; } m._lt = (m._lt || 0) + dt;
+    // an action: 'name.seq' (the seq restarts it)
+    const [an, aseq] = (sk.ac || '').split('.');
+    if (sk.ac && sk.ac !== m._ac) { m._ac = sk.ac; m._at = 0; }
+    m._at = (m._at || 0) + dt;
+    const acting = an && m.meta.anims[an] && m._at < clipLen(m, an) && !sk.gl; void aseq;
+    let fl = clipFrame(m, leg, m._lt, legLoop), ft = fl;
+    const low = sk.cr && !sk.gl && !sk.footAir;
+    if (low) { const a = m.meta.anims[sk.cr === 2 ? 'death' : 'bend']; if (a) fl = ft = a.frames[sk.cr === 2 ? a.frames.length - 1 : 4]; }
+    if (acting) ft = clipFrame(m, an, m._at, false);
+    if (em0(sk) && !sk.walking && !sk.footAir && !sk.gl) { const e = EMOTES[Math.floor(sk.em / 100)]; if (m._em !== sk.em) { m._em = sk.em; m._et = 0; } m._et = (m._et || 0) + dt; if (m.meta.anims[e]) fl = ft = clipFrame(m, e, m._et, false); } else m._em = 0;
+    if (ft === fl || (an === 'death' && acting)) m.setFrame(an === 'death' && acting ? ft : fl);
+    else if (!sk.walking && !low) m.setFrame(ft);           // standing still: the whole body plays it
+    else {
+      const F = m.frames, nv = m.nv, L = legMask(m), oL = fl * nv * 3, oT = ft * nv * 3, out = m._mix ||= new Float32Array(nv * 3);
+      for (let v = 0; v < nv; v++) { const o = (L[v] ? oL : oT) + v * 3; out[v * 3] = F[o]; out[v * 3 + 1] = F[o + 1]; out[v * 3 + 2] = F[o + 2]; }
+      m.setVerts(out);
+    }
+    const g = m.group; g.quaternion.identity(); g.scale.set(1, 1, 1);
+    g.rotation.set(0, sk.body + Math.PI / 2, 0);
+    g.position.set(sk.x, sk.y + (sk.gl === 1 ? 0.6 : 0), -sk.z);
+    sk.ragPose = null;
+  }
+  const em0 = sk => sk.em && EMOTES[Math.floor(sk.em / 100)];
   function drawRider(dt, sk, m, board) {
+    if (br?.active && sk.mode === 'walk') return drawRoyale(dt, sk, m, board);
     lighting.ensure(m.mesh); lighting.ensure(board.mesh);
     let clip = 'sidestep', yawOff = -Math.PI / 2, loop = true;
     const has = c => !!m.meta.anims[c];                      // (the default nickai3 model predates push/emotes)
@@ -1146,7 +1221,12 @@ async function main() {
   // ---------------- loop
   status('');
   document.getElementById('loading').style.display = 'none';
-  if (!location.hash.includes('nostart')) {
+  if (ROYALE && !location.hash.includes('nostart')) {
+    // RuneRoyale: no login form. This browser's account (made up and remembered the first time) signs in on
+    // its own; no server = a match against bots offline
+    window.RS.prefill();
+    setTimeout(() => { br.home(true); autoLogin().then(() => { if (!net.online) return login(true); }).catch(() => login(true)); });   // (br is made further down)
+  } else if (!location.hash.includes('nostart')) {
     // the start menu waits for the player: name + password are filled in, SKATE (or Enter) goes
     document.getElementById('start').style.display = 'flex';
     window.RS.prefill();
@@ -1158,6 +1238,9 @@ async function main() {
   const v = new THREE.Vector3();
   window.RS.eventsLog = [];
   function tick(dt) {
+    if (br?.active) { brTick(dt); return; }
+    if (br?.homeOn) { homeTick(dt); return; }
+    hud.br = null;
     if (trickTimer > 0 && (trickTimer -= dt) <= 0 && sk.mode !== 'air') pendingTrick = null;
     acc += dt;
     let firstStep = true;
@@ -1176,6 +1259,7 @@ async function main() {
     teleports.update(dt);
     drawSkater(dt);
     updateRemotes(dt);
+    br?.postDraw();
     net.state(snapshot(), performance.now());
     updateCamera(dt, first); first = false;
     lighting.update(_lfocus.set(sk.x, sk.y, -sk.z), dt);
@@ -1192,7 +1276,7 @@ async function main() {
     } else renderer.render(scene, camera);
     hud.tags.length = 0;
     const tag = (x, y, z, text, col, sub, crown) => { v.set(x, y, -z).project(camera); if (v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2) hud.tags.push({ text, col, sub, crown, screen: [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight] }); };
-    for (const r of remotes.values()) if (r.s && Math.hypot(r.s.x - sk.x, r.s.z - sk.z) < 14) {   // tags only for skaters near you
+    for (const r of remotes.values()) if (r.s && !r.tgt?.br && Math.hypot(r.s.x - sk.x, r.s.z - sk.z) < 14) {   // tags only for skaters near you
       const said = say.get(r.id);
       if (r.own) tag(r.s.x, r.s.y + 2.35, r.s.z, `[OWNER] ${r.name} (level-${levelFor(r.xp)})`, GOLD, said ? said.text : null, true);
       else tag(r.s.x, r.s.y + 2.35, r.s.z, `${r.name} (level-${levelFor(r.xp)})`, '#fff', said ? said.text : null);
@@ -1210,12 +1294,74 @@ async function main() {
     hud.playing = net.online ? net.players.size + 1 : 0;   // live skaters on the server, you included
     hud.miniDots.length = 0;
     hud.miniDots.push(...goals.dots());
-    for (const r of remotes.values()) if (r.s) hud.miniDots.push({ x: r.s.x, z: r.s.z, col: '#fff', r: 2 });
+    for (const r of remotes.values()) if (r.s && !r.tgt?.br) hud.miniDots.push({ x: r.s.x, z: r.s.z, col: '#fff', r: 2 });
     hud.goal = goals.status();
     skPanel(dt);
     buildBar();
     hud.touch = !!touch; hud.draw(dt, sk, cfg);
   }
+  // ---------------- RuneRoyale (src/br.js): the match drives the skater, the camera and the HUD
+  function skateStep(dt) {                                // riding your board in a match: the normal skate physics
+    acc += dt; let firstStep = true;
+    while (acc >= DT) {
+      world.probeY = sk.y;                                  // (build floors and ramps are rideable)
+      sk.step(DT, readInput(firstStep)); sk.tickCombo(DT);
+      if (firstStep) { jumpEdge = false; anyEdge = false; }
+      firstStep = false; acc -= DT;
+    }
+    world.probeY = -Infinity; sk.events.length = 0;
+  }
+  function skKey(k, on) {
+    if (on) { if (!keys.has(k)) { keys.add(k); anyEdge = true; if (k === ' ') jumpEdge = true; } }
+    else keys.delete(k);
+  }
+  // RuneRoyale's lobby: no skater, the camera circles slowly over Lumbridge
+  let homeA = 0;
+  function homeTick(dt) {
+    homeA += dt * 0.04;
+    const [cx, cz] = world.spawn, gy = world.height(cx, cz);
+    camera.position.set(cx + Math.cos(homeA) * 42, gy + 26, -(cz + Math.sin(homeA) * 42)); camera.lookAt(cx, gy, -cz);
+    if (camera.fov !== 62) { camera.fov = 62; camera.updateProjectionMatrix(); }
+    player.group.visible = false; board.root.visible = false; myShadow.visible = false;
+    lighting.override = 0.4;                               // (always a bright morning in the lobby)
+    cullChunks(cx, cz); lighting.update(_lfocus.set(cx, gy, -cz), dt);
+    lighting.override = undefined;
+    updateRemotes(dt);
+    renderer.render(scene, camera);
+    hud.c.getContext('2d').clearRect(0, 0, hud.c.width, hud.c.height);
+  }
+  function brTick(dt) {
+    br.tick(dt);
+    for (const n of npcs) n.m.group.visible = false;      // (the monsters sit a match out)
+    drawSkater(dt);
+    updateRemotes(dt);
+    br.postDraw();
+    const o = snapshot(); br.snap(o); net.state(o, performance.now());
+    br.camera(dt, first); first = false;
+    lighting.update(_lfocus.set(sk.x, sk.y, -sk.z), dt);
+    placeShadow(myShadow, sk.x, sk.y, sk.z, br.alive && br.ph !== 'bus');
+    audio.update(sk, dt);
+    for (const s of hud.splats) {
+      v.set(s.gob.x, world.height(s.gob.x, s.gob.z) + 2.1, -s.gob.z).project(camera);
+      s.screen = v.z < 1 ? [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight] : null;
+    }
+    renderer.render(scene, camera);
+    hud.tags.length = 0;
+    for (const [id, m] of say) { m.t += dt; if (m.t > 5) say.delete(id); }
+    hud.chat = chatLog; hud.me = me; hud.mini = miniMap; hud.br = br; hud.touch = !!touch;
+    hud.draw(dt, sk, cfg);
+  }
+  var br = new BattleRoyale({
+    THREE, scene, camera, renderer, world, wjson, sk, hud, audio, net, me, CH, chunkMeshes, nearOccluders, cullChunks, remotes, addRemote, dropRemote,
+    TOUCH, touch, teleports, lighting, loadRSModel, skateStep, skKey, keys, unblock, addXP,
+    say: (text, col) => chatLog.push({ text, col, t: 0, msg: 1 }),
+    wear: o => wearOutfit(o), reskin: (id, o) => reskin(id, o),
+    loadRegion: name => { const r = world.regions.find(q => q.name === name); return r ? loadRegion(r) : Promise.resolve(); },
+    player: () => player, board: () => board, get myShadow() { return myShadow; },
+    emote: n => startEmote(n), shake: x => { shake = Math.max(shake, x); },
+  });
+  window.RS.br = br;
+
   // adaptive resolution: if frames run long for a second, render fewer pixels (down to 55%); step back up
   // once there's headroom. Keeps slower laptops smooth without making fast machines look worse.
   // A canvas resize blanks the drawing buffer, so the change is only APPLIED at the start of a frame, right
@@ -1240,8 +1386,8 @@ async function main() {
     const dt = Math.min(0.1, gap / 1000); last = now;
     if (pendingRes) { resScale = pendingRes; pendingRes = 0; renderer.setPixelRatio(BASE_DPR * resScale); needResize = true; }
     if (needResize) { needResize = false; resize(); }
-    if (touch) { const on = playing && !replay.open && !designer.open && !teleports.open && $('chatbox').style.display !== 'block'; if (on !== touch.on) { touch.on = on; touch.show(on); } }
-    if (playing) { const b = !replay.open && !designer.open; if (b !== teleports.shown) teleports.ready(teleports.shown = b); }
+    if (touch) { const on = playing && !replay.open && !designer.open && !teleports.open && !br.active && !br.homeOn && $('chatbox').style.display !== 'block'; if (on !== touch.on) { touch.on = on; touch.show(on); } }
+    if (playing) { const b = !replay.open && !designer.open && !br.active && !br.homeOn; if (b !== teleports.shown) { teleports.ready(teleports.shown = b); } br.showBtn(b); document.body.classList.toggle('inbr', br.active); }
     if (replay.open) replayTick(dt);
     else if (!window.RS.paused) { tick(dt); if (gap < 250) adaptResolution(gap, dt); }
   }

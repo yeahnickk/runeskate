@@ -15,6 +15,7 @@ import { Input, TouchControls, TOUCH_CSS, loadSettings, saveSettings } from './i
 import { RSFont, loadHitsplat } from '../hud.js';
 import { MOVE } from './body.js';
 import { NetClient } from './netclient.js';
+import { Wrath } from './wrathfx.js';
 
 THREE.ColorManagement.enabled = false;                    // hex colours as written, like the RS world's baked ones
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
@@ -60,6 +61,7 @@ async function main() {
   const hud = new CodHud($('hud'), { b12, p12 }, await pSplat);
   const sfx = new Sfx(); sfx.setVolume(settings.volume);
   const input = new Input(canvas, settings);
+  input.want = () => inMatch && !paused && !chatOpen && !game?.over && menu.style.display === 'none';   // (in live play the mouse belongs to the game)
   document.head.appendChild(Object.assign(document.createElement('style'), { textContent: TOUCH_CSS }));
   if (TOUCH) { input.touch = new TouchControls(document.body, settings); input.device = 'touch'; }
 
@@ -124,7 +126,7 @@ async function main() {
     scene.add(ring, orb, glow); iceFx.push({ kind: 'mark', p: p.clone(), land, t: 0, ring, orb, glow });
   }
   // the King Black Dragon, low-poly like his RS model: black hide, three heads, red-black wings; flies the line, breathing fire
-  let wrathFx = null;
+  let wrathFx = null, nuke = null;                                // nuke: the God's Wrath set piece (wrathfx.js)
   const dragons = [];
   const DRAGON_MAT = new THREE.MeshLambertMaterial({ color: 0x1c1a1e }), WING_MAT = new THREE.MeshLambertMaterial({ color: 0x3a1210, side: THREE.DoubleSide });
   function makeDragon() {
@@ -245,7 +247,7 @@ async function main() {
     for (const a of avatars.values()) { scene.remove(a.group); a.dispose(); }   // (last match's bodies: free their GPU buffers)
     vm?.dispose();
     avatars.clear();
-    game = g; me = game.player; pick = null; wrathFx = null; strikeQ.length = 0;
+    game = g; me = game.player; pick = null; wrathFx = null; strikeQ.length = 0; nuke?.dispose(); nuke = null;
     for (const m of supplyMeshes.splice(0)) scene.remove(m);
     for (const s of game.supplies) { const m = supplyCrate(Arena.TEAMS[s.team]?.hex ?? 0xffd040); m.position.copy(s.p); scene.add(m); supplyMeshes.push(m); }
     for (const D of dragons.splice(0)) scene.remove(D.g);
@@ -264,7 +266,7 @@ async function main() {
   }
 
   function endMatch() {
-    net?.close(); net = null; closeChat();
+    net?.close(); net = null; closeChat(); nuke?.dispose(); nuke = null;
     inMatch = false; input.enabled = false; input.unlock(); if (input.touch) input.touch.show(false);
     document.body.classList.remove('playing');
     showMenu('main');
@@ -295,7 +297,8 @@ async function main() {
       case 'impact': puff(e.p, 0xb8a888, 0.08, 0.5, e.n.clone().multiplyScalar(0.6)); puff(e.p, 0xffe0a0, 0.03, 0.08, new THREE.Vector3(), true); break;
       case 'kill': {
         const a = avatars.get(e.v);
-        if (a) { a.group.visible = true; a.die(e.dir || new THREE.Vector3(0, 0, -1), e.w?.cls === 'SNIPER' ? 7 : e.w?.cls === 'LETHAL' ? 9 : 3.5, (x, z) => arena.floor(x, e.v.body.pos.y + 1.2, z, 0, 40)); }
+        const blown = nuke && /WRATH/.test(e.w?.name || '') && e.v.body.pos.distanceTo(nuke.c) < 140, away = blown && e.v.body.pos.clone().sub(nuke.c).setY(0).normalize();   // (God's Wrath throws them clear across the arena)
+        if (a) { a.group.visible = true; a.die(blown ? away : e.dir || new THREE.Vector3(0, 0, -1), blown ? 16 + Math.random() * 10 : e.w?.cls === 'SNIPER' ? 7 : e.w?.cls === 'LETHAL' ? 9 : 3.5, (x, z) => arena.floor(x, e.v.body.pos.y + 1.2, z, 0, 40), blown ? 9 + Math.random() * 9 : undefined); }
         if (e.f === me && e.v !== me) {
           const pts = 100 + (e.tags.includes('HEADSHOT') ? 50 : 0);
           hud.point(`+${pts}  ${e.v.name}`, '#ff0');
@@ -327,12 +330,16 @@ async function main() {
       case 'wrath': {
         wrathFx = { team: game.mode.teams ? e.f.team : null, left: e.left, on: true, mine: game.mode.teams ? e.f.team === me?.team : e.f === me, beep: Math.ceil(e.left) + 1, flash: 0 };
         hud.message(wrathName(wrathFx.team), wrathFx.team === 'zam' ? '#ff5040' : '#fff6c0', wrathFx.mine ? `${e.f === me ? 'You' : e.f.name} called down the end of the match` : 'run. it will not help', 4);
+        const c = arena.at(2400, 3104); c.y = arena.floor(c.x, 40, c.z, 0, 60); if (!isFinite(c.y)) c.y = 2;
+        nuke?.dispose(); nuke = new Wrath(scene, c, e.left, wrathFx.team, (x, z) => { const y = arena.floor(x, c.y + 40, z, 0, 80); return isFinite(y) ? y : c.y; }, arena);
         sfx.jingle(); break;
       }
       case 'wrathhit': {
         const team = game.mode.teams ? e.f.team : null;
         if (wrathFx) { wrathFx.flash = 1; wrathFx.on = false; }
-        shake = 1.4; sfx.boom(0, 0); sfx.boom(5, 0.5); sfx.boom(5, -0.5);
+        shake = 1.6; sfx.boom(0, 0); sfx.boom(5, 0.5); sfx.boom(5, -0.5);
+        if (nuke && !nuke.hit) nuke.t = Math.max(nuke.t, 0);           // (lands with the match's hit, whatever the frame rate did)
+        for (const [ms, d] of [[350, 10], [900, 25], [1700, 40], [2600, 60]]) setTimeout(() => sfx.boom(d, (Math.random() - 0.5)), ms);   // (rolling thunder off the castles)
         for (const f of game.fighters) if (f.alive && f !== e.f && (!game.mode.teams || f.team !== e.f.team)) strikeQ.push({ p: f.body.pos.clone(), team, big: true, t: Math.random() * 0.25 });   // (one on every one of them)
         for (let i = 0; i < 40; i++) { const q = arenaSpot(); if (q) strikeQ.push({ p: q, team, big: Math.random() < 0.3, t: 0.15 + Math.random() * 3 }); }
         const c = arena.at(2400, 3104); c.y = arena.floor(c.x, 40, c.z, 0, 60) || 2; shockwave(c, team); setTimeout(() => shockwave(c, team), 350);
@@ -473,10 +480,10 @@ async function main() {
     const left = W.on ? W.left : 0;
     if (W.on && Math.ceil(left) < W.beep) { W.beep = Math.ceil(left); if (W.beep > 0) sfx.flag(W.mine); }
     if (!W.on) {                                                         // the flash burns off fast so you see the storm it leaves; 5 s of that before the scores
-      W.after = (W.after || 0) + Math.max(dt, 1 / 60); W.flash = Math.max(0, 1 - W.after / 1.4); shake = Math.max(shake, 0.6 * Math.max(0, 1 - W.after / 4));
-      if (W.after > 5) { wrathFx = null; if (W.endAfter && game?.over) showEnd(); return null; }
+      W.after = (W.after || 0) + Math.max(dt, 1 / 60); W.flash = Math.max(0, 1 - W.after / 0.35) * 0.9; shake = Math.max(shake, 0.6 * Math.max(0, 1 - W.after / 4));
+      if (W.after > 10) { wrathFx = null; if (W.endAfter && game?.over) showEnd(); return null; }
     }
-    return { name: wrathName(W.team), left, team: W.team, tint: W.on ? Math.min(0.45, (10 - left) / 10 * 0.45) : 0, flash: W.flash };
+    return { name: wrathName(W.team), left, team: W.team, tint: W.on ? Math.min(0.45, (10 - left) / 10 * 0.45) * (nuke?.cine ? 0.25 : 1) : 0, cine: !!nuke?.cine, flash: W.flash };
   }
 
   function setPaused(p) {
@@ -527,6 +534,7 @@ async function main() {
     }
     for (const [g, m] of nades) if (!game.grenades.includes(g)) { scene.remove(m); nades.delete(g); }
     stepStrikes(dt);
+    if (nuke && !nuke.update(dt, camera)) { nuke.dispose(); nuke = null; }
     // the King Black Dragon's run
     for (let i = dragons.length - 1; i >= 0; i--) {
       const D = dragons[i]; D.t += dt;
@@ -589,6 +597,7 @@ async function main() {
       camera.position.copy(hit ? hit.point.clone().lerp(pel, 0.15) : want); camera.lookAt(look);
     }
     camera.fov = vfov * 180 / Math.PI; camera.updateProjectionMatrix();
+    const cine = !!nuke?.cine; if (cine) nuke.cam(camera, dt, shake);   // (God's Wrath: everyone watches it come in)
     camera.updateMatrixWorld();
 
     // what's under the crosshair (for the name tag + the red dot)
@@ -601,7 +610,7 @@ async function main() {
     renderer.clear();
     renderer.render(scene, camera);
     // the gun and hands, over everything
-    if (me.alive && !scoped) {
+    if (me.alive && !scoped && !cine) {
       const look = { dx: ((b.yaw - prevYaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI, dy: b.pitch - prevPitch };
       vm.setGun(G.g.id, w.model);
       vm.update(dt, { gunner: G, ads: G.ads, scoped, sprint: b.sprinting, speed: Math.hypot(b.vel.x, b.vel.z) / MOVE.walk, onGround: b.onGround, look, slide: b.slide > 0, landed: b.landed, dead: false });
@@ -733,7 +742,7 @@ async function main() {
     else if (e.key === 'Escape') closeChat();
   });
 
-  window.COD = { get net() { return net; }, startOnline, renderer, scene, get game() { return game; }, startMatch, setup, arena, camera, showMenu, settings, input, get me() { return me; }, get paused() { return paused; }, get vm() { return vm; }, get classes() { return classes; } };
+  window.COD = { get net() { return net; }, startOnline, renderer, scene, get game() { return game; }, get nuke() { return nuke; }, startMatch, setup, arena, camera, showMenu, settings, input, get me() { return me; }, get paused() { return paused; }, get vm() { return vm; }, get classes() { return classes; } };
   document.title = 'CODScape';
 }
 

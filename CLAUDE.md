@@ -9,11 +9,13 @@ no bundler), one Bun server, no database. Libraries are vendored in `vendor/`; t
 bun serve.ts 8123                 # http://localhost:8123/?name=Test  (unknown names sign up on the spot)
 bun test/sim.js                   # headless physics/world checks — run after touching skater/world/ragdoll/scoring
 bun test/net.js                   # boots the server on a spare port: S.K.A.T.E., parks, spot claims
+bun test/br.js                    # RuneRoyale: storm, building + collapse, breaking + restoring the world, bot matches
 bun tools/spot-check.ts           # every challenge spot reachable from spawn
 bun tools/pocket-check.ts         # spawn + teleport drops aren't trapped pockets (needs the near/far split)
 bun test/cod.js                   # CODScape: gun numbers, gunner timelines, headless bot matches (TDM/CTF/FFA)
 bun test/stairs.js                # CODScape: every staircase walked up + down, wading, stepping stones
 bun test/castle-fuzz.js           # CODScape: bodies wander the castles; no popping a storey, no walking through walls
+bun test/supply-fuzz.js           # CODScape: bodies scramble round the supply tables; nobody ends up stuck (body.js unstuck)
 node test/cod-e2e.cjs [base]      # CODScape in a real browser (needs playwright; server on base, default :8199)
 ```
 
@@ -38,7 +40,7 @@ The owner doesn't want CI or npm-script plumbing; just run the scripts above dir
 A first-person COD-style shooter vs bots in the Castle Wars arena; the home page opens on a game picker.
 - `arena.js` loads `assets/cw_arena.*` (cut by `tools/cw-arena.py`, then `bun tools/cw-decals.ts` lifts RS's coplanar
   face stacks so they don't shimmer up close), builds the BVH collider, perimeter wall, nav graph.
-- `body.js` movement (capsule vs BVH, step-up, slide, wading), `gunner.js` gun timelines, `weapons.js` stats,
+- `body.js` movement (capsule vs BVH, step-up, slide, wading), `gunner.js` gun timelines, `wrathfx.js` the God's Wrath set piece (comet, mushroom cloud, debris, cinematic camera), `weapons.js` stats,
   `game.js` match rules (pure, runs headless), `bots.js` AI, `soldier.js` third-person RS bodies + hit zones,
   `guns.js` procedural gun models (mm side profiles), `viewmodel.js` first-person arms/reloads, `hud.js`, `input.js`.
 - Online (PLAY ONLINE): `netserver.js` runs one always-on CTF match inside serve.ts (`/cod-ws`; bots fill each side to 4,
@@ -47,6 +49,20 @@ A first-person COD-style shooter vs bots in the Castle Wars arena; the home page
   behind). `netwire.js` is the shared wire format. ENTER chats.
 - The world renders 1:1 linear like the skate game; the gun pass uses sRGB + filmic (`withGunPass`).
 - Dev pages: `test/guns.html` (armoury gallery), `test/vmsheet.html?gun=..&what=reload|empty|sights` (reload sheets).
+
+## RuneRoyale (battle royale inside the skate game)
+
+- `br-core.js` is the match (pure, shared by serve.ts and the offline browser match): storm, dragon drop, loot, builds,
+  breaking the world, bots, teams (solo / duos / squads with knocks, revives, reboot vans), gadgets, carts, fishing.
+- `br.js` is the client (input, HUD, meshes, phone buttons); `br-locker.js` the cosmetics (GP, pass, shop, localStorage).
+- The arena is the core pack plus `ARENA_PACKS` (Varrock, Falador, Port Sarim, the south): serve.ts adds them to its
+  match world, the client loads them while queued. 48 a match (`BR.SIZE`, divides into duos and squads).
+- No skating in a match: bodies are drawn by `drawRoyale` in main.js (raw RS clips, legs from walk/run, arms from
+  an action `sk.ac`; `sk.gl` 1 skydive / 2 glider, `sk.cr` 1 crouch / 2 knocked). The held weapon is a real RS
+  item worn in slot 3 (`W_ITEM`, exported by tools/export-kit.ts); outfits with the same items share baked frames.
+- Dev page: `test/poses.html?anims=bow,cast&w=1275` (every RS clip an outfit carries, frame by frame).
+- Match messages go out as `{ ...msg, t: 'br' }`, so they never use the field `t` themselves.
+- `bun test/br.js` covers it; real-browser runs are slow in headless (game time runs ~10x slow there).
 
 ## Conventions
 

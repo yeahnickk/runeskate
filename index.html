@@ -40,14 +40,14 @@
   #pick { position: fixed; inset: 0; z-index: 30; display: none; flex-direction: column; align-items: center; justify-content: safe center; gap: 18px; padding: 16px;
     box-sizing: border-box; overflow-y: auto; background: radial-gradient(ellipse at center, rgba(40,30,15,.96), rgba(8,6,3,.99)); text-align: center; }
   #pick .games { display: flex; gap: 22px; flex-wrap: wrap; justify-content: center; width: 100%; }
-  #pick a.game { display: flex; flex-direction: column; width: min(420px, 100%); text-decoration: none; color: #fff; background: #2e2618; border: 3px solid #5a4a2a;
+  #pick a.game { display: flex; flex-direction: column; width: clamp(260px, 30vw, 420px); max-width: 100%; text-decoration: none; color: #fff; background: #2e2618; border: 3px solid #5a4a2a;
     outline: 2px solid #2b2117; box-shadow: 5px 5px 0 #000; transition: transform .12s, border-color .12s; }
   #pick a.game:hover, #pick a.game:focus { transform: translateY(-3px); border-color: #ff981f; outline-color: #ff981f; }
   #pick a.game .shot { aspect-ratio: 16 / 9; background: #000 center / cover no-repeat; border-bottom: 3px solid #5a4a2a; }
   #pick a.game .name { font: 900 clamp(30px, 6vw, 46px) Impact, 'Arial Black', sans-serif; letter-spacing: 3px; color: #ff981f; text-shadow: 3px 3px 0 #000; padding: 10px 12px 0; }
   #pick a.game .what { font: 14px monospace; color: #ff0; padding: 4px 12px 14px; text-shadow: 1px 1px 0 #000; }
   #pick .pickt { font: 900 clamp(26px, 6vw, 44px) Impact, 'Arial Black', sans-serif; color: #fff; letter-spacing: 3px; text-shadow: 3px 3px 0 #000; }
-  @media (max-height: 520px) { #pick { gap: 8px; } #pick a.game { width: min(300px, 46vw); } #pick a.game .name { font-size: 26px; } #pick a.game .what { font-size: 11px; padding-bottom: 8px; } }
+  @media (max-height: 520px) { #pick { gap: 8px; } #pick a.game { width: min(240px, 30vw); } #pick a.game .name { font-size: 26px; } #pick a.game .what { font-size: 11px; padding-bottom: 8px; } }
   .touchkeys { display: none; }
   #codscape { display: inline-block; font: bold 15px monospace; padding: 9px 18px; color: #fff; background: linear-gradient(180deg, #8a1a10, #4a0a06); border: 3px solid #2e0804;
     box-shadow: 3px 3px 0 #000; text-decoration: none; letter-spacing: 1px; } #codscape b { color: #ff981f; } #codscape:hover { background: #a02218; }
@@ -97,15 +97,17 @@
   <div class="pickt">PICK A GAME</div>
   <div class="games">
     <a class="game" id="pick-skate" href="index.html?play=skate"><div class="shot" style="background-image:url(docs/grind.png)"></div><div class="name">RUNESKATE</div><div class="what">Skate all of 2004 RuneScape. Multiplayer.</div></a>
+    <a class="game" id="pick-royale" href="index.html?play=royale"><div class="shot" style="background-image:url(docs/runeroyale.jpg)"></div><div class="name">RUNEROYALE</div><div class="what">48-player battle royale over Lumbridge, Varrock and Falador. Drop, loot, build, break everything.</div></a>
     <a class="game" id="pick-cod" href="cod.html"><div class="shot" style="background-image:url(docs/codscape.jpg)"></div><div class="name">CODSCAPE</div><div class="what">Call of Duty in Castle Wars. Saradomin vs Zamorak, vs bots.</div></a>
   </div>
 </div>
 <script>
-  // the picker comes first, unless this is a skate join link (?name=..), a #nostart test, or ?play=skate
+  // the picker comes first, unless this is a skate join link (?name=..), a #nostart test, or ?play=skate / royale
   (() => { const q = new URLSearchParams(location.search), el = document.getElementById('pick');
-    if (q.has('pick') || !(q.has('name') || q.get('play') === 'skate' || location.hash.includes('nostart'))) {
+    if (q.has('pick') || !(q.has('name') || q.get('play') === 'skate' || q.get('play') === 'royale' || location.hash.includes('nostart'))) {
       el.style.display = 'flex';
       document.getElementById('pick-skate').addEventListener('click', e => { e.preventDefault(); el.style.display = 'none'; history.replaceState(null, '', location.pathname + location.hash); });
+      document.getElementById('pick-royale').addEventListener('click', e => { e.preventDefault(); el.style.display = 'none'; history.replaceState(null, '', location.pathname + '?play=royale' + location.hash); });
       document.getElementById('pick-skate').focus();
     } })();
 </script>
@@ -113,6 +115,15 @@
 <canvas id="hud"></canvas>
 <input id="chatbox" maxlength="80" placeholder="say something... (Enter to send, Esc to cancel)">
 <div class="panel" id="loading"><div class="title">RUNESKATE</div><div class="sub" id="status">loading...</div></div>
+<script>
+  // a load that dies (a file cut off mid-update, a stale copy) says so instead of sitting on "loading..." forever
+  (() => { const st = () => document.getElementById('status'), loading = () => document.getElementById('loading')?.style.display !== 'none';
+    const fail = why => { if (!loading()) return; st().innerHTML = 'Could not start (' + String(why).replace(/[<>&]/g, '').slice(0, 120) + ').<br>Press <b>Ctrl+F5</b> (or pull down to refresh) to load it fresh.'; st().style.color = '#f66'; };
+    addEventListener('error', e => { const t = e.target; if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) fail((t.src || t.href || '').split('/').pop() + ' did not load'); else if (e.message) fail(e.message); }, true);
+    addEventListener('unhandledrejection', e => { const was = st().textContent; setTimeout(() => { if (st().textContent === was) fail(e.reason?.message || e.reason || 'a file did not load'); }, 8000); });   // (only if it stalled there)
+    setTimeout(() => { if (loading() && st().textContent === 'loading...') st().innerHTML = 'Still loading... if this doesn\'t move, press <b>Ctrl+F5</b> to load it fresh.'; }, 25000);
+  })();
+</script>
 <div class="panel" id="idle" style="background: rgba(0,0,0,.72); display: none; z-index: 8"><div class="title" style="font-size:28px">AFK</div><div class="sub">Disconnected after 5 minutes idle.<br>Press any key or click to jump back in.</div></div>
 <div class="panel" id="start" style="background: rgba(0,0,0,.72); display: none">
   <div class="title">RUNESKATE</div>
@@ -138,6 +149,27 @@
   <div class="sub" id="lerr" style="color:#f66; min-height: 1.2em"></div>
   <div class="keys" style="font-size:12px">New name? You're signed up on the spot. Or join from a link: <b>?name=You&amp;password=secret</b></div>
 </div>
+<div class="keys desk royale" style="display:none" id="brkeys-tpl">
+    <b>WASD</b> move &nbsp; <b>MOUSE</b> aim, click to fire &nbsp; <b>RIGHT CLICK</b> aim down sights &nbsp; <b>SPACE</b> jump / leave the dragon / glider<br>
+    <b>SHIFT</b> sprint &nbsp; <b>X</b> crouch (slide when sprinting) &nbsp; <b>E</b> open, pick up, revive &nbsp; <b>1-6</b> or wheel: hotbar &nbsp; <b>R</b> reload<br>
+    <b>Q F C V</b> wall, floor, ramp, roof &nbsp; <b>G</b> edit &nbsp; <b>T</b> material &nbsp; <b>TAB</b> your bag (drop, swap) &nbsp; <b>Z</b> drop &nbsp; <b>M</b> map<br>
+    48 in a match, bots fill the empty spots. Last one (or team) standing wins.
+  </div>
+<script>
+  // came from the RuneRoyale card: its own loading screen and start panel (the game underneath is the same page)
+  if (new URLSearchParams(location.search).get('play') === 'royale') {
+    document.title = 'RuneRoyale';
+    for (const t of document.querySelectorAll('#loading .title, #start .title')) { t.textContent = 'RUNEROYALE'; t.style.color = '#ff66cc'; }
+    const ld = document.getElementById('loading');
+    ld.style.background = 'linear-gradient(rgba(20,6,30,.55), rgba(20,6,30,.85)), url(docs/runeroyale.jpg) center / cover';
+    ld.insertAdjacentHTML('beforeend', '<div class="sub">48-player battle royale. Varrock, Falador, Port Sarim, Lumbridge.</div>');
+    const st = document.getElementById('start');
+    st.querySelector('.sub').textContent = 'Drop off the King Black Dragon. Last one standing wins.';
+    for (const k of st.querySelectorAll('.keys.desk, .keys.touchkeys')) k.style.display = 'none';
+    const tpl = document.getElementById('brkeys-tpl'); tpl.style.display = ''; tpl.removeAttribute('id'); st.querySelector('.login').before(tpl);
+    document.getElementById('skate').textContent = 'PLAY';
+  } else document.getElementById('brkeys-tpl').remove();
+</script>
 <div id="social" onmousedown="event.stopPropagation()" onpointerdown="event.stopPropagation()" onclick="setTimeout(() => document.activeElement?.blur(), 0)">
 <a id="discord" href="https://discord.gg/FGhCDv9BEr" target="_blank" rel="noopener" title="Join our Discord"
   >

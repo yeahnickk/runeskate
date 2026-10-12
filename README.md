@@ -67,6 +67,28 @@ map data and running in the browser. Every door and gate stands open.
 - **Fast start.** Only the meshes around spawn (about 2 MB) load before you can skate; the rest of Lumbridge
   streams in behind you, and other towns load as you get near (or teleport).
 - **Live map** at `/map`: the whole world with runes, teleports, challenges and everyone online.
+- **RuneRoyale, a battle royale mode.** Press **V** (or the BATTLE ROYALE button, or pick
+  RUNEROYALE on the home page) to queue. 48 players, topped up with bots, ride the King Black Dragon high over
+  Lumbridge, Varrock, Falador, Port Sarim and Draynor (the map loads those regions while you queue) and jump off
+  where they like, skydive in RS's dive pose, then open a glider and float a long way down. It is all on foot,
+  no boards: everyone holds the real RS item (rune pickaxe, magic shortbow, crossbow, battlestaff, longbow, staff
+  of fire) and swings, shoots, eats and fishes with RS's own animations, legs running underneath. Loot chests, ammo boxes and floor loot in five rarities (shortbow, crossbow,
+  staffs, dark bow, fire wave staff) plus shrimp, sharks, brews and super defence for health and shield, and
+  vending machines that sell rare-or-better weapons for materials. Harvest wood, stone and metal with the rune
+  pickaxe and build walls, floors, ramps and cones (turbo-build by holding fire), then edit them: walls into doors,
+  windows or half walls, holes in floors, ramps turned round. Launch pads and spike traps drop as loot, mine carts
+  wait around the map to drive (and run people over), you can sprint, crouch and slide, and emote or dance
+  (the bots dance after an elimination). Play **solo, duos or squads** (tap the mode on the button): teammates
+  get knocked instead of eliminated, can be picked up (hold E), and a fallen teammate's reboot card brings them
+  back at a reboot van. Fish at the bubbling spots by the water, take a weapon up a rarity at an upgrade bench,
+  ride ziplines, and step into a rift (or snap a teleport tablet) to skydive again. Matches pay GP and pass XP
+  into the **locker**: a 20-tier RuneRoyale Pass and a daily item shop of pickaxes, skydive trails and weapon
+  wraps (GP is only earned by playing; nothing costs real money).
+  Everything breaks: castle walls, fences, trees, houses and other players' builds, and anything left hanging
+  collapses. A storm circle closes in over six phases, supply drops fall from the sky, and the last one standing
+  wins. TAB opens your bag: click a slot to hold it, drag to swap, DROP buttons for items, materials and ammo.
+  The world comes back whole when the match ends. Plays solo
+  against bots offline, and on phones with its own touch controls.
 
 ![The world map](assets/map.png)
 
@@ -91,6 +113,24 @@ map data and running in the browser. Every door and gate stands open.
 | `::skate Name` | challenge someone to S.K.A.T.E. (`::accept`, `::quit`) |
 
 A gamepad works too. Press **H** in game for the full list.
+
+### RuneRoyale controls
+
+| Key | Action |
+|---|---|
+| V | queue for a match (`::br`), `::leave` to quit; click the mode chip for solo / duos / squads |
+| Mouse | look (click to lock the pointer), left click fire, right click aim / scope |
+| WASD, SPACE | move, jump (jump off the dragon, open the glider) |
+| 1-6, wheel | hotbar |
+| E | open chests, pick up loot, buy from a vending machine, get in / out of a mine cart, fish, upgrade at a bench, ride a zipline, use a reboot van; hold E to revive a teammate |
+| R | reload (rotate the piece in build mode) |
+| Q / F / C / V | build wall / floor / ramp / cone, click to place |
+| T, G | change material, edit the piece you aim at (wall: door / window / half; floor: hole; ramp: turn) |
+| SHIFT, X | sprint, crouch (sprint + X slides) |
+| H J K L | dance, wave, cheer, laugh |
+| Z | drop what you hold |
+| TAB / I | your bag: hold, swap (drag), drop items, materials and ammo; the players left |
+| M / ESC | big map, menu |
 
 ## Running it
 
@@ -121,6 +161,10 @@ with `.gz` siblings, whenever they are missing or stale (a few seconds, gitignor
 ## Development
 
 - `bun test/sim.js` runs the headless physics checks (collisions, grinds, rune placement, regions, ragdoll, board).
+- `bun test/br.js` checks RuneRoyale on the real world: storm, dragon path, building and collapse, breaking and
+  restoring the world, full bot matches to a winner, capped player messages, build edits, vending machines,
+  launch pads, spike traps, mine carts, victory dances, duos and squads (knocks, revives, reboots, team wins),
+  fishing, upgrade benches, rifts, ziplines and the locker (pass tiers, shop).
 - `bun test/net.js` starts the server on a spare port and plays it: S.K.A.T.E. turns, park limits, spot claims.
 - `bun tools/spot-check.ts` checks every challenge spot is reachable from spawn.
 - `bun tools/pocket-check.ts` (after split) checks spawn and every teleport drop land in a big connected area, never a pocket you cannot skate out of.

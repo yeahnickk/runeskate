@@ -180,10 +180,10 @@ export class Avatar {
     return best;
   }
 
-  /** fall: the posed body becomes a ragdoll, shoved along the killing shot; floorAt(x, z) is the floor under them */
-  die(dir, force, floorAt) {
+  /** fall: the posed body becomes a ragdoll, shoved along the killing shot (up: thrown in the air too); floorAt(x, z) is the floor under them */
+  die(dir, force, floorAt, up = 1.2 + Math.random()) {
     const W = this.worldJoints(); if (!W) return;
-    const v = [dir.x * force, 1.2 + Math.random(), dir.z * force];
+    const v = [dir.x * force, up, dir.z * force];
     this.rag = new Ragdoll(W.slice(0, 15).map(p => [p.x, p.y, p.z]), p => p, v, 'wall');
     this.ragW = { segsNear: () => [], height: (x, z) => floorAt(x, z), tileKind: () => 0 };
     this.group.position.set(0, 0, 0); this.group.rotation.set(0, 0, 0);

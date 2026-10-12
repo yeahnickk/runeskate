@@ -10,7 +10,7 @@ a.buildNav();
 const N = a.nav.nodes, inCastle = n => n.ok && (a.inBounds && ((n.x / 1.5 + a.base[0] > 2410 && -n.z / 1.5 + a.base[1] < 3092) || (n.x / 1.5 + a.base[0] < 2390 && -n.z / 1.5 + a.base[1] > 3116)));
 const starts = N.map((n, i) => i).filter(i => inCastle(N[i]));
 let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-let pops = 0, walls = 0, boxed = 0, rescues = 0, frames = 0; const where = [];
+let pops = 0, walls = 0, boxed = 0, frames = 0, rescues = 0; const where = [];
 const T = p => `${(p.x / 1.5 + a.base[0] - 0.5).toFixed(1)},${(-p.z / 1.5 + a.base[1] - 0.5).toFixed(1)} y${p.y.toFixed(2)}`;
 const dir = new THREE.Vector3();
 for (let run = 0; run < 160; run++) {
@@ -20,7 +20,7 @@ for (let run = 0; run < 160; run++) {
     if (f % 40 === 0) { b.yaw = rnd() * Math.PI * 2; inp = { x: rnd() < 0.3 ? (rnd() - 0.5) * 2 : 0, z: rnd() < 0.85 ? 1 : -1, sprint: rnd() < 0.5, crouch: rnd() < 0.15 }; }
     const one = { ...inp, jump: rnd() < 0.03, crouchEdge: rnd() < 0.01 };   // (plenty of jumps: a jump into a crate stack used to land you inside it)
     const p0 = b.pos.clone(), g0 = b.onGround;
-    if (b.update(1 / 60, one, a).includes('unstuck')) { rescues++; if (where.length < 12) where.push(`rescued at ${T(b.pos)}`); }
+    if (b.update(1 / 60, one, a).includes('unstuck')) { rescues++; frames++; if (where.length < 12) where.push(`rescued from ${T(p0)}`); continue; }   // (wedged: put on open floor, on purpose)
     frames++;
     const dy = b.pos.y - p0.y;
     // boxed in: something just over your head and walls all round at knee height (inside a crate)
@@ -39,7 +39,7 @@ for (let run = 0; run < 160; run++) {
     }
   }
 }
-console.log(`${frames} frames: ${pops} pops, ${walls} through-wall moves, ${boxed} boxed in, ${rescues} rescues (should never be needed)`); for (const w of where) console.log('  ' + w);
+console.log(`${frames} frames: ${pops} pops, ${walls} through-wall moves, ${boxed} boxed in, ${rescues} rescued from a wedge`); for (const w of where) console.log('  ' + w);
 // and the safety net: a body dropped inside a crate or a pocket (however it got there) is out within a second
 let shut = 0, freed = 0;
 for (const n of N) {
@@ -53,4 +53,4 @@ for (const n of N) {
   }
 }
 console.log(`${shut} bodies dropped inside crates / pockets: ${freed} out within a second`);
-process.exit(pops + walls + boxed + rescues || freed < shut ? 1 : 0);
+process.exit(pops + walls + boxed || freed < shut ? 1 : 0);

@@ -25,13 +25,20 @@ export class Input {
     addEventListener('keydown', e => {
       if (!this.enabled) return;
       const k = e.code; if (!this.keys.has(k)) this.edges.add(k); this.keys.add(k); this.device = 'kbm';
+      if (!this.locked && k !== 'Escape' && this.want?.()) this.lock();   // (lost the lock in play somehow: any key takes the mouse back)
       if (this.locked ? !/^F\d/.test(k) : ['Tab', 'Space', 'KeyC'].includes(k) || k.startsWith('Arrow')) e.preventDefault();   // (in play, swallow everything: a stray Ctrl+S / Ctrl+D would pop Chrome's save / bookmark dialogs over the game)
     });
     addEventListener('keyup', e => { this.keys.delete(e.code); });
     addEventListener('blur', () => { this.keys.clear(); this.mouse.l = this.mouse.r = false; });
-    canvas.addEventListener('mousedown', e => {
-      if (!this.enabled || this.device === 'touch') return;
-      if (!this.locked) { this.lock(); this.edges.add('Click'); return; }
+    // a touch screen fires fake mouse events after each tap: only a mouse that wasn't just a finger counts
+    addEventListener('touchstart', () => { this.lastTouch = performance.now(); if (this.touch) this.device = 'touch'; }, { passive: true, capture: true });
+    const realMouse = () => performance.now() - (this.lastTouch ?? -1e9) > 1000;
+    // anywhere on the page, not only the canvas (a HUD layer over it ate the click before), and whatever device
+    // the game thought you were on (a pad left plugged in, a touch-screen laptop) used to leave the mouse free
+    addEventListener('mousedown', e => {
+      if (!this.enabled || !realMouse()) return;
+      this.device = 'kbm';
+      if (!this.locked) { if (e.target.closest?.('button,input,select,textarea,a') || !(this.want?.() ?? true)) return; this.lock(); this.edges.add('Click'); return; }
       if (e.button === 0) { this.mouse.l = true; this.edges.add('Mouse0'); }
       if (e.button === 2) { this.mouse.r = true; this.edges.add('Mouse2'); }
       this.device = 'kbm';
@@ -41,6 +48,7 @@ export class Input {
     // (Chrome reports a big bogus jump as the lock engages, and now and then on a busy frame: skip the first
     // instant after locking and ignore any single event that moved further than a hand can)
     addEventListener('mousemove', e => {
+      if (realMouse() && (e.movementX || e.movementY) && this.device === 'pad') this.device = 'kbm';
       if (!this.locked || performance.now() - this.lockAt < 150) return;
       if (Math.abs(e.movementX) > 600 || Math.abs(e.movementY) > 600) return;
       this.mouse.dx += e.movementX; this.mouse.dy += e.movementY;
@@ -53,7 +61,12 @@ export class Input {
     });
     this.touch = null;
   }
-  lock() { try { const p = this.c.requestPointerLock({ unadjustedMovement: true }); p?.catch?.(() => this.c.requestPointerLock()); } catch { try { this.c.requestPointerLock(); } catch {} } }
+  lock() {
+    if (document.pointerLockElement === this.c) return;
+    // raw mouse where the OS has it (Windows); elsewhere plain lock. Only fall back on "not supported": a lock
+    // refused for another reason (Chrome's ~1 s cool-down after ESC) gets retried on the next click or key
+    try { const p = this.c.requestPointerLock({ unadjustedMovement: true }); p?.catch?.(e => { if (e?.name === 'NotSupportedError') this.c.requestPointerLock()?.catch?.(() => {}); }); } catch { try { this.c.requestPointerLock(); } catch {} }
+  }
   unlock() { if (document.pointerLockElement) document.exitPointerLock(); }
   edge(k) { return this.edges.has(k); }
 
