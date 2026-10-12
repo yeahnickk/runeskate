@@ -57,6 +57,14 @@ body.inbr #social { display: none !important; }
 #brover h1 { margin: 0 0 4px; font: bold 34px monospace; color: #ffd23a; text-shadow: 3px 3px 0 #000; letter-spacing: 2px; }
 #brover h2 { margin: 0 0 12px; font: bold 18px monospace; color: #fff; }
 #brover table { margin: 0 auto 12px; border-collapse: collapse; font-size: 13px; } #brover td { padding: 2px 8px; text-align: left; }
+#brhome { position: fixed; inset: 0; z-index: 7; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font: 14px monospace; color: #fff;
+  background: radial-gradient(ellipse at center, rgba(30,8,40,.25), rgba(20,4,30,.8)); text-align: center; padding: 16px; box-sizing: border-box; }
+#brhome h1 { margin: 0; font: 900 clamp(40px, 9vw, 92px) sans-serif; color: #ff66cc; letter-spacing: 3px; text-shadow: 4px 4px 0 #000; }
+#brhome .who { color: #ff0; } #brhome .who small { color: #bba; }
+#brhome .modes { display: flex; gap: 8px; } #brhome .modes button { min-width: 96px; } #brhome .modes button.on { background: #f6c; color: #000; }
+#brhome .go { font-size: 26px; padding: 12px 48px; } #brhome .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+#brhome .q { min-height: 2.6em; color: #fff; background: rgba(0,0,0,.45); padding: 6px 14px; border: 2px solid #5a4a2a; }
+#brhome .q:empty { visibility: hidden; } #brhome a { color: #ff981f; }
 #brbag { position: fixed; inset: 0; z-index: 8; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.45); font: 13px monospace; color: #fff; }
 #brbag .box { display: flex; gap: 14px; background: rgba(30,24,16,.95); border: 3px solid #5a4a2a; box-shadow: 4px 4px 0 #000; padding: 14px 16px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; flex-wrap: wrap; justify-content: center; }
 #brbag h3 { margin: 0 0 8px; color: #ff981f; font: bold 15px monospace; } #brbag small { color: #bba; }
@@ -105,6 +113,15 @@ export class BattleRoyale {
     this.tint = el('brtint'); this.hurtEl = el('brhurt'); this.scopeEl = el('brscope');
     this.menuEl = el('brmenu', '<div class="box"><h2 style="color:#f6c;margin:0 0 8px">RUNEROYALE</h2><button data-a="back">Back to the match</button><button data-a="locker">Locker</button><button data-a="leave">Leave the match</button></div>');
     this.menuEl.addEventListener('click', e => { const a = e.target.dataset?.a; if (a === 'back') this.showMenu(false); if (a === 'locker') { this.showMenu(false); this.locker.open(); } if (a === 'leave') { this.showMenu(false); this.exit(true); } });
+    this.homeEl = el('brhome'); this.homeOn = false;
+    this.homeEl.addEventListener('click', e => {
+      const d = e.target.dataset || {};
+      if (d.m) { this.setMode(d.m); this.drawHome(); }
+      else if (d.h === 'play') this.play();
+      else if (d.h === 'bots') { if (this.state === 'queue') this.queue(); this.startLocal(); }
+      else if (d.h === 'locker') this.locker.open();
+    });
+    for (const ev of ['pointerdown', 'touchstart', 'mousedown']) this.homeEl.addEventListener(ev, e => e.stopPropagation(), { passive: true });
     this.bagEl = el('brbag'); this.bagOpen = false;
     this.bagEl.addEventListener('click', e => {
       const d = e.target.dataset || {};
@@ -244,6 +261,26 @@ export class BattleRoyale {
   }
 
   // ================================================================== lobby
+  // ---- RuneRoyale's own lobby (the home page card): no skating, PLAY queues, bots fill the match
+  home(on) {
+    this.homeOn = on;
+    this.homeEl.style.display = on && !this.active ? 'flex' : 'none';
+    if (on) { this.lobbyEl.style.display = 'none'; try { document.exitPointerLock(); } catch {} this.loadArena().catch(() => {}); this.drawHome(); }
+  }
+  /** PLAY: online it queues (again = leave the queue), offline it starts against bots */
+  play() { if (this.active || this.starting) return; if (this.c.net.online) this.queue(); else this.startLocal(); this.drawHome(); }
+  drawHome() {
+    if (!this.homeOn) return;
+    const c = this.c, on = c.net.online, q = this.state === 'queue', l = this.lobby || {};
+    const name = c.me.name && c.me.name !== 'offline' ? c.me.name : 'You';
+    this.homeEl.innerHTML = `<h1>RUNEROYALE</h1>
+      <div class="who">${esc(name)} <small>${on ? '&middot; online' : this.starting ? '' : '&middot; offline, vs bots'}</small></div>
+      <div class="modes">${MODE_ORDER.map(m => `<button class="small${m === this.mode ? ' on' : ''}" data-m="${m}">${m.toUpperCase()}</button>`).join('')}</div>
+      <button class="go" data-h="play">${this.starting ? 'LOADING...' : q ? 'LEAVE QUEUE' : 'PLAY'}</button>
+      <div class="q">${q ? `${l.n || 1} queued &middot; ${l.running ? 'a match is on, you are in the next one' : `starts in ${Math.max(0, Math.ceil(l.secs ?? BR.LOBBY))}s`}<br><small>bots fill the match to ${BR.SIZE}</small>` : ''}</div>
+      <div class="row">${on ? '<button class="small" data-h="bots">PLAY VS BOTS NOW</button>' : ''}<button class="small" data-h="locker">LOCKER</button></div>
+      <small>${BR.SIZE} in a match over Lumbridge, Varrock, Falador and Port Sarim &middot; <a href="index.html?pick">other games</a></small>`;
+  }
   showBtn(on) { const b = on && this.state !== 'live' && this.state !== 'over'; this.btn.style.display = b ? 'flex' : 'none'; this.locker.showBtn(b); }
   setMode(m) {
     if (!MODE_ORDER.includes(m)) return;
@@ -268,6 +305,7 @@ export class BattleRoyale {
   }
   drawLobby() {
     const l = this.lobby; if (!l) return;
+    if (this.homeOn) { this.lobbyEl.style.display = 'none'; return this.drawHome(); }
     this.lobbyEl.style.display = this.state === 'queue' ? 'block' : 'none';
     const md = l.mode || this.mode;
     this.lobbyEl.innerHTML = `<b>RUNEROYALE ${md.toUpperCase()}</b><br>${l.n} player${l.n === 1 ? '' : 's'} queued &middot; ${l.running ? 'a match is on, you are in the next one' : `starts in ${Math.max(0, Math.ceil(l.secs))}s`}<br><small>bots fill the lobby to ${BR.SIZE}${md !== 'solo' ? ', people queued together share a team' : ''}</small>
@@ -279,8 +317,8 @@ export class BattleRoyale {
   async startLocal() {
     const c = this.c;
     c.say(`Starting a RuneRoyale (${this.mode}) against ${BR.SIZE - 1} bots...`, '#f6c');
-    this.starting = true; c.hud.big('RUNEROYALE', '#f6c', 'loading the map...', 2, true);
-    try { await this.loadArena(); } catch { this.starting = false; c.say('Could not load the map, try again.', '#f00'); return; }
+    this.starting = true; c.hud.big('RUNEROYALE', '#f6c', 'loading the map...', 2, true); this.drawHome();
+    try { await this.loadArena(); } catch { this.starting = false; c.say('Could not load the map, try again.', '#f00'); this.drawHome(); return; }
     this.starting = false; if (this.active) return;
     // the match shares this page's collision world: it builds and breaks it, this side only draws the result
     this.inbox = []; this.shared = true;
@@ -327,7 +365,7 @@ export class BattleRoyale {
   begin(m) {
     const c = this.c, { THREE } = c, sk = c.sk;
     if (this.active && !this.local) this.cleanup();
-    this.state = 'live'; this.lobbyEl.style.display = 'none';
+    this.state = 'live'; this.lobbyEl.style.display = 'none'; this.homeEl.style.display = 'none';
     this.t = 0; this.plan = m.plan; this.bus = m.bus; this.arena = m.arena;
     this.myId = this.local ? 'me' : c.net.me?.id;
     this.players = new Map(m.players.map(p => [p.id, { ...p, hp: BR.HP, sh: 0, alive: true, kills: 0, down: false }]));
@@ -1625,6 +1663,7 @@ export class BattleRoyale {
     sk.reset(c.world.spawn[0], c.world.spawn[1], Math.PI / 2);
     c.player().group.visible = true;
     c.camera.fov = 62; c.camera.updateProjectionMatrix();
+    if (this.homeOn) { this.home(true); return; }            // (from the RuneRoyale card: back to its lobby)
     c.say('Back in Lumbridge. V for another RuneRoyale.', '#f6c');
   }
 }

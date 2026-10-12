@@ -15,6 +15,7 @@ bun tools/pocket-check.ts         # spawn + teleport drops aren't trapped pocket
 bun test/cod.js                   # CODScape: gun numbers, gunner timelines, headless bot matches (TDM/CTF/FFA)
 bun test/stairs.js                # CODScape: every staircase walked up + down, wading, stepping stones
 bun test/castle-fuzz.js           # CODScape: bodies wander the castles; no popping a storey, no walking through walls
+bun test/supply-fuzz.js           # CODScape: bodies scramble round the supply tables; nobody ends up stuck (body.js unstuck)
 node test/cod-e2e.cjs [base]      # CODScape in a real browser (needs playwright; server on base, default :8199)
 ```
 

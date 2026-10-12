@@ -364,6 +364,7 @@ async function main() {
     if (designer?.open) return;
     // start menu up: the game ignores keys (Enter on the menu skates, like the SKATE button)
     if (document.getElementById('start').style.display === 'flex') { if (e.key === 'Enter' && e.target?.tagName !== 'BUTTON') { e.preventDefault(); window.RS.autoLogin?.(); } return; }
+    if (br?.homeOn && !br.active) { if (e.key === 'Enter') { e.preventDefault(); br.play(); } return; }   // RuneRoyale's lobby: nothing to skate
     if (br?.active) {                                       // RuneRoyale has the keys (chat still opens with Enter)
       if (e.key === 'Enter' && net.online) { e.preventDefault(); openChat(); return; }
       if (br.key(e)) return;
@@ -529,6 +530,7 @@ async function main() {
   }
   const qs = new URLSearchParams(location.search);
   const $ = id => document.getElementById(id);
+  var ROYALE = qs.get('play') === 'royale';                // came from the RuneRoyale card (see br.home)
   if (qs.get('name')) $('lname').value = qs.get('name');
   if (qs.get('password')) $('lpass').value = qs.get('password');
   async function login(offline) {
@@ -556,7 +558,7 @@ async function main() {
   const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
   const rnd = (n, abc) => Array.from(crypto.getRandomValues(new Uint32Array(n)), x => abc[x % abc.length]).join('');
   function freshIdentity() {
-    const who = ['Skater', 'Grinder', 'Ollie', 'Kickflip', 'Shredder', 'Rider', 'Deck'][Math.floor(Math.random() * 7)];
+    const who = (ROYALE ? ['Raider', 'Looter', 'Dropper', 'Glider', 'Builder', 'Sniper', 'Victor'] : ['Skater', 'Grinder', 'Ollie', 'Kickflip', 'Shredder', 'Rider', 'Deck'])[Math.floor(Math.random() * 7)];
     const name = (who + rnd(4, '0123456789')).slice(0, 12), pass = rnd(14, 'abcdefghjkmnpqrstuvwxyz23456789');
     store.set('rs_name', name); store.set('rs_pass', pass); return [name, pass];
   }
@@ -636,7 +638,7 @@ async function main() {
   window.RS.touch = touch;
   window.RS.onLogin = async who => {
     teleports.ready(); playing = true; document.body.classList.add('playing');
-    if (new URLSearchParams(location.search).get('play') === 'royale') setTimeout(() => br.active || br.queue(), 1200);   // came from the RuneRoyale card
+    if (ROYALE) br.home(true);                              // came from the RuneRoyale card: its own lobby, no skating
     // this browser's saved progress only counts for the account that made it (or a solo run)
     const lp = offlineProg && (!offlineProg.who || offlineProg.who === who.name || offlineProg.who === who.login || offlineProg.who === 'offline') ? offlineProg : null;
     if (lp) goals.load(lp);
@@ -649,7 +651,7 @@ async function main() {
     parks.load(who.parks); spotOwn = who.spots || {};
     if (who.own) { scene.remove(board.root); board = buildBoard(true); scene.add(board.root); }   // the owner's gold board
     if (who.outfit) await wearOutfit(who.outfit);
-    if (who.isNew && net.online) { keys.clear(); designer.show(who.outfit, true); }
+    if (who.isNew && net.online && !ROYALE) { keys.clear(); designer.show(who.outfit, true); }   // (RuneRoyale goes straight to its lobby)
   };
 
   // remote skaters: interpolate toward the last relayed state
@@ -1219,7 +1221,12 @@ async function main() {
   // ---------------- loop
   status('');
   document.getElementById('loading').style.display = 'none';
-  if (!location.hash.includes('nostart')) {
+  if (ROYALE && !location.hash.includes('nostart')) {
+    // RuneRoyale: no login form. This browser's account (made up and remembered the first time) signs in on
+    // its own; no server = a match against bots offline
+    window.RS.prefill();
+    setTimeout(() => { br.home(true); autoLogin().then(() => { if (!net.online) return login(true); }).catch(() => login(true)); });   // (br is made further down)
+  } else if (!location.hash.includes('nostart')) {
     // the start menu waits for the player: name + password are filled in, SKATE (or Enter) goes
     document.getElementById('start').style.display = 'flex';
     window.RS.prefill();
@@ -1232,6 +1239,7 @@ async function main() {
   window.RS.eventsLog = [];
   function tick(dt) {
     if (br?.active) { brTick(dt); return; }
+    if (br?.homeOn) { homeTick(dt); return; }
     hud.br = null;
     if (trickTimer > 0 && (trickTimer -= dt) <= 0 && sk.mode !== 'air') pendingTrick = null;
     acc += dt;
@@ -1307,6 +1315,21 @@ async function main() {
     if (on) { if (!keys.has(k)) { keys.add(k); anyEdge = true; if (k === ' ') jumpEdge = true; } }
     else keys.delete(k);
   }
+  // RuneRoyale's lobby: no skater, the camera circles slowly over Lumbridge
+  let homeA = 0;
+  function homeTick(dt) {
+    homeA += dt * 0.04;
+    const [cx, cz] = world.spawn, gy = world.height(cx, cz);
+    camera.position.set(cx + Math.cos(homeA) * 42, gy + 26, -(cz + Math.sin(homeA) * 42)); camera.lookAt(cx, gy, -cz);
+    if (camera.fov !== 62) { camera.fov = 62; camera.updateProjectionMatrix(); }
+    player.group.visible = false; board.root.visible = false; myShadow.visible = false;
+    lighting.override = 0.4;                               // (always a bright morning in the lobby)
+    cullChunks(cx, cz); lighting.update(_lfocus.set(cx, gy, -cz), dt);
+    lighting.override = undefined;
+    updateRemotes(dt);
+    renderer.render(scene, camera);
+    hud.c.getContext('2d').clearRect(0, 0, hud.c.width, hud.c.height);
+  }
   function brTick(dt) {
     br.tick(dt);
     for (const n of npcs) n.m.group.visible = false;      // (the monsters sit a match out)
@@ -1363,8 +1386,8 @@ async function main() {
     const dt = Math.min(0.1, gap / 1000); last = now;
     if (pendingRes) { resScale = pendingRes; pendingRes = 0; renderer.setPixelRatio(BASE_DPR * resScale); needResize = true; }
     if (needResize) { needResize = false; resize(); }
-    if (touch) { const on = playing && !replay.open && !designer.open && !teleports.open && !br.active && $('chatbox').style.display !== 'block'; if (on !== touch.on) { touch.on = on; touch.show(on); } }
-    if (playing) { const b = !replay.open && !designer.open && !br.active; if (b !== teleports.shown) { teleports.ready(teleports.shown = b); } br.showBtn(b); document.body.classList.toggle('inbr', br.active); }
+    if (touch) { const on = playing && !replay.open && !designer.open && !teleports.open && !br.active && !br.homeOn && $('chatbox').style.display !== 'block'; if (on !== touch.on) { touch.on = on; touch.show(on); } }
+    if (playing) { const b = !replay.open && !designer.open && !br.active && !br.homeOn; if (b !== teleports.shown) { teleports.ready(teleports.shown = b); } br.showBtn(b); document.body.classList.toggle('inbr', br.active); }
     if (replay.open) replayTick(dt);
     else if (!window.RS.paused) { tick(dt); if (gap < 250) adaptResolution(gap, dt); }
   }

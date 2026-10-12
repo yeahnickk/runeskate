@@ -315,6 +315,7 @@ import('./src/cod/netserver.js').then(m => { cod = new m.CodServer(ROOT, cleanCh
 
 Bun.serve({
   port,
+  idleTimeout: 255,          // (seconds, Bun's max) the default 10 cut big map downloads off for anyone slow to read them
   async fetch(req, server) {
     const url = new URL(req.url);
     let p = decodeURIComponent(url.pathname);

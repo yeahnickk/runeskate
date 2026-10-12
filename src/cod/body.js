@@ -82,7 +82,7 @@ export class Body {
         const fy = this.floorAt(arena, this.pos.x, py + MOVE.step * 0.98, this.pos.z), got2 = ((this.pos.x - px) * mx + (this.pos.z - pz) * mz) / want;
         // ...and only over open ground: a clear line just over the new floor and at chest height (the raised
         // capsule is short, and could otherwise slip through a window or under a lintel into the next room)
-        if (fy > py + 0.02 && fy <= py + MOVE.step + 0.02 && got2 > got + want * 0.2 && arena.standable(this.pos.x, fy, this.pos.z) && this.clear(arena, px, pz, this.pos.x, this.pos.z, fy) && this.room(arena, this.pos.x, fy, this.pos.z) > MOVE.crouchHeight + 0.05) this.pos.y = fy;
+        if (fy > py + 0.02 && fy <= py + MOVE.step + 0.02 && got2 > got + want * 0.2 && arena.standable(this.pos.x, fy, this.pos.z) && this.clear(arena, px, pz, this.pos.x, this.pos.z, fy) && this.room(arena, this.pos.x, fy, this.pos.z) > Math.max(MOVE.crouchHeight + 0.05, Math.min(MOVE.height + 0.05, this.room(arena, px, py, pz) - 0.02))) this.pos.y = fy;   // (never up into less headroom than you have, unless you can stand there: a crate under a shelf was a trap)
         else this.pos.set(sx, py, sz);
       }
     }
@@ -122,6 +122,15 @@ export class Body {
         this.wedgedT = 0;
       }
     } else this.wedgedT = 0;
+    // trying to move and getting nowhere, any way at all, for half a second (on a crate in a corner under a shelf,
+    // say): out onto the nearest open floor. Nobody stays stuck
+    // (net movement over the half second: wedged bodies jitter a centimetre back and forth, and mash jump)
+    if (il > 0.2 && this.anchor && Math.hypot(this.pos.x - this.anchor.x, this.pos.z - this.anchor.z) < 0.15) {
+      if ((this.stuckT = (this.stuckT || 0) + dt) > 0.5) {
+        this.stuckT = 0; this.anchor = null;
+        if (arena.nav && this.trapped(arena)) { const n = arena.nav.nodes[arena.nearestNode(this.pos.x, this.pos.y + 0.5, this.pos.z, 4)]; if (n) { this.pos.set(n.x, n.y, n.z); this.vel.set(0, 0, 0); ev.push('unstuck'); } }
+      }
+    } else { this.stuckT = 0; this.anchor = il > 0.2 ? this.pos.clone() : null; }   // (hopping on the spot doesn't count as getting out)
     // the eye follows the stance (and eases stairs instead of popping up them)
     const want = (this.slide > 0 ? MOVE.slideEye : MOVE.eye + (MOVE.crouchEye - MOVE.eye) * this.crouch) - (this.wading ? MOVE.wadeSink : 0);   // waist deep in the river
     this.eyeY += (want - this.eyeY) * Math.min(1, dt * 14);
@@ -129,6 +138,15 @@ export class Body {
     return ev;
   }
 
+  /** a quarter second's walk each of 8 ways (on a copy) gets nowhere */
+  trapped(arena) {
+    for (let k = 0; k < 8; k++) {
+      const c = new Body(this.pos.clone()); c.onGround = true; c.crouch = this.crouch; c.yaw = k / 8 * Math.PI * 2;
+      for (let f = 0; f < 15; f++) c.update(1 / 60, { z: 1 }, arena);
+      if (Math.hypot(c.pos.x - this.pos.x, c.pos.z - this.pos.z) > 0.2) return false;
+    }
+    return true;
+  }
   /** the highest floor under the body's footprint (centre and four points round it) from a step above its feet */
   floorAt(arena, x, y, z) {
     const mid = arena.floor(x, y, z, MOVE.step, 60), r = MOVE.radius * 0.6;
