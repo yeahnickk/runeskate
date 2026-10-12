@@ -114,14 +114,14 @@ export class Body {
       } else this.pos.y = ny;
     }
     if (this.pos.y < -20) this.pos.y = 5;                   // (never fall out of the world)
-    // wedged in something (no room over you, a second on end): out onto the nearest open floor
-    if (this.onGround && this.room(arena, this.pos.x, this.pos.y, this.pos.z) < 0.6) {
-      if ((this.wedgedT = (this.wedgedT || 0) + dt) > 1 && arena.nav) {
-        const k = arena.nearestNode(this.pos.x, this.pos.y + 2, this.pos.z, 4), n = arena.nav.nodes[k];
-        if (n) { this.pos.set(n.x, n.y, n.z); this.vel.set(0, 0, 0); }
-        this.wedgedT = 0;
-      }
-    } else this.wedgedT = 0;
+    // the last line of defence: a body never stays shut inside anything (a crate, the hollow of a staircase, a
+    // gap under a ledge), however it got there. A few times a second it notes where it last stood in the open;
+    // shut in for a moment (walls all round at knee height, or no room overhead) and it's put straight back there
+    if (this.onGround && (this.chkT = (this.chkT || 0) - dt) <= 0) {
+      this.chkT = 0.1;
+      if (!this.shutIn(arena)) { this.shutT = 0; if (this.room(arena, this.pos.x, this.pos.y, this.pos.z) >= MOVE.crouchHeight + 0.1) (this.safe ||= new THREE.Vector3()).copy(this.pos); }
+      else if ((this.shutT = (this.shutT || 0) + 0.1) >= 0.3) { this.escape(arena); this.shutT = 0; ev.push('unstuck'); }
+    }
     // the eye follows the stance (and eases stairs instead of popping up them)
     const want = (this.slide > 0 ? MOVE.slideEye : MOVE.eye + (MOVE.crouchEye - MOVE.eye) * this.crouch) - (this.wading ? MOVE.wadeSink : 0);   // waist deep in the river
     this.eyeY += (want - this.eyeY) * Math.min(1, dt * 14);
@@ -150,6 +150,29 @@ export class Body {
   }
 
   blockedAbove(arena) { return this.room(arena, this.pos.x, this.pos.y, this.pos.z) < MOVE.height + 0.05; }
+  /** walls all round at knee height (inside a box), or nothing like room to stand over you */
+  shutIn(arena) {
+    if (this.room(arena, this.pos.x, this.pos.y, this.pos.z) < 0.6) return true;
+    let w = 0;
+    for (let k = 0; k < 8; k++) { const t = k / 8 * Math.PI * 2; if (arena.ray(_v.set(this.pos.x, this.pos.y + 0.4, this.pos.z), _d.set(Math.cos(t), 0, Math.sin(t)), 0.9)) w++; }
+    return w >= 7;
+  }
+  /** out: back to the last open spot, or (none yet) the nearest open floor the bots know */
+  escape(arena) {
+    const N = arena.nav?.nodes;
+    let to = this.safe;
+    if (!to && N) {
+      const [i0, j0] = [Math.floor((this.pos.x - arena.nav.ox) / arena.nav.C), Math.floor((-this.pos.z - arena.nav.oz) / arena.nav.C)];
+      let bd = Infinity;
+      for (let i = i0 - 8; i <= i0 + 8; i++) for (let j = j0 - 8; j <= j0 + 8; j++) for (const k of arena.nav.cell[i * arena.nav.nz + j] || []) {
+        const n = N[k]; if (!n.ok || n.water) continue;
+        const d = Math.hypot(n.x - this.pos.x, n.z - this.pos.z) + Math.abs(n.y - this.pos.y) * 2; if (d >= bd) continue;
+        const s = this.pos.clone(); this.pos.set(n.x, n.y, n.z); const shut = this.shutIn(arena); this.pos.copy(s);
+        if (!shut) { bd = d; to = new THREE.Vector3(n.x, n.y, n.z); }
+      }
+    }
+    if (to) { this.pos.copy(to); this.vel.set(0, 0, 0); this.slide = 0; }
+  }
   /** headroom over a floor at (x, y, z) */
   room(arena, x, y, z) { const d = arena.headroom(x, y + 0.05, z, 3); return d < 9 ? d + 0.05 : 9; }
 
