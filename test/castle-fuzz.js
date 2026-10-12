@@ -40,4 +40,17 @@ for (let run = 0; run < 160; run++) {
   }
 }
 console.log(`${frames} frames: ${pops} pops, ${walls} through-wall moves, ${boxed} boxed in, ${rescues} rescued from a wedge`); for (const w of where) console.log('  ' + w);
-process.exit(pops + walls + boxed ? 1 : 0);
+// and the safety net: a body dropped inside a crate or a pocket (however it got there) is out within a second
+let shut = 0, freed = 0;
+for (const n of N) {
+  if (!n.ok || shut >= 150) continue;
+  for (let k = 0; k < 4; k++) {
+    const p = new THREE.Vector3(n.x + Math.cos(k * 1.57 + 0.4) * 1.2, 0, n.z + Math.sin(k * 1.57 + 0.4) * 1.2); p.y = a.floor(p.x, n.y + 0.3, p.z, 0.3, 3);
+    if (!isFinite(p.y)) continue;
+    const b = new Body(p); if (!b.shutIn(a)) continue;
+    shut++; for (let f = 0; f < 60; f++) b.update(1 / 60, { z: 1 }, a);
+    if (!b.shutIn(a)) freed++; else if (where.length < 14) where.push(`still shut in at ${T(b.pos)}`);
+  }
+}
+console.log(`${shut} bodies dropped inside crates / pockets: ${freed} out within a second`);
+process.exit(pops + walls + boxed || freed < shut ? 1 : 0);
