@@ -56,7 +56,8 @@ A first-person COD-style shooter vs bots in the Castle Wars arena; the home page
   breaking the world, bots, teams (solo / duos / squads with knocks, revives, reboot vans), gadgets, carts, fishing.
 - `br.js` is the client (input, HUD, meshes, phone buttons); `br-locker.js` the cosmetics (GP, pass, shop, localStorage).
 - The arena is the core pack plus `ARENA_PACKS` (Varrock, Falador, Port Sarim, the south): serve.ts adds them to its
-  match world, the client loads them while queued. 48 a match (`BR.SIZE`, divides into duos and squads).
+  match world, the client loads them while queued. 48 a match (`BR.SIZE`, divides into duos and squads). Each match
+  thins the woods (`thinTrees`: lone trees 9 apart stay, the rest are broken like any tree; the world grows back after).
 - No skating in a match: bodies are drawn by `drawRoyale` in main.js (raw RS clips, legs from walk/run, arms from
   an action `sk.ac`; `sk.gl` 1 skydive / 2 glider, `sk.cr` 1 crouch / 2 knocked). The held weapon is a real RS
   item worn in slot 3 (`W_ITEM`, exported by tools/export-kit.ts); outfits with the same items share baked frames.

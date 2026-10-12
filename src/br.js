@@ -384,6 +384,15 @@ export class BattleRoyale {
     for (const ct of m.carts || []) this.onCart(ct);
     this.rifts = (m.rifts || []).map(r => { const g = this.riftMesh(); g.position.copy(this.T(r.x, r.y + 1.6, r.z)); this.group.add(g); return { ...r, g }; });
     this.zips = (m.zips || []).map(z => { this.group.add(this.zipMesh(z)); return { ...z, L: Math.hypot(z.b.x - z.a.x, z.b.y - z.a.y, z.b.z - z.a.z) }; });
+    if (m.thin?.length) {                                              // the woods thinned for the match: fell those trees, flatten them in one pass
+      const boxes = [];
+      for (let i = 0; i < m.thin.length; i += 2) {
+        const k = `tree|${m.thin[i]},${m.thin[i + 1]}`, x = m.thin[i] / 10, z = m.thin[i + 1] / 10;
+        if (this.shared) boxes.push([x - 1.3 * c.world.S, z - 1.3 * c.world.S, x + 1.3 * c.world.S, z + 1.3 * c.world.S]);   // (the local match already took them out)
+        else { const r = breakInWorld(c.world, k); if (r) { this.undos.push(r.undo); boxes.push(...r.boxes); } }
+      }
+      this.crumble(boxes);
+    }
     for (const ch of m.chests) this.addChest(ch);
     for (const o of m.items) this.addItem(o);
     // bots show up like any other skater
@@ -696,25 +705,27 @@ export class BattleRoyale {
     if (this.shared) r = m.boxes ? { boxes: m.boxes } : null;      // (the local match already took it out of the world)
     else { r = breakInWorld(c.world, k); if (r) this.undos.push(r.undo); }
     if (!r) return;
-    for (const b of r.boxes) this.crumble(b);
+    this.crumble(r.boxes);
     const [x0, z0, x1, z1] = r.boxes[0], x = (x0 + x1) / 2, z = (z0 + z1) / 2;
     const d = Math.hypot(x - c.sk.x, z - c.sk.z);
     if (d < 40) { c.audio.event({ type: 'crumble' }); this.dust(x, c.world.height(x, z) + 1, z, 16, k.startsWith('tree') ? 0x3a6a2a : 0x8a8070); }
   }
-  /** flatten the drawn world (walls, fences, trees, anything on the map) inside a box down to the ground */
-  crumble([x0, z0, x1, z1]) {
+  /** flatten the drawn world (walls, fences, trees, anything on the map) inside boxes [[x0, z0, x1, z1], ...] down
+   *  to the ground. One pass per chunk for all the boxes over it (a match start fells ~1700 trees at once) */
+  crumble(boxes) {
     const c = this.c, S = c.world.S, half = c.CH * S / 2, py = c.world.probeY; c.world.probeY = -Infinity;
     for (const m of c.chunkMeshes) {
       if (m.userData.kind === 'terrain') continue;
       const [cx, cz] = m.userData.c;
-      if (cx + half < x0 || cx - half > x1 || cz + half < z0 || cz - half > z1) continue;
+      const B = boxes.filter(([x0, z0, x1, z1]) => !(cx + half < x0 || cx - half > x1 || cz + half < z0 || cz - half > z1));
+      if (!B.length) continue;
       const a = m.geometry.attributes.position, arr = a.array, ox = m.position.x, oz = -m.position.z, k = S / 128;
       let hit = false;
       // whole triangles (the chunks are triangle soup): one corner inside and the triangle comes down, so a
       // roof caves in instead of stretching into spikes
       for (let t = 0; t < arr.length; t += 9) {
         let inside = false;
-        for (let v = t; v < t + 9; v += 3) { const gx = ox + arr[v] * k, gz = oz + arr[v + 2] * k; if (gx >= x0 && gx <= x1 && gz >= z0 && gz <= z1) { inside = true; break; } }
+        for (let v = t; v < t + 9 && !inside; v += 3) { const gx = ox + arr[v] * k, gz = oz + arr[v + 2] * k; for (const [x0, z0, x1, z1] of B) if (gx >= x0 && gx <= x1 && gz >= z0 && gz <= z1) { inside = true; break; } }
         if (!inside) continue;
         if (!hit) { hit = true; if (!this.flat.has(a)) this.flat.set(a, { arr: arr.slice(), geo: m.geometry }); }
         for (let v = t; v < t + 9; v += 3) arr[v + 1] = -Math.round((c.world.height(ox + arr[v] * k, oz + arr[v + 2] * k) - 0.06) * 128);   // (y is stored as -y * 128)

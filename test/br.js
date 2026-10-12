@@ -1,7 +1,7 @@
 // RuneRoyale checks (the shared match core on the real world):  bun runeskate/test/br.js
 import { readFileSync } from 'fs';
 import { World } from '../src/world.js';
-import { BR, ARENA_PACKS, BRMatch, benchCost, stormPlan, stormAt, busPath, busAt, arenaOf, unsupported, segObjKey, treeKey, objKind } from '../src/br-core.js';
+import { BR, ARENA_PACKS, BRMatch, restoreWorld, segDist, benchCost, stormPlan, stormAt, busPath, busAt, arenaOf, unsupported, segObjKey, treeKey, objKind } from '../src/br-core.js';
 import { WORLD_SCALE } from '../src/mapdata.js';
 import { Locker, COSMETICS, PASS_TIERS } from '../src/br-locker.js';
 
@@ -82,18 +82,32 @@ for (const seed of [3, 11]) {
   check(`seed ${seed}: world whole again`, segCount() === before.segs && trunkCount() === before.trunks && w.decks.size === 0);
 }
 
+// the woods are thinned for a match (you can see and shoot people) and grow back after it
+{
+  const all = () => { let n = 0; for (const l of w.trunkGrid.values()) n += l.length; return n; }, n0 = all();
+  const sent = []; const m = new BRMatch({ world: w, seed: 11, send: (to, msg) => sent.push(msg) });
+  m.join('h', 'Human'); m.fillBots(); m.start();
+  const st = sent.find(q => q.op === 'start'), felled = st.thin.length / 2;
+  check('the woods are thinned at the start', felled > 800 && all() === n0 - felled, `felled ${felled} of ${n0}`);
+  let lone = true; const a = m.arena, byWall = t => [...w.segsNear(t.x, t.z, 1)].some(q => q.kind !== 'water' && q.kind !== 'edge' && segDist(t.x, t.z, q) < 3.2);   // (trees by a wall are left standing)
+  for (const l of w.trunkGrid.values()) for (const t of l) if (Math.hypot(t.x - a.x, t.z - a.z) < a.r - 20) for (const q of w.trunksNear(t.x, t.z, 3)) if (q !== t && Math.hypot(q.x - t.x, q.z - t.z) < 2.5 && !byWall(t) && !byWall(q)) lone = false;
+  check('no thick woods left away from walls', lone);
+  restoreWorld(w, m.undos); m.undos = [];
+  check('the trees grow back after the match', all() === n0);
+}
+
 // 5. a player's messages are kept honest
 {
   const m = new BRMatch({ world: w, seed: 4, send: () => {} });
   m.join('h', 'Human'); m.fillBots(); m.start();
-  const me = m.p.get('h'), bot = [...m.p.values()].find(p => p.bot);
+  const me = m.p.get('h'), bot = [...m.p.values()].find(p => p.bot), b0 = m.broken.length;   // (the woods were thinned at the start)
   me.ph = bot.ph = 'ground';
   bot.hp = 1000; const hp0 = bot.hp + bot.sh;
   m.msg('h', { op: 'hit', v: bot.id, d: 1e9, w: 'ar' });
   check('a hit is capped', bot.alive && hp0 - (bot.hp + bot.sh) <= 230);
   m.msg('h', { op: 'build', p: { k: 'tower', i: 0, j: 0, y: 0 } });
   m.msg('h', { op: 'odmg', k: 'x'.repeat(200), d: 700 });
-  check('junk builds and keys ignored', m.pieces.size === 0 && m.broken.length === 0);
+  check('junk builds and keys ignored', m.pieces.size === 0 && m.broken.length === b0);
   m.msg('h', { op: 'leave' });
   check('leaving eliminates you', !me.alive);
   m.reset();

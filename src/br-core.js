@@ -372,6 +372,24 @@ export function breakInWorld(world, key) {
   return { boxes: [[Math.min(ax, bx) - pad, Math.min(az, bz) - pad, Math.max(ax, bx) + pad, Math.max(az, bz) + pad]], undo: { segs: [s], rails: [...gone], tiles } };
 }
 
+/** the arena's woods thinned for a match: keep lone trees for cover, at least `gap` apart, and fell the rest (RS
+ *  forests are wall-to-wall trunks: you couldn't see or shoot anyone in them). Deterministic from the seed, so
+ *  the server and the offline match agree; returns the tree keys to fell */
+export function thinTrees(world, arena, seed, gap = 9) {
+  const all = [];
+  for (const l of world.trunkGrid.values()) for (const t of l) if (Math.hypot(t.x - arena.x, t.z - arena.z) < arena.r + 12) all.push(t);
+  const h = t => { let v = (seed ^ Math.round(t.x * 10) * 73856093 ^ Math.round(t.z * 10) * 19349663) >>> 0; v = Math.imul(v ^ v >>> 15, 0x2c1b3c6d) >>> 0; return (v ^ v >>> 12) >>> 0; };
+  all.sort((a, b) => h(a) - h(b) || a.x - b.x || a.z - b.z);
+  const kept = new Map(), cell = k => Math.floor(k / gap), out = [];
+  for (const t of all) {
+    const cx = cell(t.x), cz = cell(t.z); let near = false;
+    for (let i = -1; i <= 1 && !near; i++) for (let j = -1; j <= 1 && !near; j++) for (const q of kept.get((cx + i) + ',' + (cz + j)) || []) if (Math.hypot(q.x - t.x, q.z - t.z) < gap) { near = true; break; }
+    if (near && ![...world.segsNear(t.x, t.z, 1)].some(q => q.kind !== 'water' && q.kind !== 'edge' && segDist(t.x, t.z, q) < 3.2)) out.push(treeKey(t));   // (not one by a wall: flattening it would take a bite out of the building)
+    else { const k = cx + ',' + cz; if (!kept.has(k)) kept.set(k, []); kept.get(k).push(t); }
+  }
+  return out;
+}
+
 /** put back what breakInWorld took (undo records, any order) */
 export function restoreWorld(world, undos) {
   for (const u of [...undos].reverse()) {
@@ -440,8 +458,11 @@ export class BRMatch {
       p.hp = BR.HP; p.sh = 0; p.alive = true; p.kills = 0; p.ph = 'bus'; p.down = false; p.cards = [];
       if (p.bot) Object.assign(p, { jumpAt: 3 + br() * (BR.BUS_T - 6), inv: null, heals: [], mats: 60, think: 0, goal: null, enemy: null, react: 0, fireT: 0, mag: 0, reloadT: 0, strafe: 1, strafeT: 0, stuck: 0, lastX: 0, lastZ: 0, detour: 0, buildT: 0, calm: 0, useT: 0, h: 0, wk: 0 });
     }
+    // thin the woods: fell most of the arena's trees, so people can see and shoot each other
+    const thin = [];
+    for (const k of thinTrees(w, this.arena, this.seed)) { const r = breakInWorld(w, k); if (!r) continue; this.broken.push(k); this.undos.push(r.undo); thin.push(...k.slice(5).split(',').map(Number)); }
     this.state = 'live'; this.t = 0;
-    this.send(null, { op: 'start', seed: this.seed, arena: this.arena, plan: this.plan, bus: this.bus,
+    this.send(null, { op: 'start', thin, seed: this.seed, arena: this.arena, plan: this.plan, bus: this.bus,
       chests: [...this.chests.values()], items: [...this.items.values()], carts: [...this.carts.values()], team: this.team, rifts: this.rifts, zips: this.zips,
       players: [...this.p.values()].map(p => ({ id: p.id, name: p.name, bot: p.bot ? 1 : 0, outfit: p.outfit, team: p.team })) });
   }
