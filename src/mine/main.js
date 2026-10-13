@@ -100,6 +100,10 @@ function startWorld(entry, create) {
   }
   view = new View(renderer, atlas, world, game, { rd: gui.opts.rd, fancy: gui.opts.fancy, rsw })
   view.U.uBright.value = gui.opts.bright
+  game.see = (o, d, r) => rsw.pick(o, d, r)       // (hit the RS models you see, not only the blocks under them)
+  // a ground block face the mesher leaves to the RS terrain (as mesh.js: hidden, the cell it faces unchanged and RS too)
+  const rsCell = (x, y, z) => { const t = world.tile(x, z); if (t < 0 || !rsw.cover[t] || rsw.vx[t] === 1) return false; const g = world.gy[t]; return y >= g - 1 && y <= g && world.natural(x, y, z) }   // (the ground: what stands on it keeps its box, as MC's fences)
+  game.hidden = (x, y, z, f) => rsCell(x, y, z) && (!f || (world.tile(x + f[0], z + f[2]) >= 0 && rsw.cover[world.tile(x + f[0], z + f[2])] && rsw.vx[world.tile(x + f[0], z + f[2])] !== 1 && world.natural(x + f[0], y + f[1], z + f[2])))
   gui.portrait = (w, h, look) => view.portrait(w, h, look)
   resize()
   curFile = entry ? entry.file : null

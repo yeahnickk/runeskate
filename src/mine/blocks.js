@@ -102,13 +102,14 @@ blk(69, 'Clay', { t: 'clay', h: 0.6, tool: SHOVEL, snd: 'gravel', drops: () => [
 blk(71, 'Plaster', { t: 'plaster', h: 1.2, tool: PICK, tier: 0, drop: 71 })   // (MineScape's own: RS houses' cream walls with timber)
 blk(70, 'Snow', { t: 'snow', shape: [0, 0, 0, 16, 2, 16], op: false, opac: 0, solid: false, h: 0.1, tool: SHOVEL, snd: 'cloth', rep: true, sup: true, drops: () => [[298, 1]] })
 // MineScape's own, from the RS map: walls and fences stand on tile edges as RS draws them (meta bits: 1 west, 2 south,
-// 4 east, 8 north), trees fell whole like RS woodcutting, scenery is an RS object that blocks its tile
-const WALLB = (id, n, drop, h) => blk(id, n, { t: 'stone', shape: 'edge', op: false, opac: 0, h, tool: PICK, tier: 0, drop, wall: true })
+// 4 east, 8 north), trees fell whole like RS woodcutting, scenery is an RS object that blocks its tile. None of them
+// float: dig out (or knock out) what holds one up and it comes down (sup)
+const WALLB = (id, n, drop, h) => blk(id, n, { t: 'stone', shape: 'edge', op: false, opac: 0, h, tool: PICK, tier: 0, drop, wall: true, sup: true })
 WALLB(72, 'Stone Wall', 21, 1.5); WALLB(73, 'Plaster Wall', 71, 1.2); WALLB(75, 'Brick Wall', 38, 2); WALLB(76, 'Dark Stone Wall', 4, 2); WALLB(77, 'Sandstone Wall', 53, 0.8)
-blk(74, 'Timber Wall', { t: 'planks', shape: 'edge', op: false, opac: 0, h: 2, tool: AXE, snd: 'wood', drop: 11, wall: true, fuel: 300 })
-blk(78, 'Fence', { t: 'planks', shape: 'edge', op: false, opac: 0, h: 2, tool: AXE, snd: 'wood', drop: 32, fence: true, fuel: 300 })
-blk(79, 'Tree', { t: { top: 'log_top', side: 'log_side' }, h: 2, tool: AXE, snd: 'wood', tree: true, drop: null })
-blk(80, 'Scenery', { t: 'planks', h: 1.5, tool: AXE, snd: 'wood', drop: 11, scenery: true })
+blk(74, 'Timber Wall', { t: 'planks', shape: 'edge', op: false, opac: 0, h: 2, tool: AXE, snd: 'wood', drop: 11, wall: true, fuel: 300, sup: true })
+blk(78, 'Fence', { t: 'planks', shape: 'edge', op: false, opac: 0, h: 2, tool: AXE, snd: 'wood', drop: 32, fence: true, fuel: 300, sup: true })
+blk(79, 'Tree', { t: { top: 'log_top', side: 'log_side' }, h: 2, tool: AXE, snd: 'wood', tree: true, drop: null, sup: true })
+blk(80, 'Scenery', { t: 'planks', h: 1.5, tool: AXE, snd: 'wood', drop: 11, scenery: true, sup: true })
 // MC's biome colouring: these take the RS ground colour (world.tintAt) over their green
 for (const i of [1, 12, 29, 30, 31, 47, 65, 66]) B[i].tint = true
 export const BLOCKS = B

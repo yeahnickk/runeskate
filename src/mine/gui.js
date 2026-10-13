@@ -21,7 +21,7 @@ export class Gui {
     this.c = canvas; this.x = canvas.getContext('2d'); this.sfx = sfx
     this.state = 'loading'; this.hits = []; this.mx = -1; this.my = -1; this.toasts = []; this.chatLines = []; this.heldName = null
     this.splash = SPLASHES[(Math.random() * SPLASHES.length) | 0]
-    this.opts = { rd: 8, fov: 70, sens: 0.5, gui: 0, fancy: true, autoJump: false, vol: 0.8, music: true, bright: 0.35, bob: true }
+    this.opts = { rd: 8, fov: 70, sens: 0.5, gui: 0, fancy: true, autoJump: false, vol: 0.8, music: true, bright: 0.5, bob: true }
     this.debug = false; this.hideHud = false; this.logo = null; this.scroll = 0
     this.progress = 0; this.loadMsg = 'Loading terrain...'
     this.worlds = []; this.selWorld = -1

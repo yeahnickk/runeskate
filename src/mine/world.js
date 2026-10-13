@@ -9,6 +9,7 @@ export const ci = (x, z, y) => ((z << 4) | x) * WH + y          // index in a ch
 const ROOF = [33, 34, 35, 36, 37], WALL = [21, 38, 11, 36, 21]
 // a wall's block from its RS colour (bake's json.walls: grey castle stone, dark stone, plaster, timber, brick, sandstone)
 const WALLC = [0, 21, 4, 71, 11, 38, 53], WALLE = [0, 72, 76, 73, 74, 75, 77]   // (full blocks / edge walls)
+const ROOFB = [33, 34, 35, 36, 37]                   // the bake's roof palette: slate, red tiles, thatch, dark wood, blue slate
 // grass/leaf tint: the RS ground colour brought to MC grass brightness, over the texture's own green (TREF)
 const TREF = [116, 182, 74], TLUM = 95
 
@@ -156,6 +157,7 @@ export class World {
         const hh = this.ru[ti] || this.nearRoof(X, Z) || 2, mat = WALLE[this.wc[ti]] || 72
         for (let y = g + 1; y <= g + hh; y++) put(lx, lz, y, mat, e & 3)
       } else if (e & 12) put(lx, lz, g + 1, 78, (e >> 2) & 3)
+      if (this.ru[ti]) put(lx, lz, g + this.ru[ti] + Math.min(this.rd[ti], 3), ROOFB[this.rc[ti]] || 33)   // the roof over it (RS draws it; break it and the tile's blocks show)
       if (f & 4 && !(e & 3)) for (let y = g + 1; y <= g + 3; y++) put(lx, lz, y, 79)              // a tree's trunk
       else if (f & 32 && !(e & 3)) {                    // an RS rock: mined for stone and ore
         const r = hash(X, 5, Z, S + 3), ore = r < 0.35 ? 3 : r < 0.6 ? 14 : r < 0.8 ? 15 : r < 0.87 ? 16 : r < 0.93 ? 18 : r < 0.97 ? 69 : 17

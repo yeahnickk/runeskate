@@ -8,6 +8,54 @@ import { nearFarPlan } from '../nearfirst.js'
 
 const PARTS = ['terrain', 'locs', 'locs_alpha'], STREAM_AT = 40, RANK = [0, 3, 1, 2]
 
+// RS walls carry pure black caps on top and roofs are black underneath (OSRS shows them with the roofs off). From
+// first person they show through every gap under an upper floor and under every eave, so an all-black triangle takes
+// the colour of the nearest coloured face of the same model (its wall, its roof)
+function capWalls(p, c) {
+  const n = p.length / 9, blk = (i) => { for (let j = i * 9; j < i * 9 + 9; j++) if (c[j] > 6) return false; return true }
+  for (let i = 0; i < n; i++) {
+    if (!blk(i)) continue
+    const o = i * 9
+    for (let d = 1; d <= 8; d++) {
+      const j = [i - d, i + d].find(j => j >= 0 && j < n && !blk(j)); if (j === undefined) continue
+      for (let v = 0; v < 3; v++) for (let q = 0; q < 3; q++) c[o + v * 3 + q] = c[j * 9 + q]
+      break
+    }
+  }
+}
+
+// Moller-Trumbore, both sides: { t, n (unit normal facing the ray) } or null
+function rayTri(o, d, A, B, C) {
+  const e1 = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], e2 = [C[0] - A[0], C[1] - A[1], C[2] - A[2]]
+  const px = d[1] * e2[2] - d[2] * e2[1], py = d[2] * e2[0] - d[0] * e2[2], pz = d[0] * e2[1] - d[1] * e2[0]
+  const det = e1[0] * px + e1[1] * py + e1[2] * pz; if (Math.abs(det) < 1e-9) return null
+  const iv = 1 / det, sx = o[0] - A[0], sy = o[1] - A[1], sz = o[2] - A[2], u = (sx * px + sy * py + sz * pz) * iv; if (u < 0 || u > 1) return null
+  const qx = sy * e1[2] - sz * e1[1], qy = sz * e1[0] - sx * e1[2], qz = sx * e1[1] - sy * e1[0], w = (d[0] * qx + d[1] * qy + d[2] * qz) * iv
+  if (w < 0 || u + w > 1) return null
+  const t = (e2[0] * qx + e2[1] * qy + e2[2] * qz) * iv; if (t <= 0.01) return null
+  let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+  const l = Math.hypot(...n) || 1; n = n.map(a => a / l); if (n[0] * d[0] + n[1] * d[1] + n[2] * d[2] > 0) n = n.map(a => -a)
+  return { t, n }
+}
+
+// RS roofs and long walls are a few big triangles spanning many tiles; knocking a block out hides its tile's triangles,
+// so split the big ones (longest edge first) until none is over a tile across: a break takes its own tile, no more
+function splitBig(p, c) {
+  const n = p.length / 9, L = 128 * 1.05
+  const big = (a) => Math.max(Math.hypot(a[0] - a[3], a[2] - a[5]), Math.hypot(a[3] - a[6], a[5] - a[8]), Math.hypot(a[6] - a[0], a[8] - a[2])) > L
+  let any = false
+  for (let i = 0; i < n && !any; i++) if (big(p.subarray(i * 9, i * 9 + 9))) any = true
+  if (!any) return [p, c]
+  const P = [], C = []
+  const emit = (v, k) => { if (!big(v) || P.length > 3e7) { for (const x of v) P.push(x); for (const x of k) C.push(x); return }
+    const e = [Math.hypot(v[0] - v[3], v[2] - v[5]), Math.hypot(v[3] - v[6], v[5] - v[8]), Math.hypot(v[6] - v[0], v[8] - v[2])], j = e.indexOf(Math.max(...e))
+    const a = j, b = (j + 1) % 3, o = (j + 2) % 3, V = (q) => [v[q * 3], v[q * 3 + 1], v[q * 3 + 2]], K = (q) => [k[q * 3], k[q * 3 + 1], k[q * 3 + 2]]
+    const m = [0, 1, 2].map(t => Math.round((v[a * 3 + t] + v[b * 3 + t]) / 2)), mc = [0, 1, 2].map(t => (k[a * 3 + t] + k[b * 3 + t]) >> 1)
+    emit([...V(a), ...m, ...V(o)], [...K(a), ...mc, ...K(o)]); emit([...m, ...V(b), ...V(o)], [...mc, ...K(b), ...K(o)]) }
+  for (let i = 0; i < n; i++) emit(Array.from(p.subarray(i * 9, i * 9 + 9)), Array.from(c.subarray(i * 9, i * 9 + 9)))
+  return [Int16Array.from(P), Uint8Array.from(C)]
+}
+
 export class RSWorld {
   constructor(world) {
     Object.assign(this, { world, CH: 32 })
@@ -48,8 +96,11 @@ export class RSWorld {
       for (const k of PARTS) {
         const part = ch[k]; if (!part || !part.n) continue
         const g = new THREE.BufferGeometry()
-        g.setAttribute('position', new THREE.BufferAttribute(new Int16Array(bin, part.posOff, part.n * 3), 3))
-        g.setAttribute('color', new THREE.BufferAttribute(new Uint8Array(bin, part.colOff, part.n * 3), 3, true))
+        let pos = new Int16Array(bin, part.posOff, part.n * 3), col = new Uint8Array(bin, part.colOff, part.n * 3)
+        if (k === 'locs') capWalls(pos, col)
+        if (k !== 'terrain') [pos, col] = splitBig(pos, col)
+        g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+        g.setAttribute('color', new THREE.BufferAttribute(col, 3, true))
         const alpha = k === 'locs_alpha', m = new THREE.Mesh(g, alpha ? this.mats.alpha : this.mats.opaque)
         m.position.set(ch.cx * CH, this.base, -ch.cz * CH); m.scale.set(1 / 128, -1 / 128, -1 / 128)
         m.updateMatrix(); m.matrixAutoUpdate = false
@@ -165,6 +216,37 @@ export class RSWorld {
     }
     const out = n ? [r / n, g / n, b / n] : null
     this.tc.set(key, out); return out
+  }
+  // the nearest RS triangle along a ray, as drawn: { t, X, Z (the block column of its tile), y, h (over the tile's
+  // ground), n (its normal), ground (it's the terrain) } or null. Only the tiles the ray crosses (and their neighbours, for
+  // models that overhang) are tested, through a per-mesh tile -> triangles list
+  pick(o, d, reach) {
+    const CH = this.CH, W = this.world.W, seen = new Set(), tiles = []
+    for (let s = 0; s <= reach + 0.5; s += 0.25) {
+      const X = Math.floor(o[0] + d[0] * s), Z = Math.floor(o[2] + d[2] * s)
+      for (let a = -1; a <= 1; a++) for (let c = -1; c <= 1; c++) { const k = (X + a) + ',' + (Z + c); if (!seen.has(k)) { seen.add(k); tiles.push([X + a, -(Z + c) - 1]) } }
+    }
+    let best = null
+    for (const [tx, tz] of tiles) {
+      if (tx < 0 || tz < 0) continue
+      const L = this.byChunk.get((tx >> 5) + ',' + (tz >> 5)); if (!L) continue
+      const v = this.vx[tz * W + tx], want = (tz & 31) * CH + (tx & 31)
+      if (v === 1 || v === 3) continue
+      for (const m of L) {
+        const { kind, cx, cz } = m.userData; if (!m.visible) continue
+        const { t, h } = this.tris(m)
+        if (!m.userData.bk) { const B = m.userData.bk = new Map(); for (let i = 0; i < t.length; i++) { let a = B.get(t[i]); if (!a) B.set(t[i], a = []); a.push(i) } }
+        const ids = m.userData.bk.get(want); if (!ids) continue
+        const p = m.geometry.attributes.position.array, ox = cx * CH, oz = -cz * CH
+        for (const i of ids) {
+          if (v === 2 && h[i] > 0.9) continue
+          const q = i * 9, P = (j) => [ox + p[q + j * 3] / 128, this.base - p[q + j * 3 + 1] / 128, oz - p[q + j * 3 + 2] / 128]
+          const A = P(0), B = P(1), C = P(2), r = rayTri(o, d, A, B, C)
+          if (r && r.t <= reach && (!best || r.t < best.t)) best = { t: r.t, X: tx, Z: -tz - 1, y: o[1] + d[1] * r.t, h: kind === 'terrain' ? 0 : h[i], n: r.n, ground: kind === 'terrain' }
+        }
+      }
+    }
+    return best
   }
   setLight(k) { this.mats.opaque.color.setScalar(k); this.mats.alpha.color.setScalar(k) }
 }

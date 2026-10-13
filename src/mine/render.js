@@ -49,7 +49,7 @@ export class View {
     this.cam = new THREE.PerspectiveCamera(70, 1, 0.05, 1000); this.cam.rotation.order = 'YXZ'
     const tex = this.atlas = new THREE.CanvasTexture(atlas)
     tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false
-    this.U = { map: { value: tex }, uSky: { value: 1 }, uFog: { value: new THREE.Color() }, uFogN: { value: 60 }, uFogF: { value: 120 }, uCam: { value: new THREE.Vector3() }, uBright: { value: 0.35 }, uWater: { value: 0 } }
+    this.U = { map: { value: tex }, uSky: { value: 1 }, uFog: { value: new THREE.Color() }, uFogN: { value: 60 }, uFogF: { value: 120 }, uCam: { value: new THREE.Vector3() }, uBright: { value: 0.5 }, uWater: { value: 0 } }
     this.mat = new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: FS, uniforms: this.U })
     this.wmat = new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: FS, uniforms: { ...this.U, uWater: { value: 1 } }, transparent: true, depthWrite: false, side: THREE.DoubleSide })
     this.chunks = new Map(); this.idx = null; this.queue = []; this.dirty = new Set(); this.soon = new Set()

@@ -40,6 +40,9 @@ export const ADV = [
 
 const xpNeed = (l) => l < 16 ? 2 * l + 7 : l < 31 ? 5 * l - 38 : 9 * l - 158
 
+// a normal's main axis as a block face
+const axisOf = (n) => { const ax = Math.abs(n[0]) > Math.abs(n[1]) ? (Math.abs(n[0]) > Math.abs(n[2]) ? 0 : 2) : (Math.abs(n[1]) > Math.abs(n[2]) ? 1 : 2), f = [0, 0, 0]; f[ax] = Math.sign(n[ax]) || 1; return f }
+
 export class Game {
   constructor(world, opts = {}) {
     this.world = world
@@ -51,7 +54,7 @@ export class Game {
     this.adv = {}; this.populated = new Set(); this.torches = new Set(); this.flow = []; this.respawns = []
     this.name = opts.name || 'Steve'
     const j = world.json, sx = j.spawn[0], sz = -j.spawn[1] - 1
-    this.spawn = [sx + 0.5, world.top(sx, sz, true) + 1, sz + 0.5]
+    this.spawn = [sx + 0.5, this.standY(sx, sz), sz + 0.5]
     this.player = this.newPlayer()
     world.listeners.push((x, y, z, id, was) => {
       const k = x + ',' + y + ',' + z
@@ -79,7 +82,35 @@ export class Game {
   reach() { return this.mode === 'creative' ? 5 : REACH }
   target(liquids = false) {
     const o = this.eyePos(), d = this.lookDir(), W = this.world
-    return raycast(W, o, d, this.reach(), liquids ? (id) => id !== 0 : (id) => !BLOCKS[id].liquid)
+    const hide = this.hidden, b = raycast(W, o, d, this.reach(), (id, x, y, z, f) => (liquids || !BLOCKS[id].liquid) && !(hide && hide(x, y, z, f)))
+    // the client draws the RS models over the blocks (this.see: the nearest one along the ray). Hit what you see: a
+    // model in front of the block the ray reaches is the block standing for it on its tile (the fence under a gate,
+    // the top of a wall under its gable); a model with no block on its tile (a canopy, a roof) lets the ray on
+    // A ground face the RS terrain stands in for (this.hidden) is never what you hit (its flat top pokes through where
+    // the RS ground dips): the block ray goes by it and what's drawn there decides (ground: that tile's top block)
+    const s = this.see && this.see(o, d, this.reach())
+    if (!s || (b && b.dist <= s.t + 0.02)) return b
+    const t = W.tile(s.X, s.Z); if (t < 0) return b
+    const g = W.gy[t]
+    const hit = [o[0] + d[0] * s.t, o[1] + d[1] * s.t, o[2] + d[2] * s.t]
+    // (a model on a tile edge, a fence or gate, may be drawn from the tile across it: look there too)
+    const fx = hit[0] - s.X, fz = hit[2] - s.Z, cols = [[s.X, s.Z]]
+    if (fx < 0.3) cols.push([s.X - 1, s.Z]); else if (fx > 0.7) cols.push([s.X + 1, s.Z])
+    if (fz < 0.3) cols.push([s.X, s.Z - 1]); else if (fz > 0.7) cols.push([s.X, s.Z + 1])
+    if (!s.ground) for (const [X, Z] of cols) {
+      const tc = W.tile(X, Z); if (tc < 0) continue
+      const gc = W.gy[tc]
+      for (let y = Math.min(Math.max(Math.floor(s.y), gc + 1), gc + 12); y > gc; y--) {
+        const id = W.get(X, y, Z)
+        if (!id || BLOCKS[id].liquid) continue
+        return { x: X, y, z: Z, face: axisOf(s.n), id, dist: s.t, hit, rs: true }
+      }
+    }
+    if (s.ground || s.h < 0.35) {            // (the ground, or a flat thing lying on it: a rug, a stone)
+      const id = W.get(s.X, g, s.Z); if (!id || BLOCKS[id].liquid) return b
+      return { x: s.X, y: g, z: s.Z, face: s.n[1] > 0.5 ? [0, 1, 0] : axisOf(s.n), id, dist: s.t, hit, rs: true }
+    }
+    return b
   }
   targetMob() {
     const o = this.eyePos(), d = this.lookDir(), b = this.target(), lim = Math.min(b ? b.dist : 99, this.mode === 'creative' ? 5 : 3)
@@ -781,13 +812,13 @@ export class Game {
     if (roofed > 24 && open.length && R() < 0.55) {
       const [X, Z] = open[(R() * open.length) | 0]
       const kind = FOLK_KINDS[(R() * FOLK_KINDS.length) | 0]
-      this.ents.push(makeMob('villager', X + 0.5, W.top(X, Z, true) + 1, Z + 0.5, R, { kind }))
+      this.ents.push(makeMob('villager', X + 0.5, this.standY(X, Z), Z + 0.5, R, { kind }))
     }
     // a herd on open grass
     const grass = open.filter(o => o[2] === 1)
     if (grass.length > 120 && R() < 0.06) {
       const type = ['cow', 'chicken', 'cow'][(R() * 3) | 0], n = 2 + (R() * 3 | 0)
-      for (let i = 0; i < n; i++) { const [X, Z] = grass[(R() * grass.length) | 0]; this.ents.push(makeMob(type, X + 0.5, W.top(X, Z, true) + 1, Z + 0.5, R)) }
+      for (let i = 0; i < n; i++) { const [X, Z] = grass[(R() * grass.length) | 0]; this.ents.push(makeMob(type, X + 0.5, this.standY(X, Z), Z + 0.5, R)) }
     }
   }
 

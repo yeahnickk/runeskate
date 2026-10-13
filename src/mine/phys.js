@@ -185,7 +185,7 @@ export function raycast(world, o, d, reach, pick) {
   let face = [0, 0, 0], t = 0
   for (let i = 0; i < 64 && t <= reach; i++) {
     const id = world.get(x, y, z)
-    if (id && (!pick || pick(id))) {
+    if (id && (!pick || pick(id, x, y, z, face))) {
       const bx = selBox(world, x, y, z, id)
       if (bx) {      // the real (sub-block) box: test the ray against it
         const h = rayBox(o, d, [x + bx[0], y + bx[1], z + bx[2], x + bx[3], y + bx[4], z + bx[5]])

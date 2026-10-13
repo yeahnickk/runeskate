@@ -237,6 +237,7 @@ export function meshChunk(world, cx, cz, opts = {}) {
       if (!d) continue
       const hid = rs && hidden(rx, rz, y)
       if (hid && d.shape !== 'cube' && d.shape !== 'liquid') continue
+      if (hid && y > hz[colK(rx, rz)] + 1 && d.shape === 'cube') continue        // (over the ground the tile's RS models still stand: a roof, a wall)
       const sh = d.shape, meta = me.m[ci(lx, lz, y)]
       S.tf = d.tint ? tf : null
       if (sh === 'cube') {
