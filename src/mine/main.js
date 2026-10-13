@@ -349,12 +349,13 @@ function stream(budgetMs) {
   let n = 0
   // edits first: the chunk you changed, then the neighbours its light reaches
   for (const set of [view.dirty, view.soon]) {
+    const all = set === view.dirty && set.size <= 4      // (an edit's chunks go up together, in one frame: never one face gone and its neighbour's not there yet)
     for (const k of set) {
       set.delete(k); view.soon.delete(k)
       const [cx, cz] = k.split(',').map(Number)
       if (!view.chunks.has(k) && (set !== view.dirty || (cx - pcx) ** 2 + (cz - pcz) ** 2 > (rd + 0.5) ** 2)) continue   // (an edit in a chunk not built yet builds it now: the RS ground over a dug tile is already gone)
       view.setChunk(cx, cz, meshChunk(world, cx, cz, { fancy: view.fancy, rs: view.rs })); n++
-      if (performance.now() - t0 > budgetMs * (set === view.dirty ? 3 : 1)) return n
+      if (!all && performance.now() - t0 > budgetMs * (set === view.dirty ? 3 : 1)) return n
     }
   }
   // new chunks nearest first (in view direction a touch earlier)
