@@ -382,8 +382,8 @@ export class Game {
     if (id === 5 && !crea) return
     const meta = W.meta(x, y, z)
     if (d.tree) {                                       // an RS tree falls whole (RS woodcutting): logs, a sapling, maybe an apple
-      const ys = W.treeAt(x, y, z)
-      for (const yy of ys) W.set(x, yy, z, 0)
+      const cs = W.trunk(x, y, z), ys = W.treeAt(x, y, z)
+      for (const c of cs) W.set(c[0], c[1], c[2], 0)
       this.emit({ t: 'fell', x, y: ys[0], z })
       if (!crea) {
         this.dropItem({ id: 10, n: 2 + Math.floor(this.rng() * 3), d: 0 }, x + 0.5, ys[0] + 0.5, z + 0.5)

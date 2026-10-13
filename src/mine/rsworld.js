@@ -6,7 +6,7 @@
 import * as THREE from 'three'
 import { nearFarPlan } from '../nearfirst.js'
 
-const PARTS = ['terrain', 'locs', 'locs_alpha'], STREAM_AT = 40
+const PARTS = ['terrain', 'locs', 'locs_alpha'], STREAM_AT = 40, RANK = [0, 3, 1, 2]
 
 export class RSWorld {
   constructor(world) {
@@ -81,10 +81,11 @@ export class RSWorld {
     }
   }
   // ------------------------------------------------------------------ blocks taking over tiles
-  // tile (x, z) is blocks now (kind 1), or loses only what stands tall on it (kind 2: a canopy)
+  // tile (x, z) is blocks now (kind 1: its ground was dug), loses what stands on it (kind 3: a wall or rock knocked
+  // out, the ground stays), or only what stands tall on it (kind 2: a felled tree's canopy). 1 > 3 > 2.
   setVx(tx, tz, kind = 1) {
     const W = this.world.W; if (tx < 0 || tz < 0 || tx >= W || tz >= this.world.H) return false
-    const i = tz * W + tx; if (this.vx[i] === 1 || this.vx[i] === kind) return false
+    const i = tz * W + tx; if (RANK[this.vx[i]] >= RANK[kind]) return false
     this.vx[i] = kind
     const L = this.byChunk.get((tx >> 5) + ',' + (tz >> 5)); if (L) for (const m of L) this.dirty.add(m)
     return true
@@ -126,7 +127,7 @@ export class RSWorld {
       let k = 0
       for (let i = 0; i < t.length; i++) {
         const v = this.vx[(cz * CH + (t[i] >> 5)) * W + cx * CH + (t[i] & 31)]
-        if (v === 1 || (v === 2 && kind !== 'terrain' && h[i] > 0.9)) continue
+        if (v === 1 || (v === 3 && kind !== 'terrain') || (v === 2 && kind !== 'terrain' && h[i] > 0.9)) continue
         out[k++] = i * 3; out[k++] = i * 3 + 1; out[k++] = i * 3 + 2
       }
       m.geometry.setIndex(new THREE.BufferAttribute(out.slice(0, k), 1))

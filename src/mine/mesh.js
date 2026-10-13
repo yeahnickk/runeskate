@@ -126,18 +126,19 @@ export function meshChunk(world, cx, cz, opts = {}) {
   }
 
   // one face of a box [x0..x1] (blocks, 0-1) at cell rx,rz,y; smooth light + AO sampled from the face's neighbour cells
-  function face(buf, f, rx, ry, rz, box, tile, flags = 0, smooth = true, uvRot = 0) {
+  // tops: the top edge's height per corner (block units over ry; a side face cut or stretched to the RS ground)
+  function face(buf, f, rx, ry, rz, box, tile, flags = 0, smooth = true, uvRot = 0, tops = null) {
     const F = FACES[f], n = F.n
     const ax = n[0] ? 0 : n[1] ? 1 : 2, t1 = ax === 0 ? 2 : 0, t2 = ax === 1 ? 2 : 1
     const bx = rx + n[0], by = ry + n[1], bz = rz + n[2]
     const own = !smooth
     for (let j = 0; j < 4; j++) {
       const c = F.c[j], v = tmp[j]
-      const p = [c[0] ? box[3] : box[0], c[1] ? box[4] : box[1], c[2] ? box[5] : box[2]]
+      const p = [c[0] ? box[3] : box[0], c[1] ? (tops ? tops[c[0] + c[2]] : box[4]) : box[1], c[2] ? box[5] : box[2]]
       v[0] = rx - P + p[0] + ox - ox; v[1] = ry + p[1]; v[2] = rz - P + p[2]
       // uv: sides use (horizontal tangent, y); top/bottom use (x, z)
       let u, w
-      if (ax === 1) { u = p[0]; w = 1 - p[2] } else { u = ax === 0 ? (n[0] > 0 ? 1 - p[2] : p[2]) : (n[2] > 0 ? p[0] : 1 - p[0]); w = p[1] }
+      if (ax === 1) { u = p[0]; w = 1 - p[2] } else { u = ax === 0 ? (n[0] > 0 ? 1 - p[2] : p[2]) : (n[2] > 0 ? p[0] : 1 - p[0]); w = Math.min(1, p[1]) }
       if (uvRot === 1) { const t = u; u = w; w = 1 - t } else if (uvRot === 2) { u = 1 - u; w = 1 - w } else if (uvRot === 3) { const t = u; u = 1 - w; w = t }
       const uv = tuv(tile, u * 16, w * 16); v[3] = uv[0]; v[4] = uv[1]
       if (own) { v[5] = SK(rx, rz, ry) * 17; v[6] = BL(rx, rz, ry) * 17; v[7] = F.sh * 255; v[8] = flags; ao[j] = 3; continue }
@@ -202,13 +203,31 @@ export function meshChunk(world, cx, cz, opts = {}) {
   // them) unless their tile is blocks now (rs.vx) or a face looks into a cell you changed or a tile that is blocks
   const rs = opts.rs, ED = rs ? edMask(world, cx, cz, Hr) : null
   const hz = new Int16Array((CS + 2) * (CS + 2)).fill(WH)    // per column (padded by 1): the lowest y hidden, WH = none
-  if (rs) for (let a = -1; a <= CS; a++) for (let c = -1; c <= CS; c++) {
-    const t = world.tile(ox + a, oz + c)
-    if (t >= 0 && rs.cover[t] && rs.vx[t] !== 1) hz[(c + 1) * (CS + 2) + a + 1] = world.gy[t] - 1
+  const hh = new Int16Array((CS + 2) * (CS + 2)).fill(WH)    // ... and the highest (a tile whose wall was knocked out
+  if (rs) for (let a = -1; a <= CS; a++) for (let c = -1; c <= CS; c++) {   // keeps its ground: the rest shows as blocks)
+    const t = world.tile(ox + a, oz + c), k = (c + 1) * (CS + 2) + a + 1
+    if (t >= 0 && rs.cover[t] && rs.vx[t] !== 1) { hz[k] = world.gy[t] - 1; if (rs.vx[t] === 3) hh[k] = world.gy[t] }
   }
-  const hidden = (rx, rz, y) => y >= hz[(rz - P + 1) * (CS + 2) + rx - P + 1] && !ED[I(rx, rz, y)]
+  const colK = (rx, rz) => (rz - P + 1) * (CS + 2) + rx - P + 1
+  const hidden = (rx, rz, y) => { const k = colK(rx, rz); return y >= hz[k] && y <= hh[k] && !ED[I(rx, rz, y)] }
   // a face of a hidden block shows where the cell it faces was changed, or its column is blocks
-  const faceShows = (rx, rz, y) => { const k = (rz - P + 1) * (CS + 2) + rx - P + 1; return hz[k] === WH || (y >= 0 && y < Hr && ED[I(rx, rz, y)]) }
+  const faceShows = (rx, rz, y) => hz[colK(rx, rz)] === WH || (y >= 0 && y < Hr && ED[I(rx, rz, y)])
+  // ...and toward a dug tile it meets the RS ground exactly: its top edge cut (or, the column's top block, stretched)
+  // to the ground's height at the two corners, so the RS terrain and the pit wall share an edge with no gap
+  const RT = [0, 0, 0]
+  const rsTops = (f, rx, rz, y, top) => {
+    if (!rs.h) return null
+    const n = FACES[f].n, X = ox + rx - P, Z = oz + rz - P
+    // the face's two top corners: (c0 + c2) indexes them as face() does
+    const cs = n[0] ? [[n[0] > 0 ? 1 : 0, 0], [n[0] > 0 ? 1 : 0, 1]] : [[0, n[2] > 0 ? 1 : 0], [1, n[2] > 0 ? 1 : 0]]
+    let any = false
+    for (const [a, c] of cs) {
+      const g = rs.h(X + a, Z + c); if (g === null) return null
+      let h = g - y; if (!top) h = Math.min(1, h); h = Math.max(0, Math.min(2.5, h)); if (h > 0.01) any = true
+      RT[a + c] = h
+    }
+    return any ? RT : false
+  }
   for (let lz = 0; lz < CS; lz++) for (let lx = 0; lx < CS; lx++) {
     const rx = lx + P, rz = lz + P, col = I(rx, rz, 0)
     for (let y = 0; y < Hr; y++) {
@@ -226,12 +245,15 @@ export function meshChunk(world, cx, cz, opts = {}) {
           const n = FACES[f].n, nb = at(rx + n[0], rz + n[2], y + n[1])
           if (OPQ[nb]) continue
           if (hid && !faceShows(rx + n[0], rz + n[2], y + n[1])) continue
+          if (hid && n[1] > 0 && y === hz[colK(rx, rz)] + 1) continue     // (the ground's own top: RS draws it, even under a felled tree)
           if (tr && nb === id && (!d.leaves || !fancy)) continue
+          let tops = null
+          if (hid && n[1] === 0 && hz[colK(rx + n[0], rz + n[2])] === WH) { tops = rsTops(f, rx, rz, y, !OPQ[at(rx, rz, y + 1)]); if (tops === false) continue }
           let tile = d.t[FACES[f].k]
           let rot = 0
           if (d.facing && d.t.front && f === FRONT[meta & 3]) tile = d.t.front
           if (id === 1 && f === 2) rot = (hash4(ox + lx, y, oz + lz) & 3)      // (MC's random grass rotation)
-          face(S, f, rx, y, rz, [0, 0, 0, 1, 1, 1], tile, 0, true, rot)
+          face(S, f, rx, y, rz, [0, 0, 0, 1, 1, 1], tile, 0, true, rot, tops)
         }
       } else if (sh === 'cross') {
         cross(S, rx, y, rz, d.t.side)

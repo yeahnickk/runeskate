@@ -61,7 +61,7 @@ export class View {
     const rsw = this.rsw = opts.rsw || null
     if (rsw) {
       this.scene.add(rsw.group)
-      this.rs = { vx: rsw.vx, cover: rsw.cover }
+      this.rs = { vx: rsw.vx, cover: rsw.cover, h: (x, z) => rsw.height(x, z) }
       rsw.vx.fill(0); for (const m of rsw.meshes) rsw.dirty.add(m)
       // MC's grass/dirt ticks leave the map's own ground alone (else every tile under a tree or wall turns to blocks)
       world.keep = (x, y, z) => { const t = world.tile(x, z); return t >= 0 && rsw.cover[t] && rsw.vx[t] !== 1 && world.natural(x, y, z) }
@@ -71,13 +71,15 @@ export class View {
     }
   }
   dispose() { const L = this.world.listeners, i = L.indexOf(this.listener); if (i >= 0) L.splice(i, 1); if (this.rsw) this.rsw.onCover = null }
-  // a tile turns to blocks when you change its ground (or anything under it), or knock out what the map stood on it
+  // a tile turns to blocks when you change its ground; knocking out what the map stood on it takes the RS model but
+  // keeps the ground; under the ground (tunnels) and building on top leave the RS tile as it is
   vxEdit(x, y, z, was, nat) {
     const W = this.world, t = W.tile(x, z); if (t < 0) return
     const tx = x, tz = -z - 1, g = W.gy[t]
-    if (y <= g) return this.rsw.setVx(tx, tz, 1)
+    if (y < g) return
+    if (y === g) return this.rsw.setVx(tx, tz, 1)
     if (nat && was) {
-      this.rsw.setVx(tx, tz, 1)
+      this.rsw.setVx(tx, tz, 3)
       if (was === 79) for (let a = -1; a <= 1; a++) for (let c = -1; c <= 1; c++) if (a || c) this.rsw.setVx(tx + a, tz + c, 2)   // (the canopy)
     }
   }

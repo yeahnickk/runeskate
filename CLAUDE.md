@@ -109,9 +109,11 @@ z down the pitch, blue defends -z; a car's forward +x, up +y, right +z), 120 Hz.
 Minecraft survival on the RS map, one block a tile, single player (worlds in localStorage). RuneScape to look at,
 Minecraft to play: the real 2004 map draws over the blocks, Minecraft's first person, HUD and screens on top.
 - `rsworld.js` draws the skate game's map packs (`assets/world*.json/.bin`, streamed by region) 1:1 over the blocks
-  (pack y = `world.base + 1` - RS height). A tile you dig into or build in turns to blocks (`vx` 1: its triangles are
-  dropped from that chunk's index); a felled tree takes only its canopy (`vx` 2). The mesher (`opts.rs`) skips natural
-  blocks the RS ground already draws. `height()` the RS ground, so bodies stand on bridges and slopes as drawn.
+  (pack y = `world.base + 1` - RS height). Per tile `vx` says what the RS layer drops from that chunk's index: 1 the
+  ground was dug (all of it), 3 something stood on it was knocked out (its models, the ground stays), 2 a felled
+  tree's canopy over the tiles round it (`RANK`: 1 beats 3 beats 2). Tunnels under the ground leave the tile alone.
+  A felled tree comes down whole (`trunk`: big trees stand on 2x2). The mesher (`opts.rs`) skips natural blocks the
+  RS ground already draws (never their tops); a pit wall's top edge follows the RS ground's corners (`rsTops`). `height()` the RS ground, so bodies stand on bridges and slopes as drawn.
   `world.keep` (set by render.js) stops MC's grass/dirt ticks on the map's own ground, which would otherwise turn every
   tile under a tree or wall to blocks. Wall triangles on a tile edge go with the tile the bake put the wall block on.
 - Fights go by RS hitpoints for the weak (goblin 5, man 7: three or four punches), hunger drains at half MC's rate.

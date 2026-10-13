@@ -34,6 +34,10 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   }
   check('Lumbridge castle has its RS walls (thin, on the tile edges)', walls > 500, `wall blocks ${walls}`);
   check('the RS trees stand where RS has them', trees > 30, `tree blocks ${trees}`);
+  // a big RS tree stands on 2x2 tiles (1174..1175, -429..-428): one chop fells the lot, not a column
+  const tc = w.trunk(1175, 43, -428).length; g.breakBlock(1175, 44, -428, true)
+  let left = 0; for (let a = 1173; a <= 1176; a++) for (let c = -430; c <= -427; c++) for (let y = 42; y < 48; y++) if (w.get(a, y, c) === 79) left++
+  check('felling a big RS tree takes its whole 2x2 trunk', tc === 12 && left === 0, `trunk ${tc}, left ${left}`);
   // the Lumbridge bridge (RS 3240, 3226 -> tiles 1192..1200, 409..410): a plank deck over the River Lum
   const bz = -409 - 1, deck = w.groundY(1196, bz)
   check('the Lumbridge bridge is a deck over the river', w.get(1196, deck, bz) === 11 && [0, 8].includes(w.get(1196, deck - 1, bz)) && w.get(1196, deck - 3, bz) === 8, `deck y ${deck}, under ${w.get(1196, deck - 1, bz)} / ${w.get(1196, deck - 3, bz)}`);

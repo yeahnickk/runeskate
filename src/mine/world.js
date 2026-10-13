@@ -186,6 +186,19 @@ export class World {
   natural(x, y, z) { const e = this.edits.get((x >> 4) + ',' + (z >> 4)); return !e || !e.has(ci(x & 15, z & 15, y)) }
   // every block of the RS tree whose trunk includes (x, y, z)
   treeAt(x, y, z) { const out = []; let y0 = y; while (this.get(x, y0 - 1, z) === 79) y0--; for (let yy = y0; this.get(x, yy, z) === 79; yy++) out.push(yy); return out }
+  // the whole trunk of an RS tree: a big tree's model stands on 2x2 tiles, so its trunk is up to four columns (kept
+  // inside one 2x2 square, so a wood of touching trees doesn't come down at once)
+  trunk(x, y, z) {
+    const cols = [[x, z]], seen = new Set([x + ',' + z])
+    for (let i = 0; i < cols.length && cols.length < 4; i++) for (const [a, c] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const X = cols[i][0] + a, Z = cols[i][1] + c, k = X + ',' + Z
+      if (seen.has(k) || cols.length >= 4) continue; seen.add(k)
+      if (Math.abs(X - x) > 1 || Math.abs(Z - z) > 1 || cols.some(q => Math.abs(q[0] - X) > 1 || Math.abs(q[1] - Z) > 1)) continue
+      if (this.get(X, y, Z) === 79 || this.get(X, y + 1, Z) === 79 || this.get(X, y - 1, Z) === 79) cols.push([X, Z])
+    }
+    const out = []; for (const [X, Z] of cols) { const yy = this.get(X, y, Z) === 79 ? y : this.get(X, y + 1, Z) === 79 ? y + 1 : y - 1; for (const Y of this.treeAt(X, yy, Z)) out.push([X, Y, Z]) }
+    return out
+  }
   nearRoof(X, Z) {
     let r = 0
     for (const [a, c] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const t = this.tile(X + a, Z + c); if (t >= 0 && this.ru[t] > r) r = this.ru[t] }
