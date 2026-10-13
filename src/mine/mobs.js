@@ -4,7 +4,8 @@
 import { tickMove, raycast } from './phys.js'
 import { BLOCKS } from './blocks.js'
 
-// w/h: hitbox; hp; sp: walk speed (x player walk); dmg: melee; xp; drops: [id, min, max]; hostile
+// w/h: hitbox; hp; sp: walk speed (x player walk); dmg: melee; xp; drops: [id, min, max]; kbr: MC's knockback resistance
+// (0-1: the heavy RS monsters stand their ground, so a sword can't juggle a demon out of reach); hostile
 export const MOBS = {
   cow: { n: 'Cow', w: 0.9, h: 1.4, hp: 8, sp: 0.45, xp: [1, 3], drops: [[268, 1, 3], [279, 0, 2]], cooked: 269, food: [266] },
   pig: { n: 'Pig', w: 0.9, h: 0.9, hp: 10, sp: 0.45, xp: [1, 3], drops: [[270, 1, 3]], cooked: 271, food: [266, 267] },
@@ -22,20 +23,20 @@ export const MOBS = {
   imp: { n: 'Imp', lvl: 2, w: 0.5, h: 0.9, hp: 8, sp: 0.6, dmg: 1, xp: [2, 3], drops: [[262, 0, 2], [288, 0, 1]], hostile: true, aggro: 0 },
   darkwizard: { n: 'Dark wizard', lvl: 7, w: 0.6, h: 1.9, hp: 24, sp: 0.5, xp: [5, 7], drops: [[262, 1, 3], [275, 1, 1]], hostile: true, aggro: 7, ranged: true },
   darkwarrior: { n: 'Dark warrior', lvl: 8, w: 0.6, h: 1.9, hp: 20, sp: 0.55, dmg: 2, xp: [5, 7], drops: [[275, 1, 1], [258, 0, 1]], hostile: true, aggro: 5, rs: 'blackknight' },
-  blackknight: { n: 'Black Knight', lvl: 33, w: 0.6, h: 1.95, hp: 40, sp: 0.55, dmg: 4, xp: [8, 12], drops: [[275, 1, 1], [258, 1, 2]], hostile: true, aggro: 6, armor: 8 },
-  bear: { n: 'Grizzly bear', lvl: 21, w: 1.2, h: 1.4, hp: 30, sp: 0.55, dmg: 3, xp: [5, 8], drops: [[275, 1, 1], [268, 1, 2], [279, 1, 2]], hostile: true, aggro: 0 },
+  blackknight: { n: 'Black Knight', lvl: 33, w: 0.6, h: 1.95, hp: 40, sp: 0.55, dmg: 4, xp: [8, 12], drops: [[275, 1, 1], [258, 1, 2]], kbr: 0.3, hostile: true, aggro: 6, armor: 8 },
+  bear: { n: 'Grizzly bear', lvl: 21, w: 1.2, h: 1.4, hp: 30, sp: 0.55, dmg: 3, xp: [5, 8], drops: [[275, 1, 1], [268, 1, 2], [279, 1, 2]], kbr: 0.4, hostile: true, aggro: 0 },
   unicorn: { n: 'Unicorn', lvl: 15, w: 1.1, h: 1.7, hp: 25, sp: 0.6, dmg: 2, xp: [5, 7], drops: [[275, 1, 1]], hostile: true, aggro: 0 },
   blackunicorn: { n: 'Black unicorn', lvl: 27, w: 1.1, h: 1.7, hp: 30, sp: 0.6, dmg: 3, xp: [6, 9], drops: [[275, 1, 1]], hostile: true, aggro: 6 },
   scorpion: { n: 'Scorpion', lvl: 14, w: 1.0, h: 0.6, hp: 20, sp: 0.6, dmg: 2, xp: [5, 7], drops: [], hostile: true, aggro: 5 },
   ghost: { n: 'Ghost', lvl: 19, w: 0.6, h: 1.9, hp: 25, sp: 0.5, dmg: 2, xp: [5, 8], drops: [[262, 0, 2]], hostile: true, aggro: 5 },
-  icewarrior: { n: 'Ice warrior', lvl: 57, w: 0.6, h: 2.0, hp: 59, sp: 0.5, dmg: 5, xp: [10, 15], drops: [[275, 1, 1], [258, 0, 2]], hostile: true, aggro: 6, armor: 10 },
-  giant: { n: 'Hill Giant', lvl: 28, w: 1.0, h: 2.6, hp: 35, sp: 0.5, dmg: 4, xp: [8, 12], drops: [[275, 2, 2], [258, 0, 1]], hostile: true, aggro: 6 },
-  mossgiant: { n: 'Moss giant', lvl: 42, w: 1.0, h: 2.6, hp: 60, sp: 0.5, dmg: 5, xp: [10, 15], drops: [[275, 2, 2], [257, 1, 3]], hostile: true, aggro: 6 },
-  icegiant: { n: 'Ice giant', lvl: 53, w: 1.0, h: 2.8, hp: 70, sp: 0.5, dmg: 6, xp: [12, 18], drops: [[275, 2, 2], [259, 0, 2]], hostile: true, aggro: 6 },
-  lesserdemon: { n: 'Lesser demon', lvl: 82, w: 1.0, h: 2.6, hp: 79, sp: 0.55, dmg: 7, xp: [15, 25], drops: [[275, 2, 2], [259, 1, 2], [260, 0, 1]], hostile: true, aggro: 7 },
-  greaterdemon: { n: 'Greater demon', lvl: 92, w: 1.3, h: 3.2, hp: 87, sp: 0.55, dmg: 8, xp: [20, 30], drops: [[275, 2, 2], [260, 0, 2]], hostile: true, aggro: 7 },
-  greendragon: { n: 'Green dragon', lvl: 79, w: 1.6, h: 3.0, hp: 75, sp: 0.55, dmg: 8, xp: [25, 35], drops: [[275, 3, 3], [279, 2, 4], [260, 0, 1]], hostile: true, aggro: 7 },
-  kbd: { n: 'King Black Dragon', lvl: 276, w: 2.8, h: 5.5, hp: 240, sp: 0.5, dmg: 12, xp: [100, 150], drops: [[275, 5, 5], [260, 2, 5], [68, 0, 1]], hostile: true, aggro: 10, armor: 15 },
+  icewarrior: { n: 'Ice warrior', lvl: 57, w: 0.6, h: 2.0, hp: 59, sp: 0.5, dmg: 5, xp: [10, 15], drops: [[275, 1, 1], [258, 0, 2]], kbr: 0.3, hostile: true, aggro: 6, armor: 10 },
+  giant: { n: 'Hill Giant', lvl: 28, w: 1.0, h: 2.6, hp: 35, sp: 0.5, dmg: 4, xp: [8, 12], drops: [[275, 2, 2], [258, 0, 1]], kbr: 0.5, hostile: true, aggro: 6 },
+  mossgiant: { n: 'Moss giant', lvl: 42, w: 1.0, h: 2.6, hp: 60, sp: 0.5, dmg: 5, xp: [10, 15], drops: [[275, 2, 2], [257, 1, 3]], kbr: 0.5, hostile: true, aggro: 6 },
+  icegiant: { n: 'Ice giant', lvl: 53, w: 1.0, h: 2.8, hp: 70, sp: 0.5, dmg: 6, xp: [12, 18], drops: [[275, 2, 2], [259, 0, 2]], kbr: 0.6, hostile: true, aggro: 6 },
+  lesserdemon: { n: 'Lesser demon', lvl: 82, w: 1.0, h: 2.6, hp: 79, sp: 0.55, dmg: 7, xp: [15, 25], drops: [[275, 2, 2], [259, 1, 2], [260, 0, 1]], kbr: 0.6, hostile: true, aggro: 7 },
+  greaterdemon: { n: 'Greater demon', lvl: 92, w: 1.3, h: 3.2, hp: 87, sp: 0.55, dmg: 8, xp: [20, 30], drops: [[275, 2, 2], [260, 0, 2]], kbr: 0.7, hostile: true, aggro: 7 },
+  greendragon: { n: 'Green dragon', lvl: 79, w: 1.6, h: 3.0, hp: 75, sp: 0.55, dmg: 8, xp: [25, 35], drops: [[275, 3, 3], [279, 2, 4], [260, 0, 1]], kbr: 0.8, hostile: true, aggro: 7 },
+  kbd: { n: 'King Black Dragon', lvl: 276, w: 2.8, h: 5.5, hp: 240, sp: 0.5, dmg: 12, xp: [100, 150], drops: [[275, 5, 5], [260, 2, 5], [68, 0, 1]], kbr: 1, hostile: true, aggro: 10, armor: 15 },
 }
 // the RS model of each mob (assets/npc_*.json); MC's own (pig, sheep, creeper) have none and keep the block model
 for (const [k, r] of Object.entries({ cow: 'cow', chicken: 'chicken', zombie: 'zombie', skeleton: 'skeleton', spider: 'giantspider' })) MOBS[k].rs = r

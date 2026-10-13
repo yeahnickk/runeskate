@@ -659,7 +659,7 @@ export class Game {
     this.emit({ t: 'snd', s: 'hurt_' + m.type, x: m.x, y: m.y, z: m.z })
     if (by) {
       const dx = m.x - by.x, dz = m.z - by.z, L = Math.hypot(dx, dz) || 1
-      m.vx = dx / L * kb; m.vz = dz / L * kb; m.vy = 0.36
+      const r = 1 - (M.kbr || 0); m.vx = dx / L * kb * r; m.vz = dz / L * kb * r; if (r > 0) m.vy = 0.36 * r
       if (!M.hostile && !M.villager) m.panic = 80
       if (m.type === 'spider' || M.aggro !== undefined || M.villager) m.angry = true
     }
@@ -776,8 +776,8 @@ export class Game {
     const knock = (e, isP) => {
       const d = Math.hypot(e.x - x, e.y + (e.h || 0.5) / 2 - y, e.z - z)
       if (d > r * 2) return
-      const imp = (1 - d / (r * 2)) * seen(e), L = d || 1
-      e.vx += (e.x - x) / L * imp; e.vy += (e.y + (e.h || 0.5) / 2 - y) / L * imp + 0.1 * imp; e.vz += (e.z - z) / L * imp
+      const imp = (1 - d / (r * 2)) * seen(e), L = d || 1, kr = e.e === 'mob' && MOBS[e.type] ? 1 - (MOBS[e.type].kbr || 0) : 1
+      e.vx += (e.x - x) / L * imp * kr; e.vy += ((e.y + (e.h || 0.5) / 2 - y) / L * imp + 0.1 * imp) * kr; e.vz += (e.z - z) / L * imp * kr
       const dmg = (imp * imp + imp) / 2 * 7 * r * 2 + 1
       if (isP) { if (imp > 0) this.hurtPlayer(dmg, src && src.type ? src : null, 'boom') }
       else if (e.e === 'mob') { if (imp > 0) this.hurtMob(e, dmg, null) }

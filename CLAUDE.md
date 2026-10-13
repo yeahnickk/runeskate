@@ -135,6 +135,8 @@ Minecraft to play: the real 2004 map draws over the blocks, Minecraft's first pe
 - Fights go by RS hitpoints for the weak (goblin 5, man 7: three or four punches), hunger drains at half MC's rate.
   Townsfolk hit back when hit (`FOLK` `hit` = RS max hit, a swing every 48 ticks) and calm down once you're 16 away.
   `/summon` takes the RS names too (`RS_SPAWN`: man, guard, dwarf...).
+  The heavy RS monsters resist knockback (`kbr`, MC's attribute: giants, demons, dragons; the KBD fully), sword hits and
+  blasts alike. Event advancements (Monster Hunter...) are awarded in `emit`, as they happen.
 - `bodies.js` the RS bodies: mobs are RS NPC models with their clips; the player (F5) is an RS character wearing the
   armour as an RS set and holding a pickaxe of the tool's tier / scimitar / shortbow. Pointer lock is on the GUI
   canvas (the one with the mouse listeners).
