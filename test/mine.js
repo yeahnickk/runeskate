@@ -135,13 +135,13 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   const cell = (x, y, z) => { const t = w.tile(x, z); return t >= 0 && y >= w.gy[t] - 1 && y <= w.gy[t] && w.natural(x, y, z) }
   g.hidden = (x, y, z, f) => cell(x, y, z) && (!f || (y + f[1] >= w.gy[w.tile(x + f[0], z + f[2])] && w.natural(x + f[0], y + f[1], z + f[2])))
   let deep = 0, n = 0
-  for (let X = 1230; X < 1280; X += 3) for (let Z = -390; Z < -335; Z += 3) for (const pitch of [-1.4, -1.2, -0.9]) {
-    const gy = w.gy[w.tile(X, Z)]; if (w.get(X, gy + 1, Z) || w.get(X, gy + 2, Z)) continue
-    Object.assign(P, { x: X + 0.5, y: gy + 1, z: Z + 0.5, yaw: 0, pitch })
+  for (let tx = 2; tx < w.W - 2; tx += 9) for (let tz = 2; tz < w.H - 2; tz += 9) for (const [yaw, pitch] of [[0, -1.3], [Math.PI / 2, -1.0], [Math.PI, -0.8], [-Math.PI / 2, -1.1]]) {
+    const X = tx, Z = -tz - 1, gy = w.gy[w.tile(X, Z)]; if (w.get(X, gy + 1, Z) || w.get(X, gy + 2, Z)) continue
+    Object.assign(P, { x: X + 0.5, y: gy + 1, z: Z + 0.5, yaw, pitch })
     const t = g.target(); if (!t) continue
-    n++; if (t.y < w.gy[w.tile(t.x, t.z)] - 1) deep++
+    n++; if (t.y < w.gy[w.tile(t.x, t.z)] - 1 && !w.get(t.x, t.y + 1, t.z)) deep++     // (a riverbed seen through its water is fine)
   }
-  check('looking at the ground in Al Kharid hits the ground, never a block hidden under it', n > 100 && !deep, `${deep} of ${n} too deep`)
+  check('looking at the ground anywhere on the map hits the ground, never a block hidden under it', n > 10000 && !deep, `${deep} of ${n} too deep`)
 }
 
 // ---------------------------------------------------------------- digging + tools
