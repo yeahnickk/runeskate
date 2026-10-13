@@ -251,7 +251,7 @@ export function meshChunk(world, cx, cz, opts = {}) {
           if (hid && n[1] > 0 && y === hz[colK(rx, rz)] + 1) continue     // (the ground's own top: RS draws it, even under a felled tree)
           if (tr && nb === id && (!d.leaves || !fancy)) continue
           let tops = null
-          if (hid && n[1] === 0 && (wet || hz[colK(rx + n[0], rz + n[2])] === WH)) { tops = rsTops(f, rx, rz, y, !OPQ[at(rx, rz, y + 1)]); if (tops === false) continue }
+          if (hid && n[1] === 0 && (wet || hz[colK(rx + n[0], rz + n[2])] === WH)) { tops = rsTops(f, rx, rz, y, !OPQ[at(rx, rz, y + 1)] || (y > hz[colK(rx, rz)] && hidden(rx, rz, y + 1))); if (tops === false) continue }   // (a trunk or wall over it is RS's to draw: still stretch up to the ground)
           let tile = d.t[FACES[f].k]
           let rot = 0
           if (d.facing && d.t.front && f === FRONT[meta & 3]) tile = d.t.front

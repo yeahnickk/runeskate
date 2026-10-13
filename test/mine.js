@@ -144,6 +144,23 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   check('looking at the ground anywhere on the map hits the ground, never a block hidden under it', n > 10000 && !deep, `${deep} of ${n} too deep`)
 }
 
+// ---------------------------------------------------------------- a pit beside a tree, wall or rock: its wall meets the RS ground (no sliver of sky)
+{
+  const { w } = fresh(), vx = new Uint8Array(w.W * w.H), cover = new Uint8Array(w.W * w.H).fill(1)
+  const rs = { vx, cover, h: (x, z) => H0 }; let H0 = 0, n = 0; const bad = []
+  for (let tx = 40; tx < w.W - 40 && n < 60; tx += 7) for (let tz = 40; tz < w.H - 40 && n < 60; tz += 7) {
+    const X = tx, Z = -tz - 1, g = w.gy[w.tile(X, Z)]
+    if (w.get(X, g + 1, Z) || w.get(X, g, Z) === 8 || !w.get(X + 1, g + 1, Z) || w.gy[w.tile(X + 1, Z)] !== g || BLOCKS[w.get(X + 1, g + 1, Z)].liquid) continue
+    for (let y = g + 3; y > g - 3; y--) w.set(X, y, Z, 0); vx[X + tz * w.W] = 1; H0 = g + 1.43; n++
+    const cx = X >> 4, cz = Z >> 4, m = meshChunk(w, cx, cz, { rs }).s
+    let top = -1
+    for (let q = 0; q < m.n; q++) { const p = m.pos.subarray(q * 12, q * 12 + 12); if ([0, 3, 6, 9].every(i => Math.abs(p[i] + cx * 16 - (X + 1)) < 0.01) && [2, 5, 8, 11].every(i => p[i] + cz * 16 > Z - 0.01 && p[i] + cz * 16 < Z + 1.01)) top = Math.max(top, ...[1, 4, 7, 10].map(i => p[i])) }
+    if (top < H0 - 0.02) bad.push(`${X},${Z} ${BLOCKS[w.get(X + 1, g + 1, Z)].n} ${top.toFixed(2)}<${H0.toFixed(2)}`)
+    w.set(X, g, Z, 1); vx[X + tz * w.W] = 0
+  }
+  check('a pit beside a tree, wall or rock: its wall reaches the RS ground', n >= 30 && !bad.length, `${n} pits ${bad.slice(0, 4).join(', ')}`)
+}
+
 // ---------------------------------------------------------------- digging + tools
 {
   const t = (b, h) => digInfo(b, h).ticks
