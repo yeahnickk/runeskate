@@ -134,7 +134,7 @@ export function meshChunk(world, cx, cz, opts = {}) {
     const own = !smooth
     for (let j = 0; j < 4; j++) {
       const c = F.c[j], v = tmp[j]
-      const p = [c[0] ? box[3] : box[0], c[1] ? (tops ? tops[c[0] + c[2]] : box[4]) : box[1], c[2] ? box[5] : box[2]]
+      const p = [c[0] ? box[3] : box[0], c[1] ? (tops ? (tops.length === 4 ? tops[c[0] + 2 * c[2]] : tops[c[0] + c[2]]) : box[4]) : box[1], c[2] ? box[5] : box[2]]
       v[0] = rx - P + p[0] + ox - ox; v[1] = ry + p[1]; v[2] = rz - P + p[2]
       // uv: sides use (horizontal tangent, y); top/bottom use (x, z)
       let u, w
@@ -262,17 +262,26 @@ export function meshChunk(world, cx, cz, opts = {}) {
         cross(S, rx, y, rz, d.t.side)
       } else if (sh === 'liquid') {
         const buf = d.liquid === 'water' ? Wt : S
-        // the surface by the flow level (MC: a source or a fall 14/16 high, flowing 1..7 down to 1/9), full under its own kind
-        const lh = (rx, rz, y) => at(rx, rz, y + 1) === at(rx, rz, y) ? 1 : liquidTop(world.meta(ox + rx - P, y, oz + rz - P))
-        const hTop = lh(rx, rz, y)
+        // the surface by the flow level (MC: a source or a fall 14/16 high, flowing 1..7 down to 1/9), full under its own
+        // kind; each corner the average of the cells round it (a source counts 10, open air beside 1 at nothing), as MC,
+        // so a flow slopes smoothly down and neighbours share their edges
+        const full = at(rx, rz, y + 1) === id
+        const corner = (a, c) => {
+          let s = 0, n = 0
+          for (let i = -1; i <= 0; i++) for (let k = -1; k <= 0; k++) {
+            const qx = rx + a + i, qz = rz + c + k, q = at(qx, qz, y)
+            if (q === id) { if (at(qx, qz, y + 1) === id) return 1; const m = world.meta(ox + qx - P, y, oz + qz - P), w = (m & 15) === 0 ? 10 : 1; s += liquidTop(m) * w; n += w }
+            else if (!BLOCKS[q] || !BLOCKS[q].solid) n++
+          }
+          return n ? s / n : 14 / 16
+        }
+        const tops = full ? null : [corner(0, 0), corner(1, 0), corner(0, 1), corner(1, 1)]
         for (let f = 0; f < 6; f++) {
           const n = FACES[f].n, nb = at(rx + n[0], rz + n[2], y + n[1])
-          let lo = 0
-          if (nb === id) { if (n[1] !== 0) continue; lo = lh(rx + n[0], rz + n[2], y); if (lo >= hTop - 0.01) continue }   // (a step down the flow shows its side)
-          if (OPQ[nb]) continue
+          if (nb === id || OPQ[nb]) continue
           if (hid && !faceShows(rx + n[0], rz + n[2], y + n[1])) continue
-          if (f !== 2 && nb !== id && BLOCKS[nb] && BLOCKS[nb].liquid) continue
-          face(buf, f, rx, y, rz, [0, lo, 0, 1, f === 2 || n[1] === 0 ? hTop : 1, 1], d.t.side, d.liquid === 'water' ? 1 : 3, false)
+          if (f !== 2 && BLOCKS[nb] && BLOCKS[nb].liquid) continue
+          face(buf, f, rx, y, rz, [0, 0, 0, 1, 1, 1], d.t.side, d.liquid === 'water' ? 1 : 3, false, 0, n[1] < 0 ? null : tops)
           if (d.liquid === 'water' && f === 2) {        // (seen from under the surface too)
             const v = buf.n - 1, q = [0, 1, 2, 3].map(j => { const o = v * 4 + j; return [buf.pos[o * 3], buf.pos[o * 3 + 1], buf.pos[o * 3 + 2], buf.uv[o * 2], buf.uv[o * 2 + 1], buf.lt[o * 4], buf.lt[o * 4 + 1], buf.lt[o * 4 + 2], 1] })
             buf.quad([q[1], q[0], q[3], q[2]])
