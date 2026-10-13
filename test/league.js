@@ -30,6 +30,13 @@ const run = (m, secs, inp, every) => { const c = m.cars[0]; for (let i = 0; i < 
   run(m, 3, (t, c) => { const b = basis(c.q), i = I({}); i.roll = Math.max(-1, Math.min(1, b.r[1] * 2.2)); i.pitch = Math.max(-1, Math.min(1, -b.f[1] * 2)); return i; });
   check('air control rights the car before it lands', c.ground && basis(c.q).u[1] > 0.9, `up.y ${basis(c.q).u[1].toFixed(2)}`);
 }
+{ // flips with the stick held the way you flip (as people do) must spin the full flip, not read as a flip cancel
+  const out = [['front', { pitch: -1, throttle: 1 }], ['back', { pitch: 1, throttle: -1 }], ['side', { yaw: 1, steer: 1, throttle: 1 }]].map(([n, st]) => {
+    const m = solo(), c = m.cars[0]; c.place([0, 17, -2000], 0); let land = 0;
+    run(m, 2.5, t => I({ ...st, jump: t < 0.1 || (t > 0.15 && t < 0.2) }), (t, c) => { if (!land && t > 0.3 && c.ground) land = t; });
+    return [n, land, basis(c.q).u[1]]; });
+  check('flips with the stick held land wheels down in ~1.3 s', out.every(([, l, u]) => l > 1 && l < 1.5 && u > 0.9), out.map(([n, l]) => `${n} ${l.toFixed(2)} s`).join(', '));
+}
 // ---- the ball
 { // a straight hit: RL's extra (Psyonix) impulse scales with the closing speed before contact, so the ball leaves well
   // ahead of the car (~1900 off a 1410 drive, ~3000 off a supersonic one), not stuck to the bumper

@@ -262,7 +262,7 @@ export class Match {
       const w = c.w;
       if (c.flipT >= 0 && c.flipT < C.flipT) {
         const [fx, sy] = c.flipDir; let dp = -fx * C.flipPitch * C.torqueK, dr = sy * C.flipRoll * C.torqueK;
-        const pin = inp.pitch || 0; if (pin * dp > 0 && fx) dp *= 1 - Math.min(1, Math.abs(pin));   // (the flip cancel: stick against the pitch)
+        const pin = inp.pitch || 0; if (pin * fx > 0) dp *= 1 - Math.min(1, Math.abs(pin));   // (the flip cancel: the stick pulled against the flip; held with it, the flip runs full)
         addS(w, b.r, dp * dt); addS(w, b.f, dr * dt);
       } else if (c.autoT > 0) {
         c.autoT -= dt;

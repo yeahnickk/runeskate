@@ -7,7 +7,7 @@ import { Match, C, MODES, basis, TICK } from './match.js';
 import { botInput, DIFFS } from './bots.js';
 import { D, N, L, GH } from './arena.js';
 import { buildArena, Pads, buildCabbage, TEAM, SUN, floorShape, Grass } from './scenery.js';
-import { CarVis, HATS, setEnv } from './cars.js';
+import { CarVis, setEnv } from './cars.js';
 import { LeagueHud, QUICK, clock } from './hud.js';
 import { LeagueInput, TOUCH } from './input.js';
 import { loadPack } from '../cart/scenery.js';
@@ -211,10 +211,15 @@ async function main() {
   addEventListener('resize', resize); resize();
 
   // ---------------- the setup
-  const setup = Object.assign({ name: '', size: 2, diff: 'pro', team: 0, body: 'kart', theme: 'sara', hat: 'god', boom: 'party', ballcam: true, gfx: TOUCH ? 'low' : 'high' }, load(SETUP_KEY, {}));
+  const setup = Object.assign({ name: '', size: 2, diff: 'pro', team: 0, body: 'kart', theme: 'sara', hat: 'god', boom: 'party', ballcam: true, gfx: 'low' }, load(SETUP_KEY, {}));
+  if (!setup.gfx2) { setup.gfx = 'low'; setup.gfx2 = 1; }   // (LOW by default for everyone; HIGH is opt-in from the menu)
   // the graphics level: HIGH has the sun's shadows, MSAA and light shafts; LOW drops them (bloom, grade and FXAA stay)
   const applyGfx = q => { const hi = q === 'high'; sun.castShadow = hi; post.shafts = hi; post.ao = hi; if (grass) grass.mesh.visible = hi; const sm = hi && !TOUCH ? 4 : 0; if (post.rt.samples !== sm) { post.rt.samples = sm; post.rt.dispose(); } };
   applyGfx(setup.gfx);
+  // just play: the menu only asks the mode, the bots and the graphics. You're blue in Saradomin's go-kart; each match
+  // rolls a goal explosion (online, the server balances the teams)
+  Object.assign(setup, { team: 0, body: 'kart', theme: 'sara', hat: 'god' });
+  const rollBoom = () => { const k = Object.keys(BOOMS); setup.boom = k[(Math.random() * k.length) | 0]; };
   if (!setup.name) setup.name = 'Player' + (100 + Math.floor(Math.random() * 900));
   let net = null, netMsg = '', netEv = [], m = null, vis = [], me = null, mode = 'menu', paused = false, endShown = false, preview = null, previewKey = '', ballcam = setup.ballcam;
   const cam = { p: null, yaw: 0, init: false };
@@ -236,16 +241,11 @@ async function main() {
       <div class="row name"><div class="lab">NAME</div><input id="m-name" maxlength="12" value="${setup.name.replace(/"/g, '')}"></div>
       <div id="m-size">${seg('MODE', Object.entries(MODES).map(([k, n]) => [k, n]), setup.size)}</div>
       <div id="m-diff">${seg('BOTS', Object.entries(DIFFS).map(([k, d]) => [k, d.name]), setup.diff)}</div>
-      <div id="m-team">${seg('TEAM', TEAM.map((t, i) => [i, t.name, t.css]), setup.team)}</div>
-      <div id="m-body">${seg('KART', Object.entries(BODIES).map(([k, n]) => [k, n]), setup.body)}</div>
-      <div id="m-theme">${seg('GOD', Object.entries(THEMES).map(([k, t]) => [k, t.name, '#' + t.acc.toString(16).padStart(6, '0')]), setup.theme)}</div>
-      <div id="m-hat">${seg('HAT', Object.entries(HATS).map(([k, h]) => [k, h[0]]), setup.hat)}</div>
-      <div id="m-boom">${seg('GOAL FX', Object.entries(BOOMS).map(([k, n]) => [k, n]), setup.boom)}</div>
       <div id="m-gfx">${seg('GRAPHICS', [['high', 'HIGH'], ['low', 'LOW']], setup.gfx)}</div>
       <div class="keys">${TOUCH ? 'The gas is on for you. <b>Stick</b> steers (and tips the nose in the air; pull it right back to reverse). <b>JUMP</b> twice to double jump, or with the stick pushed to flip. <b>BOOST</b>, <b>SLIDE</b> powerslides / air rolls, <b>CAM</b> ball cam.'
         : '<b>W S</b> drive (nose down / up in the air) &nbsp; <b>A D</b> steer &nbsp; <b>RIGHT MOUSE</b> jump (again to double jump, with a direction to flip) &nbsp; <b>LEFT MOUSE</b> boost &nbsp; <b>SHIFT</b> powerslide + air roll &nbsp; <b>Q E</b> air roll &nbsp; <b>SPACE</b> ball cam on / off &nbsp; (no mouse: <b>J</b> jump, <b>K</b> boost) &nbsp; <b>TAB</b> scores &nbsp; <b>1-4</b> quick chat &nbsp; <b>ESC</b> pause. A pad plays like RL.'}</div>`;
     const wire = (id, key, after, num) => { for (const b of $(id).querySelectorAll('button')) b.onclick = () => { setup[key] = num ? +b.dataset.v : b.dataset.v; save(SETUP_KEY, setup); for (const o of $(id).querySelectorAll('button')) o.classList.toggle('sel', o === b); after?.(); }; };
-    wire('m-size', 'size', null, true); wire('m-diff', 'diff'); wire('m-team', 'team', showPreview, true); wire('m-body', 'body', showPreview); wire('m-theme', 'theme', showPreview); wire('m-hat', 'hat', showPreview); wire('m-boom', 'boom'); wire('m-gfx', 'gfx', () => applyGfx(setup.gfx));
+    wire('m-size', 'size', null, true); wire('m-diff', 'diff'); wire('m-gfx', 'gfx', () => applyGfx(setup.gfx));
     $('m-name').oninput = e => { setup.name = e.target.value.trim().slice(0, 12) || setup.name; save(SETUP_KEY, setup); };
     $('m-go').onclick = () => start(false); $('m-free').onclick = () => start(true); $('m-online').onclick = () => startOnline();
     $('menu').style.display = '';
@@ -253,7 +253,7 @@ async function main() {
   function clear() { for (const v of vis) v.dispose(); vis = []; m = null; me = null; replay = null; rec.length = 0; net?.close(); net = null; netEv = []; }
   // ---------------- online: the server's 3v3 (netserver.js); we take a bot's seat
   function startOnline() {
-    sfx.start(); sfx.engineOn();
+    sfx.start(); sfx.engineOn(); rollBoom();
     clear(); preview?.dispose(); preview = null; previewKey = '';
     mode = 'game'; paused = false; endShown = false; cam.init = false; hud.feedL = []; hud.pops = []; hud.chat = []; netMsg = 'connecting...';
     for (const id of ['menu', 'endbox', 'pause']) $(id).style.display = 'none';
@@ -276,7 +276,7 @@ async function main() {
     sfx.start(); sfx.engineOn();
     clear(); preview?.dispose(); preview = null; previewKey = '';
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5), gods = Object.keys(THEMES).sort(() => Math.random() - 0.5), bodies = Object.keys(BODIES), booms = Object.keys(BOOMS);
-    const players = [{ id: 'me', name: setup.name, team: setup.team, body: setup.body, theme: setup.theme, hat: setup.hat, boom: setup.boom }];
+    rollBoom(); const players = [{ id: 'me', name: setup.name, team: setup.team, body: setup.body, theme: setup.theme, hat: setup.hat, boom: setup.boom }];
     if (!free) for (let t = 0; t < 2; t++) for (let i = players.filter(p => p.team === t).length; i < setup.size; i++)
       players.push({ id: 'bot' + players.length, name: names[players.length % names.length], team: t, bot: true, diff: setup.diff, body: bodies[(players.length * 5) % 3], theme: gods[players.length % gods.length], boom: booms[players.length % booms.length] });
     m = new Match({ players, seed: (Math.random() * 1e9) | 0, replayT: free ? 0 : 6, freeplay: free });
@@ -365,33 +365,44 @@ async function main() {
 
   // ---------------- the camera: RL's (110 wide, 270 back, 100 up, -3 degrees), ball cam or car cam
   const v3 = (a, b, c) => [a, b, c];
-  function camLook(pos, at) {
+  const _up = new THREE.Vector3();
+  function camLook(pos, at, up) {
     const p = toWorld(pos), a = toWorld(at);
-    camera.position.copy(p); camera.lookAt(a);
+    camera.position.copy(p);
+    if (up) camera.up.copy(_up.set(up[0], up[1], up[2]).applyQuaternion(arena.quaternion)); else camera.up.set(0, 1, 0);
+    camera.lookAt(a);
   }
   function fovFor(h = 110) { const a = camera.aspect; camera.fov = Math.min(100, 2 * Math.atan(Math.tan(h * Math.PI / 360) / Math.max(a, 1)) * 180 / Math.PI * (a < 1 ? 1.25 : 1)); camera.updateProjectionMatrix(); }
+  // RL's chase camera. Car cam: behind the car in its own frame on the ground (it rolls up the walls and over the
+  // ceiling with you), level and following your flight in the air. Ball cam: on the line from the ball through the
+  // car, so a high ball pulls the camera low behind you, looking up at it. Both ease (RL's stiffness), never snap.
+  const nz = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+  const lerp3 = (a, b, k) => nz([a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k]);
   function chase(dt) {
     const c = me, b = basis(c.q), bp = net ? net.drawn('ball', m.ball.p) : m.ball.p, cp = net ? net.drawn(me.id, me.p) : me.p;
-    let dir;
-    if (ballcam && m.state !== 'goal' || (m.state === 'count')) { dir = [bp[0] - cp[0], 0, bp[2] - cp[2]]; if (m.state === 'count' && !ballcam) dir = [b.f[0], 0, b.f[2]]; }
-    else { dir = [b.f[0], 0, b.f[2]]; if (Math.hypot(dir[0], dir[2]) < 0.3) { const hv = Math.hypot(c.v[0], c.v[2]); dir = hv > 200 ? [c.v[0], 0, c.v[2]] : [Math.sin(cam.yaw), 0, Math.cos(cam.yaw)]; } }
-    let yaw = Math.atan2(dir[0], dir[2]);
-    if (!cam.init) { cam.yaw = yaw; cam.init = true; cam.pp = null; }
-    let dy = yaw - cam.yaw; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI;
-    cam.yaw += dy * Math.min(1, dt * (ballcam ? 9 : 6));
-    const fx = Math.sin(cam.yaw), fz = Math.cos(cam.yaw), dist = 270, hgt = 100;
-    let pos = [cp[0] - fx * dist, cp[1] + hgt, cp[2] - fz * dist];
-    // keep it inside the arena (RL's camera doesn't go through the walls)
+    const flat = a => { const l = Math.hypot(a[0], a[2]); return l > 1e-3 ? [a[0] / l, 0, a[2] / l] : null; };
+    const bc = ballcam && (m.state === 'play' || m.state === 'count');
+    let f, u = [0, 1, 0];
+    if (bc) {
+      const d = [bp[0] - cp[0], bp[1] - cp[1], bp[2] - cp[2]], h = flat(d) || flat(cam.f || b.f) || [0, 0, 1];
+      const el = Math.max(-0.25, Math.min(0.62, Math.atan2(d[1], Math.hypot(d[0], d[2]))));   // (how far it tips up for a high ball)
+      f = [h[0] * Math.cos(el), Math.sin(el), h[2] * Math.cos(el)];
+    } else if (c.ground) { f = b.f; u = b.u; }                    // (on a wall or the ceiling: the view goes with you)
+    else { const hv = flat(c.v); f = Math.hypot(c.v[0], c.v[2]) > 300 ? hv : flat(cam.f || b.f) || flat(b.u) || [0, 0, 1]; }
+    if (!cam.init || !cam.f) { cam.f = f; cam.u = u; cam.init = true; cam.pp = null; }
+    cam.f = lerp3(cam.f, f, 1 - Math.exp(-dt * (bc ? 10 : 7))); cam.u = lerp3(cam.u, u, 1 - Math.exp(-dt * 5));
+    // keep forward square to up (the frame stays a frame while both ease)
+    const F = cam.f, U = cam.u, fu = F[0] * U[0] + F[1] * U[1] + F[2] * U[2], Fp = nz([F[0] - U[0] * fu * (bc ? 0 : 1), F[1] - U[1] * fu * (bc ? 0 : 1), F[2] - U[2] * fu * (bc ? 0 : 1)]);
+    cam.yaw = Math.atan2(Fp[0], Fp[2]);
+    const dist = 270, hgt = 100;
+    let pos = [cp[0] - Fp[0] * dist + U[0] * hgt, cp[1] - Fp[1] * dist + U[1] * hgt, cp[2] - Fp[2] * dist + U[2] * hgt];
+    // stay inside the arena (RL's camera slides along the walls and floor, it never goes through)
     const d = D(pos[0], pos[1], pos[2]); if (d < 40) { const n = N(pos[0], pos[1], pos[2]); for (let i = 0; i < 3; i++) pos[i] += n[i] * (40 - d); }
-    if (cam.pp) for (let i = 0; i < 3; i++) cam.pp[i] += (pos[i] - cam.pp[i]) * Math.min(1, dt * 14); else cam.pp = pos.slice();
+    if (cam.pp) for (let i = 0; i < 3; i++) cam.pp[i] += (pos[i] - cam.pp[i]) * Math.min(1, dt * 16); else cam.pp = pos.slice();
     pos = cam.pp;
-    let look;
-    if (ballcam && m.state === 'play') {
-      // aim between straight ahead and the ball: the car stays low on screen, the ball's always in view
-      const hd = Math.hypot(bp[0] - pos[0], bp[2] - pos[2]), pitch = Math.max(-0.35, Math.min(0.85, Math.atan2(bp[1] - pos[1], hd))) * 0.7 - 0.05;
-      look = [pos[0] + fx * 500, pos[1] + Math.tan(pitch) * 500, pos[2] + fz * 500];
-    } else look = [pos[0] + fx * 500, pos[1] - 26, pos[2] + fz * 500];
-    camLook(pos, look);
+    // look: down the frame (at the ball, in ball cam), 3 degrees under it, so the car sits low in the picture
+    const look = [pos[0] + Fp[0] * 500 - U[0] * 26, pos[1] + Fp[1] * 500 - U[1] * 26, pos[2] + Fp[2] * 500 - U[2] * 26];
+    camLook(pos, look, U);
   }
   function replayCam(f, dt) {
     // from the pitch side of the ball, off to one side and up, swinging slowly round as it goes in

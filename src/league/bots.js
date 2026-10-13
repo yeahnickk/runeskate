@@ -60,7 +60,7 @@ export function botInput(m, c, dt) {
     const tHit = bd / Math.max(300, closing);
     if (ai.kick && bd < 480 + sp * 0.13 && bfront && k.flip > 0.3) { startJump(ai, 'flip', Math.atan2(lb[2], lb[0])); return jumpMove(c, b, ai, dt, k); }
     if (bh > 190 && bh < 480 && tHit < 0.45 && bfront) { startJump(ai, bh > 300 ? 'double' : 'jump', 0); return jumpMove(c, b, ai, dt, k); }
-    if (bh < 170 && bd < 330 + closing * 0.08 && bd > 200 && bfront && closing > 500 && P.power && ai.flipOK) { ai.flipOK = false; startJump(ai, 'flip', Math.atan2(lb[2], lb[0])); return jumpMove(c, b, ai, dt, k); }
+    if (bh < 170 && bd < 330 + closing * 0.08 && bd > 200 && Math.abs(Math.atan2(lb[2], lb[0])) < 0.26 && closing > 500 && P.power && ai.flipOK) { ai.flipOK = false; startJump(ai, 'flip', Math.atan2(lb[2], lb[0])); return jumpMove(c, b, ai, dt, k); }   // (power flips only dead ahead: an angled one spins the hit off line)
     if (bd > 900) ai.flipOK = m.rand() < k.flip;                  // (decided once per run at it: does this one get a power flip?)
     if (P.aerial && c.boost > 25 && Math.abs(Math.atan2(local(c, b, P.ballP)[2], local(c, b, P.ballP)[0])) < 0.35) { ai.aerial = { at: P.at, p: P.ballP, t0: m.t }; ai.jumpT = -1; return { ...inp, jump: true, boost: false }; }
   }
@@ -106,7 +106,8 @@ function plan(m, c, b, k, dir, ownGoal, theirGoal) {
     if (ai.back && danger) { target = [B[0] * 0.5, 0, ownGoal[2] + dir * 400]; return { target, urgent: true, back: true }; }
     if (dist < 500) target = [B[0] - sx * (C.ballR + 20), 0, B[2] - sz * (C.ballR + 20)];
     const aerial = B[1] > 300 && k.aerial > 0 && B[1] < 300 + k.aerial && airy(B) && dist < 600 + B[1] * 1.8 && s.t < rise(B[1]) + 0.5;
-    return { target, hit: true, urgent: danger || s.t < 1.6 || dist < 1500, power: !danger || dist < 1200, aerial, at: m.t + s.t, ballP: B, arrive: m.t + s.t };
+    return { target, hit: true, urgent: danger || s.t < 1.6 || dist < 1500, power: !danger && B[2] * dir > -1500,   // (power flips going forward only: a flip in your own end is a mishit waiting to happen)
+      aerial, at: m.t + s.t, ballP: B, arrive: m.t + s.t };
   }
   // backing up: low on boost, go and get a big one; else hold a spot between the ball and our goal
   if (c.boost < 35 && !danger) { const bp = boostPlan(c, dir, false); if (bp) return bp; }

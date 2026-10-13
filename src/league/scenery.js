@@ -151,7 +151,7 @@ export function buildArena(lite) {
     }
   };
   const arc = (cx, cz, r, a0, a1, n = 48) => Array.from({ length: n + 1 }, (_, i) => { const a = a0 + (a1 - a0) * i / n; return [cx + Math.cos(a) * r, cz + Math.sin(a) * r]; });
-  chalk([[-kx, 0], [kx, 0]]); chalk(arc(0, 0, 1000, 0, Math.PI * 2, 64)); chalk(arc(0, 0, 35, 0, Math.PI * 2, 12), 70);
+  chalk([[-kx, 0], [kx, 0]]); chalk(arc(0, 0, 1000, 0, Math.PI * 2, 64)); chalk(arc(0, 0, 18, 0, Math.PI * 2, 24), 36);
   for (const s of [-1, 1]) { chalk([[-1900, s * L], [-1900, s * (L - 1500)], [1900, s * (L - 1500)], [1900, s * L]]); chalk([[-GW, s * L], [GW, s * L]], 50); chalk(arc(0, s * (L - 1500), 600, s > 0 ? Math.PI : 0, s > 0 ? Math.PI * 2 : Math.PI, 24)); }
   // the goals: oak frames painted in the team's colour (posts, crossbar, the back frame), rope nets
   const nets = new Soup(), V = (x, y, z) => new THREE.Vector3(x, y, z);

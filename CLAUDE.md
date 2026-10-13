@@ -92,9 +92,10 @@ z down the pitch, blue defends -z; a car's forward +x, up +y, right +z), 120 Hz.
   PMREM of the sky, `setEnv`); the RS drivers stay matte. Glows are colours over 1 (team trims, goal
   frames), so the HDR bloom catches them. The menu's GRAPHICS HIGH / LOW (`applyGfx`: shadows, MSAA, shafts, AO, scenery's `Grass` blades
   round the camera; LOW is the
-  phone default). A HIGH frame is ~345 draw calls, ~470k triangles; the sim + bots ~0.4 ms. No canvas textures standing in for RS things.
+  default everywhere). A HIGH frame is ~345 draw calls, ~470k triangles; the sim + bots ~0.4 ms. No canvas textures standing in for RS things.
 - `cars.js` CartScape's karts painted per team; `hud.js` RS fonts at native size on brown panels; `input.js` RL's
-  PC defaults (right mouse jump, left mouse boost, SHIFT powerslide, SPACE ball cam; J/K without a mouse), pad, touch; `main.js` the client (menu, camera, replays, sfx).
+  PC defaults (right mouse jump, left mouse boost, SHIFT powerslide, SPACE ball cam; J/K without a mouse), pad, touch; `main.js` the client (a short menu: mode, bots, graphics; you're blue in Saradomin's kart, goal FX rolled; RL's
+  camera: car cam rolls with you on walls, ball cam on the ball-car line; replays, sfx).
 - Online: `netserver.js` one always-on 3v3 inside serve.ts (`/league-ws`; bots fill seats, people take them, idle when
   empty), 120 Hz, state out 30 a second. `netclient.js` loads each snapshot and replays our unacked inputs (2 ticks
   each), easing corrections out visually (`drawn`). Rule events (goals, demos...) only ever come from the server.
