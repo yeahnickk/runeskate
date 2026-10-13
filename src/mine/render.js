@@ -8,6 +8,7 @@ import { selBox } from './phys.js'
 import { celestial } from './game.js'
 import { MODELS, armModel, blockMesh, itemMesh, isBlockModel } from './models.js'
 import { text, width } from './font.js'
+import { outfitOf, playerModel, playerClip, rsName, npcModel } from './bodies.js'
 
 const VS = `
 attribute vec4 lt; attribute vec4 tc;
@@ -38,6 +39,11 @@ void main() {
   gl_FragColor = vec4(mix(c, uFog, f), uWater > 0.5 ? t.a : 1.0);
 }`
 
+// RS models face +x... turned so yaw 0 (MC: facing -Z) faces -Z
+export let RS_YAW = Math.PI
+export const setRsYaw = (v) => { RS_YAW = v }
+const turnTo = (a, b, k) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return a + d * Math.min(1, k) }
+
 export class View {
   constructor(renderer, atlas, world, game, opts = {}) {
     Object.assign(this, { R: renderer, world, game, rd: opts.rd || 8, fancy: opts.fancy !== false })
@@ -51,7 +57,41 @@ export class View {
     this.chunks = new Map(); this.idx = null; this.queue = []; this.dirty = new Set(); this.soon = new Set()
     this.ents = new Map(); this.parts = []
     this.buildSky(); this.buildOutline(); this.buildHand(); this.buildParticles()
-    world.listeners.push((x, y, z, id, was) => this.onEdit(x, y, z, id, was))
+    this.listener = (x, y, z, id, was, nat) => this.onEdit(x, y, z, id, was, nat)
+    world.listeners.push(this.listener)
+    // the RS world drawn over the blocks (rsworld.js): which tiles are blocks now comes from the edits
+    const rsw = this.rsw = opts.rsw || null
+    if (rsw) {
+      this.scene.add(rsw.group)
+      this.rs = { vx: rsw.vx, cover: rsw.cover }
+      rsw.vx.fill(0); for (const m of rsw.meshes) rsw.dirty.add(m)
+      this.vxFromEdits()
+      rsw.onCover = (x0, z0, w, h) => { for (const [k, c] of this.chunks) { const X = c.cx * CS, T = -c.cz * CS - CS; if (X + CS > x0 && X < x0 + w && T + CS > z0 && T < z0 + h) this.soon.add(k) } }
+    }
+  }
+  dispose() { const L = this.world.listeners, i = L.indexOf(this.listener); if (i >= 0) L.splice(i, 1); if (this.rsw) this.rsw.onCover = null }
+  // a tile turns to blocks when you change its ground (or anything under it), or knock out what the map stood on it
+  vxEdit(x, y, z, was, nat) {
+    const W = this.world, t = W.tile(x, z); if (t < 0) return
+    const tx = x, tz = -z - 1, g = W.gy[t]
+    if (y <= g) return this.rsw.setVx(tx, tz, 1)
+    if (nat && was) {
+      this.rsw.setVx(tx, tz, 1)
+      if (was === 79) for (let a = -1; a <= 1; a++) for (let c = -1; c <= 1; c++) if (a || c) this.rsw.setVx(tx + a, tz + c, 2)   // (the canopy)
+    }
+  }
+  vxFromEdits() {
+    const W = this.world
+    for (const [k, e] of W.edits) {
+      const [cx, cz] = k.split(',').map(Number); let o = null
+      for (const i of e.keys()) {
+        const y = i % WH, col = (i - y) / WH, x = cx * CS + (col & 15), z = cz * CS + (col >> 4), t = W.tile(x, z)
+        if (t < 0) continue
+        if (y <= W.gy[t]) { this.vxEdit(x, y, z, 0, false); continue }
+        if (!o) o = W.orig(cx, cz)
+        const was = o.b[i]; if (was) this.vxEdit(x, y, z, was, true)
+      }
+    }
   }
   quadIndex(n) {
     if (this.idx && this.idx.count >= n * 6) return this.idx
@@ -81,9 +121,10 @@ export class View {
     c.ver = m.ver
   }
   dropChunk(k) { const c = this.chunks.get(k); if (!c) return; for (const key of ['s', 'w']) if (c[key]) { this.scene.remove(c[key]); c[key].geometry.dispose() } this.chunks.delete(k) }
-  onEdit(x, y, z, id, was) {
+  onEdit(x, y, z, id, was, nat) {
     const cx = x >> 4, cz = z >> 4
     this.dirty.add(cx + ',' + cz)
+    if (this.rsw) this.vxEdit(x, y, z, was, nat)
     const lx = x & 15, lz = z & 15
     // neighbours sharing the face, now; the rest (light reaches 15) a little later
     if (lx === 0) this.dirty.add((cx - 1) + ',' + cz); if (lx === 15) this.dirty.add((cx + 1) + ',' + cz)
@@ -114,14 +155,14 @@ export class View {
     const sp = [], r = Math.random
     for (let i = 0; i < 1500; i++) { const v = new THREE.Vector3(r() * 2 - 1, r() * 2 - 1, r() * 2 - 1).normalize().multiplyScalar(450); sp.push(v.x, v.y, v.z) }
     const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3))
-    this.stars = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, transparent: true, depthWrite: false }))
+    this.stars = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, transparent: true, depthWrite: false, fog: false }))
     this.stars.renderOrder = -9; this.stars.frustumCulled = false; this.scene.add(this.stars)
     // clouds: MC's cloud map, a flat layer of 12-block cells scrolling east
     const cc = document.createElement('canvas'); cc.width = cc.height = 64
     const cx = cc.getContext('2d'), rr = (() => { let a = 99; return () => { a = (a * 16807) % 2147483647; return a / 2147483647 } })()
     for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) { const n = Math.sin(x * 0.4) * Math.cos(y * 0.35) + Math.sin((x + y) * 0.17) + rr() * 0.9; if (n > 0.9) { cx.fillStyle = '#fff'; cx.fillRect(x, y, 1, 1) } }
     const ct = new THREE.CanvasTexture(cc); ct.magFilter = ct.minFilter = THREE.NearestFilter; ct.wrapS = ct.wrapT = THREE.RepeatWrapping; ct.repeat.set(2, 2)
-    this.clouds = new THREE.Mesh(new THREE.PlaneGeometry(1536, 1536), new THREE.MeshBasicMaterial({ map: ct, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide }))
+    this.clouds = new THREE.Mesh(new THREE.PlaneGeometry(1536, 1536), new THREE.MeshBasicMaterial({ map: ct, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide, fog: false }))
     this.clouds.rotation.x = -Math.PI / 2; this.clouds.frustumCulled = false; this.clouds.renderOrder = 2
     this.scene.add(this.clouds)
   }
@@ -277,34 +318,74 @@ export class View {
       return { g, ph, mat: m.material, light: 1 }
     }
     if (e.e === 'mob') {
-      const M = MODELS[e.type](e.kind)
-      g.add(M.g)
-      if (e.type === 'villager' && e.name) {
-        const c = document.createElement('canvas'), w = width(e.name) + 4; c.width = w; c.height = 10
-        const x = c.getContext('2d'); x.fillStyle = 'rgba(0,0,0,0.25)'; x.fillRect(0, 0, w, 10); text(x, e.name, 2, 1, '#ffffff', false)
-        const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter
-        const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, transparent: true })); s.scale.set(w / 40, 10 / 40, 1); s.position.y = M.eye / 16 * (M.g.scale.y) + 0.55; s.renderOrder = 5
-        g.add(s); M.tag = s
-      }
-      return { g, ph, M, walk: 0, light: 1 }
+      const o = { g, ph, M: null, rs: null, walk: 0, light: 1 }, name = rsName(e)
+      if (name) npcModel(name).then(m => { o.rs = m; m.mesh.material.fog = true; g.add(m.group); if (o.light !== undefined) this.tint(o, o.light, e) }).catch(() => { o.M = MODELS.zombie(); g.add(o.M.g) })
+      else if (MODELS[e.type]) { o.M = MODELS[e.type](e.kind); g.add(o.M.g) }
+      return o
     }
     return null
   }
   animMob(e, o, dt) {
-    const M = o.M, sp = Math.hypot(e.x - (e.px ?? e.x), e.z - (e.pz ?? e.z)) * 20
-    o.walk += sp * dt * 2.2
-    const amp = Math.min(1, sp / 2.5) * 0.9
-    o.g.rotation.y = e.yaw
-    if (M.spider) M.legs.forEach((l, i) => { l.rotation.x = Math.sin(o.walk * 2 + i * 1.3) * 0.4 * amp })
-    else M.legs.forEach((l, i) => { l.rotation.x = Math.sin(o.walk + (i % 2 ? Math.PI : 0) + (i > 1 ? Math.PI : 0)) * amp })
-    if (M.arms && !M.armsOut) M.arms.forEach((a, i) => { a.rotation.x = Math.sin(o.walk + (i ? 0 : Math.PI)) * amp * 0.8 })
-    // head looks at the player when near (MC's look-at goal)
-    const P = this.game.player, d = Math.hypot(P.x - e.x, P.z - e.z)
-    if (d < 8 && M.head) { let ya = Math.atan2(-(P.x - e.x), -(P.z - e.z)) - e.yaw; while (ya > Math.PI) ya -= 2 * Math.PI; while (ya < -Math.PI) ya += 2 * Math.PI; M.head.rotation.y = Math.max(-1.2, Math.min(1.2, ya)) } else if (M.head) M.head.rotation.y *= 0.9
-    if (M.tag) M.tag.visible = d < 12
-    if (e.death) o.g.rotation.z = Math.min(1, e.death / 10) * Math.PI / 2
+    const sp = Math.hypot(e.x - (e.px ?? e.x), e.z - (e.pz ?? e.z))
+    o.yaw = turnTo(o.yaw ?? e.yaw, e.yaw, dt * 10)
+    o.g.rotation.y = o.yaw + RS_YAW
+    o.g.position.y = this.drawY(e, o.g.position.x, o.g.position.y, o.g.position.z, o)
+    if (o.rs) {
+      const m = o.rs, clip = e.death ? 'death' : sp > 0.01 ? 'walk' : 'ready'
+      m.play(clip, clip !== 'death'); m.update(dt)
+      // a lunge when it lands a hit (RS NPCs here have no attack clip)
+      if (e.atkFx > 0) { e.atkFx -= dt; m.group.position.z = Math.sin(Math.max(0, e.atkFx) / 0.25 * Math.PI) * 0.25 } else m.group.position.z = 0
+    } else if (o.M) {
+      const M = o.M
+      o.walk += sp * 20 * dt * 2.2
+      const amp = Math.min(1, sp * 8) * 0.9
+      if (M.spider) M.legs.forEach((l, i) => { l.rotation.x = Math.sin(o.walk * 2 + i * 1.3) * 0.4 * amp })
+      else M.legs.forEach((l, i) => { l.rotation.x = Math.sin(o.walk + (i % 2 ? Math.PI : 0) + (i > 1 ? Math.PI : 0)) * amp })
+      if (M.arms && !M.armsOut) M.arms.forEach((a, i) => { a.rotation.x = Math.sin(o.walk + (i ? 0 : Math.PI)) * amp * 0.8 })
+      if (e.death) o.g.rotation.z = Math.min(1, e.death / 10) * Math.PI / 2
+      if (e.fuse > 0) o.g.scale.setScalar(1 + Math.min(0.3, e.fuse / 100))
+    }
     if (e.hurt > 0 || e.death || e.fuse > 0 || o.wasHurt) { this.tint(o, o.light, e); o.wasHurt = e.hurt > 0 || e.death || e.fuse > 0 }
-    if (e.fuse > 0) o.g.scale.setScalar(1 + Math.min(0.3, e.fuse / 100))
+  }
+  // where a body is drawn: on the RS ground where it stands on the map's own ground (smoothly), else on the blocks
+  drawY(e, x, y, z, o) {
+    const rsw = this.rsw; if (!rsw) return y
+    const W = this.world, bx = Math.floor(x), bz = Math.floor(z), by = Math.floor(y - 0.05), t = W.tile(bx, bz)
+    let want = y
+    if (t >= 0 && rsw.cover[t] && rsw.vx[t] !== 1 && by >= W.gy[t] - 1 && by <= W.gy[t] && W.natural(bx, by, bz) && (e.onGround || e.e !== 'mob')) {
+      const h = rsw.height(x, z); if (h !== null && Math.abs(h - y) < 1.3) want = h
+    }
+    o.dy = (o.dy ?? 0) + ((want - y) - (o.dy ?? 0)) * 0.35
+    return y + o.dy
+  }
+  // the player's RS body (third person, F5)
+  syncPlayer(alpha, dt, show) {
+    const P = this.game.player, out = outfitOf(P), key = JSON.stringify(out.items)
+    if (key !== this.plKey) {
+      this.plKey = key
+      playerModel(out).then(m => {
+        if (this.plKey !== key) return
+        if (this.pl) this.plG.remove(this.pl.group)
+        this.pl = m; this.plG.add(m.group); m.mesh.material.fog = true; m.clip = null
+      })
+    }
+    if (!this.plG) { this.plG = new THREE.Group(); this.scene.add(this.plG); this.plO = {} }
+    if (this.plG.parent !== this.scene) this.scene.add(this.plG)
+    this.plG.visible = show
+    const x = P.px + (P.x - P.px) * alpha, y = P.py + (P.y - P.py) * alpha, z = P.pz + (P.z - P.pz) * alpha
+    this.plG.position.set(x, this.drawY(P, x, y, z, this.plO), z)
+    this.plYaw = turnTo(this.plYaw ?? P.yaw, P.face ?? P.yaw, dt * 12)
+    this.plG.rotation.y = this.plYaw + RS_YAW
+    if (this.pl) {
+      const sp = Math.hypot(P.x - P.px, P.z - P.pz), [clip, loop] = playerClip(P, P.inv[P.sel], sp)
+      if (P.swing === 6 && !P.dig && this.lastSwing !== 6) this.pl.play(clip, loop, true)
+      this.lastSwing = P.swing
+      if (this.pl.clip !== clip && !(this.pl.clip === 'slash' || this.pl.clip === 'pound') || (this.pl.done && this.pl.clip !== clip)) this.pl.play(clip, loop)
+      this.pl.update(dt)
+      const k = this.lightK(P.x, P.y + 1.2, P.z), hurt = P.hurtT > 0
+      this.pl.mesh.material.color.setRGB(hurt ? k * 1.4 : k, hurt ? k * 0.5 : k, hurt ? k * 0.5 : k)
+    }
+    return this.plG.position
   }
 
   // ------------------------------------------------------------------------ a frame
@@ -318,6 +399,8 @@ export class View {
     if (under) { fogC.setRGB(0.05, 0.12, 0.42).multiplyScalar(0.3 + 0.7 * uSky); fn = 2; ff = 22 }
     if (cam.lava) { fogC.setRGB(0.6, 0.15, 0.02); fn = 0; ff = 2 }
     this.U.uFog.value.copy(fogC); this.U.uFogN.value = fn; this.U.uFogF.value = ff
+    if (!this.scene.fog) this.scene.fog = new THREE.Fog(0, 1, 2)
+    this.scene.fog.color.copy(fogC); this.scene.fog.near = fn; this.scene.fog.far = ff
     this.R.setClearColor(fogC)
     this.skyU.top.value.copy(under ? fogC : sc.top); this.skyU.bot.value.copy(fogC); this.skyU.glowA.value = under ? 0 : sc.glowA
     this.skyU.glow.value.setRGB(1, 0.45, 0.2)
@@ -338,6 +421,7 @@ export class View {
     this.clouds.material.map.offset.set(((G.time + alpha) * 0.0006 + cam.pos.x / 1536 * 2) % 1, (-cam.pos.z / 1536 * 2) % 1)
     this.clouds.material.color.setScalar(0.12 + 0.88 * Math.max(0, (uSky - 0.2) / 0.8))
     this.clouds.visible = this.fancy || true
+    if (this.rsw) { this.rsw.update(); this.rsw.cull(cam.pos.x, cam.pos.z, ff + 20); this.rsw.setLight(0.3 + 0.7 * uSky) }
     this.syncEnts(alpha, dt)
     this.tickParticles(dt)
     this.pts.material.uniforms.uScale.value = this.R.domElement.height / (2 * Math.tan(c.fov * Math.PI / 360))

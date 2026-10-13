@@ -4,6 +4,7 @@
 // of quads (4 verts each; the renderer shares one quad index buffer).
 import { BLOCKS, TI } from './blocks.js'
 import { CS, WH, ci } from './world.js'
+import { edgeBoxes } from './phys.js'
 
 const P = 15, R = CS + 2 * P
 export const OPAC = new Uint8Array(256), EMIT = new Uint8Array(256), OPQ = new Uint8Array(256), SOLIDAO = new Uint8Array(256)
@@ -117,9 +118,10 @@ export function meshChunk(world, cx, cz, opts = {}) {
   const ao = [0, 0, 0, 0]
   // the grass tint at a vertex (chunk-local x, z): bilinear over the tiles round it, so colours blend as MC's biomes
   const T4 = new Uint8Array(12)
+  const tAt = opts.rs ? (X, Z, o, k) => world.rgbAt(X, Z, o, k) : (X, Z, o, k) => world.tintAt(X, Z, o, k)
   const tf = (x, z, o, k) => {
     const fx = ox + x - 0.5, fz = oz + z - 0.5, X = Math.floor(fx), Z = Math.floor(fz), a = fx - X, c = fz - Z
-    world.tintAt(X, Z, T4, 0); world.tintAt(X + 1, Z, T4, 3); world.tintAt(X, Z + 1, T4, 6); world.tintAt(X + 1, Z + 1, T4, 9)
+    tAt(X, Z, T4, 0); tAt(X + 1, Z, T4, 3); tAt(X, Z + 1, T4, 6); tAt(X + 1, Z + 1, T4, 9)
     for (let j = 0; j < 3; j++) o[k + j] = (T4[j] * (1 - a) + T4[3 + j] * a) * (1 - c) + (T4[6 + j] * (1 - a) + T4[9 + j] * a) * c
   }
 
@@ -196,6 +198,17 @@ export function meshChunk(world, cx, cz, opts = {}) {
     buf.quad(tmp)
   }
 
+  // under the RS world (opts.rs): the map's own blocks from just under the ground up stay hidden (the RS meshes draw
+  // them) unless their tile is blocks now (rs.vx) or a face looks into a cell you changed or a tile that is blocks
+  const rs = opts.rs, ED = rs ? edMask(world, cx, cz, Hr) : null
+  const hz = new Int16Array((CS + 2) * (CS + 2)).fill(WH)    // per column (padded by 1): the lowest y hidden, WH = none
+  if (rs) for (let a = -1; a <= CS; a++) for (let c = -1; c <= CS; c++) {
+    const t = world.tile(ox + a, oz + c)
+    if (t >= 0 && rs.cover[t] && rs.vx[t] !== 1) hz[(c + 1) * (CS + 2) + a + 1] = world.gy[t] - 1
+  }
+  const hidden = (rx, rz, y) => y >= hz[(rz - P + 1) * (CS + 2) + rx - P + 1] && !ED[I(rx, rz, y)]
+  // a face of a hidden block shows where the cell it faces was changed, or its column is blocks
+  const faceShows = (rx, rz, y) => { const k = (rz - P + 1) * (CS + 2) + rx - P + 1; return hz[k] === WH || (y >= 0 && y < Hr && ED[I(rx, rz, y)]) }
   for (let lz = 0; lz < CS; lz++) for (let lx = 0; lx < CS; lx++) {
     const rx = lx + P, rz = lz + P, col = I(rx, rz, 0)
     for (let y = 0; y < Hr; y++) {
@@ -203,6 +216,8 @@ export function meshChunk(world, cx, cz, opts = {}) {
       if (!id) continue
       const d = BLOCKS[id]
       if (!d) continue
+      const hid = rs && hidden(rx, rz, y)
+      if (hid && d.shape !== 'cube' && d.shape !== 'liquid') continue
       const sh = d.shape, meta = me.m[ci(lx, lz, y)]
       S.tf = d.tint ? tf : null
       if (sh === 'cube') {
@@ -210,6 +225,7 @@ export function meshChunk(world, cx, cz, opts = {}) {
         for (let f = 0; f < 6; f++) {
           const n = FACES[f].n, nb = at(rx + n[0], rz + n[2], y + n[1])
           if (OPQ[nb]) continue
+          if (hid && !faceShows(rx + n[0], rz + n[2], y + n[1])) continue
           if (tr && nb === id && (!d.leaves || !fancy)) continue
           let tile = d.t[FACES[f].k]
           let rot = 0
@@ -225,6 +241,7 @@ export function meshChunk(world, cx, cz, opts = {}) {
         for (let f = 0; f < 6; f++) {
           const n = FACES[f].n, nb = at(rx + n[0], rz + n[2], y + n[1])
           if (nb === id || OPQ[nb]) continue
+          if (hid && !faceShows(rx + n[0], rz + n[2], y + n[1])) continue
           if (f !== 2 && BLOCKS[nb] && BLOCKS[nb].liquid) continue
           face(buf, f, rx, y, rz, [0, 0, 0, 1, f === 2 || n[1] === 0 ? hTop : 1, 1], d.t.side, d.liquid === 'water' ? 1 : 3, false)
           if (d.liquid === 'water' && f === 2) {        // (seen from under the surface too)
@@ -260,6 +277,9 @@ export function meshChunk(world, cx, cz, opts = {}) {
           box(S, rx, y, rz, [bx[0], 12, bx[2], bx[3], 15, bx[5]], tl, false)
           box(S, rx, y, rz, [bx[0], 6, bx[2], bx[3], 9, bx[5]], tl, false)
         }
+      } else if (sh === 'edge') {                         // RS walls and fences: thin slabs on the tile's edges
+        const T = d.t.side, tl = [T, T, d.t.top || T, T, T, T]
+        for (const bx of edgeBoxes(meta, 1)) box(S, rx, y, rz, bx.map(v => Math.round(v * 16)), tl, false)
       } else if (sh === 'door') {
         const bx = doorBox(meta), T = d.t.side
         box(S, rx, y, rz, bx, [T, T, d.door === 2 ? T : null, d.door === 1 ? 'planks' : null, T, T], false)
@@ -282,6 +302,21 @@ export function meshChunk(world, cx, cz, opts = {}) {
   }
   S.tf = null
   return { s: S.out(), w: Wt.out(), ver: me.ver }
+}
+// which cells of the padded region hold an edit (the player changed them)
+let EDS = null
+function edMask(world, cx, cz, Hr) {
+  const N = R * R * Hr
+  if (!EDS || EDS.length < N) EDS = new Uint8Array(N); else EDS.fill(0, 0, N)
+  for (let a = -1; a <= 1; a++) for (let c = -1; c <= 1; c++) {
+    const e = world.edits.get((cx + a) + ',' + (cz + c)); if (!e) continue
+    for (const i of e.keys()) {
+      const y = i % WH; if (y >= Hr) continue
+      const col = (i - y) / WH, lx = col & 15, lz = col >> 4, rx = lx + a * CS + P, rz = lz + c * CS + P
+      if (rx >= 0 && rx < R && rz >= 0 && rz < R) EDS[(rz * R + rx) * Hr + y] = 1
+    }
+  }
+  return EDS
 }
 const hash4 = (x, y, z) => ((Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791)) >>> 8)
 

@@ -108,7 +108,9 @@ map data and running in the browser. Every door and gate stands open.
   server runs the match; your browser runs ahead on your own inputs, like RL's netcode). OSRS quick chat, god
   karts and party hats, goal explosions. RL's PC controls (right mouse jump, left mouse boost, SHIFT powerslide /
   air roll, SPACE ball cam, Q E air roll; J K jump / boost without a mouse), gamepad or touch.
-- **MineScape, Minecraft on the RS map.** Pick MINESCAPE on the home page (or open `minescape.html`). The 2004 map
+- **MineScape, Minecraft on the RS map.** Pick MINESCAPE on the home page (or open `minescape.html`). You see the real
+  2004 RuneScape map (Lumbridge castle, the bridge, goblins over the river) and RS NPCs, and play it in Minecraft's first
+  person with its HUD, inventory and screens (F5 shows your RS character). Under it, the map
   one block a tile: the RS ground's heights, its own colours tinting the grass and trees (as MC's biomes), the River Lum,
   walls in their RS stone, plaster, timber or brick, roofs stepping up to a ridge, the RS trees; dirt, stone, caves,
   ores and bedrock under it (runite under the Wilderness). Minecraft's survival rules at 20 ticks a second: digging

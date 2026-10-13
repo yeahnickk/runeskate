@@ -34,7 +34,7 @@ export class World {
   // map: { json, bin: Uint8Array } from assets/mine_world.*
   constructor(map, seed = 1) {
     const j = map.json, W = j.W, H = j.H, n = W * H, b = map.bin
-    Object.assign(this, { W, H, base: j.base, seed, json: j })
+    Object.assign(this, { W, H, base: j.base, seed, json: j, bin: b })
     this.gy = b.subarray(0, n); this.sf = b.subarray(n, 2 * n); this.ru = b.subarray(2 * n, 3 * n); this.rc = b.subarray(3 * n, 4 * n); this.fl = b.subarray(4 * n, 5 * n)
     this.wc = b.length >= 6 * n ? b.subarray(5 * n, 6 * n) : new Uint8Array(n)
     this.ed = b.length >= 10 * n ? b.subarray(9 * n, 10 * n) : new Uint8Array(n)       // wall/fence edges
@@ -57,6 +57,12 @@ export class World {
   tile(X, Z) { const t = -Z - 1; return X >= 0 && X < this.W && t >= 0 && t < this.H ? t * this.W + X : -1 }
   // the grass tint multiplier (x128 = 1) at a block, into o[0..2]
   tintAt(X, Z, o, k = 0) { const i = this.tile(X, Z); if (i < 0) { o[k] = 104; o[k + 1] = 86; o[k + 2] = 90; return } o[k] = this.tint[i * 3]; o[k + 1] = this.tint[i * 3 + 1]; o[k + 2] = this.tint[i * 3 + 2] }
+  // the RS ground's own colour at a block (0-255), into o[k..k+2]: what grass and dirt tops are painted
+  rgbAt(X, Z, o, k = 0) {
+    const i = this.tile(X, Z), b = this.bin, n = this.W * this.H
+    if (i < 0 || b.length < 9 * n) { o[k] = 52; o[k + 1] = 76; o[k + 2] = 110; return }
+    o[k] = b[6 * n + i]; o[k + 1] = b[7 * n + i]; o[k + 2] = b[8 * n + i]
+  }
   groundY(X, Z) { const i = this.tile(X, Z); return i < 0 ? this.base - 1 : this.gy[i] }
   chunk(cx, cz) {
     const k = cx + ',' + cz
@@ -82,8 +88,9 @@ export class World {
     if (y + 1 > c.top) c.top = y + 1
     const k = cx + ',' + cz
     let e = this.edits.get(k); if (!e) this.edits.set(k, e = new Map())
+    const nat = !e.has(i)
     e.set(i, id | (meta << 8))
-    for (const f of this.listeners) f(x, y, z, id, was)
+    for (const f of this.listeners) f(x, y, z, id, was, nat)
     return true
   }
   // highest block that isn't air (or passable plants) in a column
@@ -98,7 +105,9 @@ export class World {
     this.chunks.clear()
   }
 
-  gen(cx, cz) {
+  // the chunk as the map made it, before any edit (the client works out which tiles you changed from it)
+  orig(cx, cz) { return this.gen(cx, cz, true) }
+  gen(cx, cz, raw = false) {
     const b = new Uint8Array(CS * CS * WH), m = new Uint8Array(CS * CS * WH), S = this.seed, base = this.base
     let top = 0
     const put = (x, z, y, id, mm = 0) => { const i = ci(x, z, y); b[i] = id; m[i] = mm; if (y + 1 > top) top = y + 1 }
@@ -169,7 +178,7 @@ export class World {
     if (R() < 0.6) vein(19, 1, 1, 6, 30)
     if (-(cz * CS) - 1 > 704 && R() < 0.35) vein(67, 1, 3, 5, 14)    // runite under the Wilderness
     const c = { cx, cz, b, m, top: Math.min(WH, top + 1), ver: 0 }
-    const ed = this.edits.get(cx + ',' + cz)
+    const ed = !raw && this.edits.get(cx + ',' + cz)
     if (ed) for (const [i, v] of ed) { c.b[i] = v & 255; c.m[i] = v >> 8; const y = i % WH; if (y + 1 >= c.top) c.top = Math.min(WH, y + 2) }
     return c
   }

@@ -106,8 +106,15 @@ z down the pitch, blue defends -z; a car's forward +x, up +y, right +z), 120 Hz.
 
 ## MineScape (minescape.html, src/mine/)
 
-Minecraft survival on the RS map, one block a tile, single player (worlds in localStorage). Looks MC (16px textures,
-MC's GUI scale and font, AO + smooth light), dressed OSRS: RS ground colours, RS walls, brown stone UI, yellow counts.
+Minecraft survival on the RS map, one block a tile, single player (worlds in localStorage). RuneScape to look at,
+Minecraft to play: the real 2004 map draws over the blocks, Minecraft's first person, HUD and screens on top.
+- `rsworld.js` draws the skate game's map packs (`assets/world*.json/.bin`, streamed by region) 1:1 over the blocks
+  (pack y = `world.base + 1` - RS height). A tile you dig into or build in turns to blocks (`vx` 1: its triangles are
+  dropped from that chunk's index); a felled tree takes only its canopy (`vx` 2). The mesher (`opts.rs`) skips natural
+  blocks the RS ground already draws. `height()` the RS ground, so bodies stand on bridges and slopes as drawn.
+- `bodies.js` the RS bodies: mobs are RS NPC models with their clips; the player (F5) is an RS character wearing the
+  armour as an RS set and holding a pickaxe of the tool's tier / scimitar / shortbow. Pointer lock is on the GUI
+  canvas (the one with the mouse listeners).
 - `tools/mine-bake.py` -> `assets/mine_world.bin` (planes: ground y, surface id, roof height, roof colour, flags, wall
   colour, ground R/G/B) + `.json` (spawn, trees, villagers, palettes). Block coords: X = tile x, Z = -(tile z) - 1.
 - `world.js` chunks (16x16x128) generated from the bake: layers, caves, ores, walls in their RS material (`WALLC`),

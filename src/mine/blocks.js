@@ -108,7 +108,7 @@ WALLB(72, 'Stone Wall', 21, 1.5); WALLB(73, 'Plaster Wall', 71, 1.2); WALLB(75, 
 blk(74, 'Timber Wall', { t: 'planks', shape: 'edge', op: false, opac: 0, h: 2, tool: AXE, snd: 'wood', drop: 11, wall: true, fuel: 300 })
 blk(78, 'Fence', { t: 'planks', shape: 'edge', op: false, opac: 0, h: 2, tool: AXE, snd: 'wood', drop: 32, fence: true, fuel: 300 })
 blk(79, 'Tree', { t: { top: 'log_top', side: 'log_side' }, h: 2, tool: AXE, snd: 'wood', tree: true, drop: null })
-blk(80, 'Scenery', { t: 'planks', h: 1.5, tool: AXE, snd: 'wood', drop: null, scenery: true })
+blk(80, 'Scenery', { t: 'planks', h: 1.5, tool: AXE, snd: 'wood', drop: 11, scenery: true })
 // MC's biome colouring: these take the RS ground colour (world.tintAt) over their green
 for (const i of [1, 12, 29, 30, 31, 47, 65, 66]) B[i].tint = true
 export const BLOCKS = B

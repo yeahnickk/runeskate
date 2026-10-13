@@ -118,7 +118,7 @@ export function tickMob(game, m) {
     yaw = yawTo(m, P.x, P.z); fw = 1
     if (m.type === 'spider' && dist < 4 && dist > 2 && m.onGround && R() < 0.1) { m.vy = 0.4; m.vx += -Math.sin(yaw) * 0.25; m.vz += -Math.cos(yaw) * 0.25 }
     ai.cd = (ai.cd || 0) - 1
-    if (dist < m.w / 2 + 0.3 + 0.6 && Math.abs(dy) < 1.5 && ai.cd <= 0) { ai.cd = 20; game.hurtPlayer(M.dmg, m) }
+    if (dist < m.w / 2 + 0.3 + 0.6 && Math.abs(dy) < 1.5 && ai.cd <= 0) { ai.cd = 20; m.atkFx = 0.25; game.hurtPlayer(M.dmg, m) }
   } else if (M.villager) {
     if (night) fw = 0
     else {

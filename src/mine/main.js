@@ -1,5 +1,6 @@
-// MineScape's client: loads the baked RS map, the title screen over a turning Lumbridge panorama, worlds saved in the
-// browser, the 20 Hz game loop with interpolated frames, chunk streaming nearest first, Minecraft's controls (WASD,
+// MineScape's client: RuneScape to look at, Minecraft to play. The real 2004 map (rsworld.js) drawn over the blocks,
+// RS NPCs and your RS character (F5), Minecraft's own first person, HUD and screens. The title screen over a turning
+// Lumbridge panorama, worlds saved in the browser, the 20 Hz game loop with interpolated frames, chunk streaming nearest first, Minecraft's controls (WASD,
 // space, shift, ctrl sprint / double-tap W, E, Q, F, 1-9 + wheel, mouse dig/use/pick, T and / chat, F1/F3/F5, Esc)
 // and Bedrock's touch layout on phones.
 import * as THREE from 'three'
@@ -11,8 +12,8 @@ import { Gui } from './gui.js'
 import { Sfx } from './audio.js'
 import { buildAtlas, setTiles } from './tex.js'
 import { BLOCKS, ITEMS, nameOf } from './blocks.js'
-import { MODELS } from './models.js'
 import { give } from './inv.js'
+import { RSWorld } from './rsworld.js'
 
 THREE.ColorManagement.enabled = false
 const TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window
@@ -25,7 +26,7 @@ const gui = new Gui(guiC, sfx); gui.touch = TOUCH
 const OPT_KEY = 'minescape.opts', LIST_KEY = 'minescape.worlds'
 try { Object.assign(gui.opts, JSON.parse(localStorage.getItem(OPT_KEY) || '{}')) } catch (e) {}
 if (TOUCH && !localStorage.getItem(OPT_KEY)) Object.assign(gui.opts, { rd: 5, fancy: false, autoJump: true })
-let map = null, world = null, game = null, view = null, tiles = null, atlas = null
+let rsw = null, map = null, world = null, game = null, view = null, tiles = null, atlas = null
 let acc = 0, last = performance.now(), saveAt = 0, curFile = null
 const keys = new Set(); let mouse = { l: false, r: false, lp: false, rp: false }, wheel = 0, lastW = 0, sprintTap = false, lastSpace = 0, flyToggle = false
 let third = 0, camYaw = 0, camPitch = 0, bobT = 0, bobAmt = 0, swing = 0, hurtTilt = 0, shake = 0, fovK = 1
@@ -53,26 +54,48 @@ async function boot() {
   resize()
   gui.state = 'loading'; gui.loadMsg = 'Loading MineScape...'
   loop()
-  const at = buildAtlas(); tiles = at.tiles; atlas = at.canvas; setTiles(tiles); gui.tiles = tiles
+  const at = buildAtlas(); tiles = at.tiles; atlas = flatten(at.canvas); setTiles(tiles); gui.tiles = tiles
   const json = await (await fetch('assets/mine_world.json')).json()
   gui.loadMsg = 'Loading the RuneScape map...'
   const bin = await fetchBin('assets/mine_world.bin', (p) => { gui.progress = p * 0.8 })
   map = { json, bin }
+  gui.loadMsg = 'Loading Gielinor...'
+  rsw = new RSWorld(new World(map, 1))
+  await rsw.loadCore((p) => { gui.progress = 0.8 + p * 0.2 })
   // the title panorama: a creative game round Lumbridge castle
   startWorld(null)
   gui.state = 'title'
   refreshWorlds()
 }
+// RS draws flat colours: each block texture is pulled toward its own average (busy ones, ores, keep more detail)
+function flatten(src) {
+  const c = document.createElement('canvas'); c.width = src.width; c.height = src.height
+  const x = c.getContext('2d'); x.drawImage(src, 0, 0)
+  const im = x.getImageData(0, 0, c.width, c.height), d = im.data, T = 16
+  const each = (tx, ty, f) => { for (let y = 0; y < T; y++) for (let xx = 0; xx < T; xx++) { const o = ((ty * T + y) * c.width + tx * T + xx) * 4; if (d[o + 3] > 128) f(o) } }
+  for (let ty = 0; ty < c.height / T; ty++) for (let tx = 0; tx < c.width / T; tx++) {
+    let r = 0, g = 0, b = 0, n = 0
+    each(tx, ty, (o) => { r += d[o]; g += d[o + 1]; b += d[o + 2]; n++ })
+    if (!n) continue
+    r /= n; g /= n; b /= n
+    let sp = 0; each(tx, ty, (o) => { sp += Math.abs(d[o] - r) + Math.abs(d[o + 1] - g) + Math.abs(d[o + 2] - b) })
+    const k = sp / n > 90 ? 0.75 : 0.35
+    each(tx, ty, (o) => { d[o] = r + (d[o] - r) * k; d[o + 1] = g + (d[o + 1] - g) * k; d[o + 2] = b + (d[o + 2] - b) * k })
+  }
+  x.putImageData(im, 0, 0)
+  return c
+}
 function refreshWorlds() { try { gui.worlds = JSON.parse(localStorage.getItem(LIST_KEY) || '[]').sort((a, b) => b.at - a.at) } catch (e) { gui.worlds = [] } gui.selWorld = gui.worlds.length ? 0 : -1 }
 
 function startWorld(entry, create) {
-  if (view) { for (const k of [...view.chunks.keys()]) view.dropChunk(k); view.scene.clear(); }
+  if (view) { for (const k of [...view.chunks.keys()]) view.dropChunk(k); view.dispose(); view.scene.clear(); }
   world = new World(map, entry ? entry.seed || 1 : 1)
+  rsw.world = world
   game = new Game(world, { mode: entry ? entry.mode : 'creative', name: localStorage.getItem('minescape.name') || 'Steve' })
   panorama = !entry
   if (entry && !create) { try { const s = JSON.parse(localStorage.getItem('minescape.w.' + entry.file)); if (s) game.load(s) } catch (e) { console.warn('save unreadable', e) } }
   if (create) { game.time = 1000; const P = game.player; P.inv[0] = null }
-  view = new View(renderer, atlas, world, game, { rd: gui.opts.rd, fancy: gui.opts.fancy })
+  view = new View(renderer, atlas, world, game, { rd: gui.opts.rd, fancy: gui.opts.fancy, rsw })
   view.U.uBright.value = gui.opts.bright
   resize()
   curFile = entry ? entry.file : null
@@ -125,7 +148,7 @@ function play(e, create) {
 }
 let loadingUntil = 0
 function resume() { gui.state = 'play'; lock() }
-function lock() { if (!TOUCH && canvas.requestPointerLock) { try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}) } catch (e) {} } }
+function lock() { if (!TOUCH && guiC.requestPointerLock) { try { const p = guiC.requestPointerLock(); if (p && p.catch) p.catch(() => {}) } catch (e) {} } }
 function showName(on) {
   nameIn.style.display = on ? 'block' : 'none'
   if (on) { nameIn.value = 'New World'; placeName(); setTimeout(() => nameIn.focus(), 30) }
@@ -295,6 +318,7 @@ function touchHolds() {
 // ---------------------------------------------------------------------------- chunks
 function stream(budgetMs) {
   const P = game.player, pcx = Math.floor(P.x) >> 4, pcz = Math.floor(P.z) >> 4, rd = view.rd, t0 = performance.now()
+  rsw.stream(P.x, -P.z)
   let n = 0
   // edits first: the chunk you changed, then the neighbours its light reaches
   for (const set of [view.dirty, view.soon]) {
@@ -302,7 +326,7 @@ function stream(budgetMs) {
       set.delete(k); view.soon.delete(k)
       if (!view.chunks.has(k)) continue
       const [cx, cz] = k.split(',').map(Number)
-      view.setChunk(cx, cz, meshChunk(world, cx, cz, { fancy: view.fancy })); n++
+      view.setChunk(cx, cz, meshChunk(world, cx, cz, { fancy: view.fancy, rs: view.rs })); n++
       if (performance.now() - t0 > budgetMs * (set === view.dirty ? 3 : 1)) return n
     }
   }
@@ -315,7 +339,7 @@ function stream(budgetMs) {
   }
   want.sort((p, q) => p[0] - q[0])
   for (const [, cx, cz] of want) {
-    view.setChunk(cx, cz, meshChunk(world, cx, cz, { fancy: view.fancy })); n++
+    view.setChunk(cx, cz, meshChunk(world, cx, cz, { fancy: view.fancy, rs: view.rs })); n++
     if (performance.now() - t0 > budgetMs) break
   }
   // drop what's far
@@ -405,20 +429,6 @@ function camera(alpha, dt) {
   const water = eyeB && eyeB.liquid === 'water' && pos.y < Math.floor(pos.y) + 14 / 16, lava = eyeB && eyeB.liquid === 'lava'
   return { pos, yaw, pitch, roll, fov: gui.opts.fov * fovK * (water ? 0.86 : 1), water, lava, target: P.dead || gui.state === 'loading' ? null : game.target(), hideHud: gui.hideHud }
 }
-let player3 = null
-function drawPlayer3(cam, alpha) {
-  const P = game.player
-  if (!third || P.dead) { if (player3) player3.g.visible = false; return }
-  if (!player3) { player3 = MODELS.steve(); view.scene.add(player3.g) }
-  if (player3.g.parent !== view.scene) view.scene.add(player3.g)
-  player3.g.visible = true
-  player3.g.position.set(P.px + (P.x - P.px) * alpha, P.py + (P.y - P.py) * alpha - (P.sneak ? 0.1 : 0), P.pz + (P.z - P.pz) * alpha)
-  player3.g.rotation.y = P.yaw
-  player3.head.rotation.x = P.pitch * 0.8
-  const w = performance.now() / 150, amp = Math.min(1, Math.hypot(P.x - P.px, P.z - P.pz) * 6)
-  player3.legs.forEach((l, i) => { l.rotation.x = Math.sin(w + i * Math.PI) * amp })
-  player3.arms.forEach((a, i) => { a.rotation.x = Math.sin(w + (i ? 0 : Math.PI)) * amp * 0.8 - (i && game.player.swing ? game.player.swing / 6 * 1.4 : 0) })
-}
 function debugLines(cam) {
   const P = game.player, bx = Math.floor(P.x), by = Math.floor(P.y), bz = Math.floor(P.z)
   const dirs = ['north (Towards negative Z)', 'west (Towards negative X)', 'south (Towards positive Z)', 'east (Towards positive X)']
@@ -472,8 +482,8 @@ function loop() {
   stream(gui.state === 'play' ? 6 : 10)
   const alpha = running ? Math.min(1, acc * TPS) : 1
   const cam = camera(alpha, dt)
+  view.syncPlayer(alpha, dt, !!third && !game.player.dead)
   view.frame(dt, alpha, cam)
-  drawPlayer3(cam, alpha)
   // the hand
   const P = game.player, held = P.inv[P.sel]
   if (!third && !P.dead && !gui.hideHud) {
