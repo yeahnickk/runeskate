@@ -68,6 +68,7 @@ export class RSWorld {
     }
     this.meshes = []; this.byChunk = new Map()            // 'cx,cz' -> [meshes]
     this.cover = new Uint8Array(world.W * world.H)          // 1 where an RS pack draws the tile
+    this.drawn = new Uint8Array(world.W * world.H)          // 1 where a pack has ground triangles (some packs have empty map squares)
     this.vx = new Uint8Array(world.W * world.H)             // 1 = the tile is blocks now; 2 = only its tall locs are gone (a tree's canopy)
     this.dirty = new Set(); this.regions = []; this.state = new Map(); this.onCover = null; this.grounds = []
   }
@@ -112,6 +113,7 @@ export class RSWorld {
       for (const k of PARTS) {
         const part = ch[k]; if (!part || !part.n) continue
         let pos = new Int16Array(bin, part.posOff, part.n * 3), col = new Uint8Array(bin, part.colOff, part.n * 3)
+        if (k === 'terrain') this.hasGround(pos, ch.cx * CH, ch.cz * CH)
         if (k === 'locs') capWalls(pos, col)
         if (k !== 'terrain') [pos, col] = splitBig(pos, col)
         const parts = k === 'terrain' ? this.waterOut(pos, col, ch.cx * CH, ch.cz * CH) : [[k, pos, col]]
@@ -134,9 +136,14 @@ export class RSWorld {
     }
     if (rect) this.markCover(pack.x0, pack.z0, pack.w, pack.h)
   }
+  hasGround(p, gx, gz) {
+    const W = this.world.W, H = this.world.H
+    for (let o = 0; o < p.length; o += 9) { const tx = gx + Math.floor((p[o] + p[o + 3] + p[o + 6]) / 384), tz = gz + Math.floor((p[o + 2] + p[o + 5] + p[o + 8]) / 384); if (tx >= 0 && tz >= 0 && tx < W && tz < H) this.drawn[tz * W + tx] = 1 }
+  }
+  // only tiles the pack really draws: a tile with no RS ground stays plain blocks (no seeing through an empty square)
   markCover(x0, z0, w, h) {
     const W = this.world.W, H = this.world.H
-    for (let z = Math.max(0, z0); z < Math.min(H, z0 + h); z++) this.cover.fill(1, z * W + Math.max(0, x0), z * W + Math.min(W, x0 + w))
+    for (let z = Math.max(0, z0); z < Math.min(H, z0 + h); z++) for (let x = Math.max(0, x0); x < Math.min(W, x0 + w); x++) { const i = z * W + x; if (this.drawn[i]) this.cover[i] = 1 }
     if (this.onCover) this.onCover(x0, z0, w, h)
   }
   // fetch the region packs near a tile (x, z: tile coords), once each

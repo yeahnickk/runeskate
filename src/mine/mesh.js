@@ -210,8 +210,9 @@ export function meshChunk(world, cx, cz, opts = {}) {
   }
   const colK = (rx, rz) => (rz - P + 1) * (CS + 2) + rx - P + 1
   const hidden = (rx, rz, y) => { const k = colK(rx, rz); return y >= hz[k] && y <= hh[k] && !ED[I(rx, rz, y)] }
-  // a face of a hidden block shows where the cell it faces was changed, or its column is blocks
-  const faceShows = (rx, rz, y) => hz[colK(rx, rz)] === WH || (y >= 0 && y < Hr && ED[I(rx, rz, y)])
+  // a face of a hidden block shows where the cell it faces was changed, or its column is blocks, or the cell is under
+  // that column's RS ground (a cave, the air under a bridge deck: RS draws nothing there, so no seeing through the bank)
+  const faceShows = (rx, rz, y) => { const k = colK(rx, rz); return hz[k] === WH || y <= hz[k] || (y >= 0 && y < Hr && ED[I(rx, rz, y)]) }
   // ...and toward a dug tile it meets the RS ground exactly: its top edge cut (or, the column's top block, stretched)
   // to the ground's height at the two corners, so the RS terrain and the pit wall share an edge with no gap
   const RT = [0, 0, 0]
