@@ -629,7 +629,8 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
     const foe = g.ents.filter(m => m.e === 'mob' && !m.death && MOBS[m.type].hostile && Math.hypot(m.x - P.x, m.z - P.z) < (MOBS[m.type].ranged ? 16 : 5) && Math.abs(m.y - P.y) < 3 && seen(m) && (bout.get(m) || 0) < 600).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0]
     if (foe) { fights++; bout.set(foe, (bout.get(foe) || 0) + 1); const s = toHot(best('sword')), a = aimAt(foe.x, foe.y + foe.h * 0.5, foe.z), d = Math.hypot(foe.x - P.x, foe.z - P.z) - foe.w / 2
       const fuse = foe.type === 'creeper' && foe.fuse > 0
-      g.tick({ ...a, sel: s >= 0 ? s : P.sel, fw: fuse ? -1 : d > 2.5 ? 1 : 0, attack: d < 2.8 && P.atkT >= 12, attackPress: d < 2.8 && P.atkT >= 12 }); if (foe.death) kills++; return }
+      const nx = fl(P.x - Math.sin(a.yaw) * 0.9), nz = fl(P.z - Math.cos(a.yaw) * 0.9), cy = fl(P.y + 0.01), safe = !wet(nx, cy, nz) && solid(nx, cy - 1, nz) && w.get(nx, cy - 1, nz) !== 9   // (never charge into lava or off a drop)
+    g.tick({ ...a, sel: s >= 0 ? s : P.sel, fw: fuse ? -1 : d > 2.5 && safe ? 1 : 0, attack: d < 2.8 && P.atkT >= 12, attackPress: d < 2.8 && P.atkT >= 12 }); if (foe.death) kills++; return }
     const sniper = g.ents.find(m => m.e === 'mob' && !m.death && MOBS[m.type].ranged && Math.hypot(m.x - P.x, m.z - P.z) < 16 && Math.abs(m.y - P.y) >= 3 && seen(m))   // (a skeleton up on a ledge: out of its sight)
   if (sniper && P.hurtT > 0 && typeof turns === 'number') { const a = Math.atan2(-(P.x - sniper.x), -(P.z - sniper.z)); for (let i = 0; i < 30; i++) g.tick({ yaw: a, pitch: 0, fw: 1, sprint: true, jump: i % 10 === 0 }); dir = DIRS[(DIRS.indexOf(dir) + 1) % 4]; return }
   if (P.hp < 14 && P.food < 18) { const f = P.inv.findIndex((s, i) => i < 9 && s && [264, 265, 269, 271, 273].includes(s.id)); if (f >= 0) { g.tick({ sel: f, use: true, usePress: !P.eat }); return } }
@@ -695,6 +696,13 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
     }
     return cell()[1] <= toY
   }
+  // a full inventory: throw out the dirt, gravel and stone past two stacks of cobblestone, as a player would (Q)
+  function junk() {
+    let keep = 2
+    for (let i = 0; i < 36; i++) { const st = P.inv[i]; if (!st || ![2, 13, 3, 4, 1, 12].includes(st.id)) continue; if (st.id === 4 && keep-- > 0) continue
+      const h = toHot(i); step({ sel: h, drop: true, dropAll: true }) }
+    for (let i = 0; i < 20; i++) step({ yaw: P.yaw + Math.PI, fw: 0 })
+  }
   // a gap ahead (a cave): bridge it with cobblestone against the side of the block you stand on, as in MC
   function bridge(x, y, z, fx, fz) {
     const ci = toHot(P.inv.findIndex(s => s && s.id === 4)), a = aimAt(x + 0.5 + (fx - x) * 0.5, y - 0.5, z + 0.5 + (fz - z) * 0.5)
@@ -705,6 +713,8 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   function tunnel(len, want) {
     let moved = 0, turned = 0
     for (let k = 0; moved < len && turned < len && !P.dead && !want(); k++) {
+      if (P.inv.filter(Boolean).length >= 30) junk()
+      { const [x, y, z] = cell(); if (!solid(x, y - 1, z)) { const o = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].find(([a, c]) => solid(x + a, y - 1, z + c) && w.get(x + a, y - 1, z + c) !== 9 && !solid(x + a, y, z + c) && !solid(x + a, y + 1, z + c) && !wet(x + a, y, z + c)); if (o) walkTo(x + o[0] + 0.5, z + o[1] + 0.5, 0.25, 60) } }   // (stood on a block's edge over a cave: onto the block)
       const [x, y, z] = cell(), fx = x + dir[0], fz = z + dir[1]
       if (!wet(fx, y - 1, fz) && !solid(fx, y - 1, fz) && solid(x, y - 1, z) && count(P.inv, 4)) bridge(x, y, z, fx, fz)
       if (wet(fx, y, fz) || wet(fx, y + 1, fz) || !solid(fx, y - 1, fz) || w.get(fx, y - 1, fz) === 9) { dir = DIRS[(DIRS.indexOf(dir) + (turned % 7 === 3 ? 3 : 1)) % 4]; turned++; continue }
