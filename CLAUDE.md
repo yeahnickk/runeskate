@@ -136,7 +136,8 @@ Minecraft to play: the real 2004 map draws over the blocks, Minecraft's first pe
   Townsfolk hit back when hit (`FOLK` `hit` = RS max hit, a swing every 48 ticks) and calm down once you're 16 away.
   `/summon` takes the RS names too (`RS_SPAWN`: man, guard, dwarf...).
   The heavy RS monsters resist knockback (`kbr`, MC's attribute: giants, demons, dragons; the KBD fully), sword hits and
-  blasts alike. Event advancements (Monster Hunter...) are awarded in `emit`, as they happen.
+  blasts alike. Event advancements (Monster Hunter...) are awarded in `emit`, as they happen. The KBD beats melee in rune and food but
+  falls the MC way (a bow from a two-block pillar: mob melee needs you within 1.5 of its feet).
 - `bodies.js` the RS bodies: mobs are RS NPC models with their clips; the player (F5) is an RS character wearing the
   armour as an RS set and holding a pickaxe of the tool's tier / scimitar / shortbow. Pointer lock is on the GUI
   canvas (the one with the mouse listeners).

@@ -567,6 +567,19 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   }
   check('the big ones, played in rune with steaks: black knight to green dragon fall (the heavy ones land hits), the King Black Dragon wins', !bad.length, bad.join(', ') + ' | ' + res.join(', '))
 }
+{ // ...but it falls the MC way: two blocks up a pillar it can't reach (a melee mob needs you within 1.5 of its feet), a bow and arrows
+  const { w, g, P } = fresh(), X = 8000, Z = -8000; pad(w, X, Z, 30); w.set(X, 101, Z, 3); w.set(X, 102, Z, 3)
+  Object.assign(P, { x: X + 0.5, y: 103, z: Z + 0.5 }); g.time = 6000; g.ents = []
+  P.inv[0] = { id: 281, n: 1, d: 0 }; P.inv[1] = { id: 280, n: 64, d: 0 }; P.inv[2] = { id: 280, n: 64, d: 0 }; P.sel = 0
+  const m = makeMob('kbd', X + 0.5, 101, Z - 12.5, seeded(3)); g.ents.push(m)
+  let t = 0, hold = 0, shots = 0
+  for (; t < 6000 && !m.death && !P.dead; t++) {
+    const dx = m.x - P.x, dz = m.z - P.z, d = Math.hypot(dx, dz), rel = ++hold > 22
+    if (rel) { hold = 0; shots++ }
+    g.tick({ yaw: Math.atan2(-dx, -dz), pitch: Math.atan2(m.y + m.h * 0.5 - (P.y + 1.62), d) + d * 0.01, sel: 0, use: !rel, usePress: hold === 1 }); g.time = 6000
+  }
+  check('...but the King Black Dragon falls to a bow from a two-block pillar, untouched', m.death && !P.dead && P.hp === 20, `${t} ticks, ${shots} arrows, hp ${P.hp}`)
+}
 { // more of MC: a bed skips the night and is where you wake after dying (your things drop where you fell); your own bow
   // shoots a cow dead; iron armour takes the edge off a zombie; bone meal grows a sapling to a tree; a chest keeps what
   // you put in it through a save and spills it when broken
@@ -711,11 +724,12 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   // 3. strip mine: a 1x2 tunnel ahead; any ore beside, above or below it comes out too
   const ORES = new Set([14, 15, 17])
   function tunnel(len, want) {
-    let moved = 0, turned = 0
+    let moved = 0, turned = 0; const vis = new Set()
     for (let k = 0; moved < len && turned < len && !P.dead && !want(); k++) {
       if (P.inv.filter(Boolean).length >= 30) junk()
       { const [x, y, z] = cell(); if (!solid(x, y - 1, z)) { const o = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].find(([a, c]) => solid(x + a, y - 1, z + c) && w.get(x + a, y - 1, z + c) !== 9 && !solid(x + a, y, z + c) && !solid(x + a, y + 1, z + c) && !wet(x + a, y, z + c)); if (o) walkTo(x + o[0] + 0.5, z + o[1] + 0.5, 0.25, 60) } }   // (stood on a block's edge over a cave: onto the block)
-      const [x, y, z] = cell(), fx = x + dir[0], fz = z + dir[1]
+      let [x, y, z] = cell(), fx = x + dir[0], fz = z + dir[1]; vis.add(x + ',' + z)
+      if (vis.has(fx + ',' + fz)) { const d = DIRS.find(([a, c]) => !vis.has((x + a) + ',' + (z + c)) && !wet(x + a, y, z + c) && !wet(x + a, y + 1, z + c) && solid(x + a, y - 1, z + c)); if (d) { dir = d; fx = x + d[0]; fz = z + d[1] } }   // (new ground, not round the same loop)
       if (!wet(fx, y - 1, fz) && !solid(fx, y - 1, fz) && solid(x, y - 1, z) && count(P.inv, 4)) bridge(x, y, z, fx, fz)
       if (wet(fx, y, fz) || wet(fx, y + 1, fz) || !solid(fx, y - 1, fz) || w.get(fx, y - 1, fz) === 9) { dir = DIRS[(DIRS.indexOf(dir) + (turned % 7 === 3 ? 3 : 1)) % 4]; turned++; continue }
       moved++
@@ -748,7 +762,7 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
     check('played, no shortcuts: placed a furnace in the tunnel and smelted iron ("Acquire Hardware")', ok && count(P.inv, 258) >= 3 && g.adv.iron, `placed ${ok}, ingots ${count(P.inv, 258)}`) }
   craftIt('craft', [258, 258, 258, 0, 256, 0, 0, 256, 0]); for (let i = 0; i < 12; i++) step({})
   check('played, no shortcuts: an iron pickaxe ("Isn\'t It Iron Pick")', count(P.inv, toolId(2, 'pick')) >= 1 && g.adv.ironpick)
-  for (let k = 0; k < 60 && !stairDown(11); k++) { turns = 0; tunnel(6, () => false) }
+  for (let k = 0; k < 60 && !stairDown(11) && cell()[1] > 14; k++) { turns = 0; tunnel(6, () => false) }   // (water under the floor: y 14 is diamond depth already)
   tunnel(3000, () => count(P.inv, 260) >= 1)
   for (let i = 0; i < 12; i++) step({})
   check('played, no shortcuts: strip-mined for diamonds ("Diamonds!")', count(P.inv, 260) >= 1 && g.adv.diamonds, `diamonds ${count(P.inv, 260)}, y ${cell()[1]}`)
