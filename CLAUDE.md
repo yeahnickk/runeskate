@@ -133,6 +133,8 @@ Minecraft to play: the real 2004 map draws over the blocks, Minecraft's first pe
   TNT goes off from flint and steel, fire, lava, a redstone torch (82, `power`) beside it, or a blast (`prime`);
   `explode` is MC's ray blast worn down by `resist` (water swallows it, obsidian holds), entities hit before blocks go.
 - Fights go by RS hitpoints for the weak (goblin 5, man 7: three or four punches), hunger drains at half MC's rate.
+  Townsfolk hit back when hit (`FOLK` `hit` = RS max hit, a swing every 48 ticks) and calm down once you're 16 away.
+  `/summon` takes the RS names too (`RS_SPAWN`: man, guard, dwarf...).
 - `bodies.js` the RS bodies: mobs are RS NPC models with their clips; the player (F5) is an RS character wearing the
   armour as an RS set and holding a pickaxe of the tool's tier / scimitar / shortbow. Pointer lock is on the GUI
   canvas (the one with the mouse listeners).

@@ -274,7 +274,7 @@ export class Game {
     const held = P.inv[P.sel], hid = held ? held.id : 0, it = ITEMS[hid]
     // villagers
     const m = this.targetMob()
-    if (m && m.type === 'villager' && inp.usePress) { this.emit({ t: 'screen', type: 'trade', key: m }); this.emit({ t: 'snd', s: 'villager', x: m.x, y: m.y, z: m.z }); return }
+    if (m && m.type === 'villager' && !m.angry && inp.usePress) { this.emit({ t: 'screen', type: 'trade', key: m }); this.emit({ t: 'snd', s: 'villager', x: m.x, y: m.y, z: m.z }); return }
     const t = this.target()
     if (t && !P.sneak && inp.usePress) {
       const d = BLOCKS[t.id]
@@ -660,7 +660,7 @@ export class Game {
       const dx = m.x - by.x, dz = m.z - by.z, L = Math.hypot(dx, dz) || 1
       m.vx = dx / L * kb; m.vz = dz / L * kb; m.vy = 0.36
       if (!M.hostile && !M.villager) m.panic = 80
-      if (m.type === 'spider' || M.aggro !== undefined) m.angry = true
+      if (m.type === 'spider' || M.aggro !== undefined || M.villager) m.angry = true
     }
     if (m.hp <= 0) {
       m.death = 1

@@ -50,16 +50,16 @@ export const RS_SPAWN = {
 for (const k of Object.keys(MOBS)) if (MOBS[k].lvl !== undefined && !RS_SPAWN[k] && k !== 'cow') RS_SPAWN[k] = [k]
 // the RS model a villager wears (no RS woman/monk/shopkeeper models in the export: they're men)
 export const FOLK_RS = { guard: 'guard', dwarf: 'dwarf', barbarian: 'barbarian' }
-// RS townsfolk: names + their MC profession's trades ([buy id, n], [sell id, n], max uses)
+// RS townsfolk: max hit (they fight back when hit, as in RS), names + their MC profession's trades ([buy id, n], [sell id, n], max uses)
 export const FOLK = {
-  man: { hp: 7, names: ['Hans', 'Gee', 'Donie', 'Bob', 'Thessalia'], job: 'Fisherman', trades: [[[276, 20], [261, 1], 16], [[261, 1], [326, 6], 16], [[257, 10], [261, 1], 16], [[261, 2], [281, 1], 6]] },
-  woman: { hp: 7, names: ['Gillie Groats', 'Aggie', 'Wyson', 'Romily', 'Baraek'], job: 'Shepherd', trades: [[[39, 18], [261, 1], 16], [[261, 1], [39, 1], 16], [[261, 3], [40, 1], 12]] },
-  farmer: { hp: 12, names: ['Fred the Farmer', 'Farmer Brumty', 'Seth Groats', 'Millie Miller'], job: 'Farmer', trades: [[[266, 20], [261, 1], 16], [[261, 1], [265, 6], 16], [[61, 6], [261, 1], 12], [[261, 1], [264, 4], 16], [[261, 1], [329, 1], 12]] },
-  guard: { hp: 22, names: ['Lumbridge Guard', 'Varrock Guard', 'Falador Guard', 'Sir Prysin'], job: 'Armorer', trades: [[[257, 15], [261, 1], 16], [[261, 5], [334, 1], 12], [[261, 9], [335, 1], 12], [[261, 7], [336, 1], 12], [[261, 4], [337, 1], 12], [[261, 30], [347, 1], 3]] },
-  dwarf: { hp: 16, names: ['Doric', 'Thurgo', 'Nurmof', 'Hamal'], job: 'Toolsmith', trades: [[[257, 15], [261, 1], 16], [[261, 1], [308, 1], 12], [[261, 3], [312, 1], 12], [[261, 13], [322, 1], 3], [[261, 32], [352, 1], 2]] },
-  barbarian: { hp: 24, names: ['Peksa', 'Gunthor', 'Haakon', 'Hunding'], job: 'Weaponsmith', trades: [[[257, 15], [261, 1], 16], [[261, 3], [313, 1], 12], [[261, 7], [310, 1], 12], [[261, 14], [320, 1], 3], [[261, 28], [350, 1], 2]] },
-  shopkeeper: { hp: 10, names: ['Shop keeper', 'Lowe', 'Horvik', 'Zaff', 'Aubury'], job: 'Shopkeeper', trades: [[[256, 32], [261, 1], 16], [[261, 1], [28, 8], 16], [[261, 1], [282, 1], 12], [[261, 1], [280, 16], 16], [[261, 4], [27, 1], 12], [[261, 1], [291, 3], 12]] },
-  monk: { hp: 15, names: ['Brother Jered', 'Father Aereck', 'Brother Kojo', 'Father Urhney'], job: 'Cleric', trades: [[[274, 32], [261, 1], 16], [[261, 1], [262, 2], 12], [[259, 3], [261, 1], 12], [[261, 2], [288, 6], 12], [[261, 5], [292, 1], 6]] },
+  man: { hit: 1, hp: 7, names: ['Hans', 'Gee', 'Donie', 'Bob', 'Thessalia'], job: 'Fisherman', trades: [[[276, 20], [261, 1], 16], [[261, 1], [326, 6], 16], [[257, 10], [261, 1], 16], [[261, 2], [281, 1], 6]] },
+  woman: { hit: 1, hp: 7, names: ['Gillie Groats', 'Aggie', 'Wyson', 'Romily', 'Baraek'], job: 'Shepherd', trades: [[[39, 18], [261, 1], 16], [[261, 1], [39, 1], 16], [[261, 3], [40, 1], 12]] },
+  farmer: { hit: 1, hp: 12, names: ['Fred the Farmer', 'Farmer Brumty', 'Seth Groats', 'Millie Miller'], job: 'Farmer', trades: [[[266, 20], [261, 1], 16], [[261, 1], [265, 6], 16], [[61, 6], [261, 1], 12], [[261, 1], [264, 4], 16], [[261, 1], [329, 1], 12]] },
+  guard: { hit: 2, hp: 22, names: ['Lumbridge Guard', 'Varrock Guard', 'Falador Guard', 'Sir Prysin'], job: 'Armorer', trades: [[[257, 15], [261, 1], 16], [[261, 5], [334, 1], 12], [[261, 9], [335, 1], 12], [[261, 7], [336, 1], 12], [[261, 4], [337, 1], 12], [[261, 30], [347, 1], 3]] },
+  dwarf: { hit: 2, hp: 16, names: ['Doric', 'Thurgo', 'Nurmof', 'Hamal'], job: 'Toolsmith', trades: [[[257, 15], [261, 1], 16], [[261, 1], [308, 1], 12], [[261, 3], [312, 1], 12], [[261, 13], [322, 1], 3], [[261, 32], [352, 1], 2]] },
+  barbarian: { hit: 3, hp: 24, names: ['Peksa', 'Gunthor', 'Haakon', 'Hunding'], job: 'Weaponsmith', trades: [[[257, 15], [261, 1], 16], [[261, 3], [313, 1], 12], [[261, 7], [310, 1], 12], [[261, 14], [320, 1], 3], [[261, 28], [350, 1], 2]] },
+  shopkeeper: { hit: 1, hp: 10, names: ['Shop keeper', 'Lowe', 'Horvik', 'Zaff', 'Aubury'], job: 'Shopkeeper', trades: [[[256, 32], [261, 1], 16], [[261, 1], [28, 8], 16], [[261, 1], [282, 1], 12], [[261, 1], [280, 16], 16], [[261, 4], [27, 1], 12], [[261, 1], [291, 3], 12]] },
+  monk: { hit: 2, hp: 15, names: ['Brother Jered', 'Father Aereck', 'Brother Kojo', 'Father Urhney'], job: 'Cleric', trades: [[[274, 32], [261, 1], 16], [[261, 1], [262, 2], 12], [[259, 3], [261, 1], 12], [[261, 2], [288, 6], 12], [[261, 5], [292, 1], 6]] },
 }
 export const FOLK_KINDS = Object.keys(FOLK)
 
@@ -100,6 +100,7 @@ export function tickMob(game, m) {
     if (M.aggro !== undefined) chase = (m.angry && dist < 16) || (dist < M.aggro && (m.age % 10 ? ai.seen : (ai.seen = sees(W, m, P))))   // (RS: aggressive within a few tiles, or once hit)
     else if (m.type !== 'spider' || night || m.angry || m.home) chase = ai.seen = dist < 16 || ai.seen ? (m.age % 10 ? ai.seen : sees(W, m, P)) : false
   }
+  if (M.villager && m.angry) { chase = pAlive && dist < 16 && Math.abs(dy) < 12; if (!chase) m.angry = false }   // (RS: hit a man and he hits back, until you get away)
   if (chase && m.home && Math.hypot(m.x - m.home[0], m.z - m.home[1]) > 14) { chase = false; m.angry = false }   // (RS: they don't follow you far from home)
   if (m.panic > 0) {
     m.panic--; sp *= 2
@@ -120,7 +121,7 @@ export function tickMob(game, m) {
     yaw = yawTo(m, P.x, P.z); fw = dist > reach - 0.2 ? 1 : dist < m.w / 2 + 0.35 ? -0.5 : 0   // (stand off at arm's length, not inside you)
     if (m.type === 'spider' && dist < 4 && dist > 2 && m.onGround && R() < 0.1) { m.vy = 0.4; m.vx += -Math.sin(yaw) * 0.25; m.vz += -Math.cos(yaw) * 0.25 }
     ai.cd = (ai.cd || 0) - 1
-    if (dist < reach && Math.abs(dy) < 1.5 && ai.cd <= 0) { ai.cd = 20; m.atkFx = 0.25; game.hurtPlayer(M.dmg, m) }
+    if (dist < reach && Math.abs(dy) < 1.5 && ai.cd <= 0) { const F = M.villager && FOLK[m.kind]; ai.cd = F ? 48 : 20; m.atkFx = 0.25; const d = F ? Math.floor(R() * (F.hit + 1)) : M.dmg; if (d > 0) game.hurtPlayer(d, m) }   // (folk swing at RS speed, 4 ticks, and roll 0..max like RS)
   } else if (M.villager) {
     if (night) fw = 0
     else {

@@ -430,6 +430,16 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   const a = hits(gob), b = hits(man)
   check('a goblin takes three punches, a man four', a === 3 && b === 4, `goblin ${a}, man ${b}`)
 }
+{ // RS folk fight back: punch a man and he swings at RS speed (0 or 1 a hit) till you get away; he won't trade meanwhile
+  const { w, g, P } = fresh(); pad(w, 4000, -4000); P.x = 4000.5; P.y = 101; P.z = -4000.5; P.hunger = 0; P.sat = 0
+  const m = makeMob('villager', 4000.5, 101, -4002.5, seeded(3), { kind: 'man', home: [4000.5, -4002.5] }); g.ents.push(m)
+  for (let i = 0; i < 5; i++) g.tick({})
+  P.atkT = 100; g.attackMob(m); let hits = 0, low = P.hp
+  for (let i = 0; i < 400 && P.hp > 0; i++) { const h = P.hp; g.tick({}); if (P.hp < h) hits++; low = Math.min(low, P.hp) }
+  const angry = m.angry
+  P.x = 4040.5; P.z = -4040.5; for (let i = 0; i < 5; i++) g.tick({})
+  check('a man you punch hits back, then calms down when you leave', angry && hits >= 2 && hits <= 9 && low >= 10 && !m.angry, `${hits} hits, hp down to ${low}, angry after leaving ${m.angry}`)
+}
 { // the RS ground stays as the map has it: MC's grass/dirt ticks leave natural cells alone when the client says so
   const { w, g, P } = fresh(); P.x = 1170.5; P.z = -402.5
   w.keep = (x, y, z) => w.natural(x, y, z)
