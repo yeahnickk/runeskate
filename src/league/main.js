@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { Match, C, MODES, basis, TICK } from './match.js';
 import { botInput, DIFFS } from './bots.js';
 import { D, N, L, GH } from './arena.js';
-import { buildArena, Pads, buildCabbage, TEAM, SUN, floorShape } from './scenery.js';
+import { buildArena, Pads, buildCabbage, TEAM, SUN, floorShape, Grass } from './scenery.js';
 import { CarVis, HATS, setEnv } from './cars.js';
 import { LeagueHud, QUICK, clock } from './hud.js';
 import { LeagueInput, TOUCH } from './input.js';
@@ -173,7 +173,7 @@ async function main() {
   const stadium = buildArena(TOUCH); arena.add(stadium.group);
   stadium.group.traverse(o => { if (o.isMesh && !o.material.transparent && !o.userData.noShadow) o.castShadow = true; });
   { const rec = new THREE.Mesh(floorShape(), new THREE.ShadowMaterial({ opacity: 0.34, color: 0x10200a })); rec.position.y = 3; rec.receiveShadow = true; arena.add(rec); }   // (just over the chalk)
-  const pads = new Pads(arena);
+  const pads = new Pads(arena), grass = TOUCH ? null : new Grass(arena);
   const ballM = buildCabbage(C.ballR); arena.add(ballM); ballM.traverse(o => { if (o.isMesh && o.material.side !== THREE.BackSide) o.castShadow = true; });
   const ballQ = new THREE.Quaternion();
   const ballSh = new THREE.Mesh(new THREE.CircleGeometry(C.ballR, 20), new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.4, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 }));
@@ -213,7 +213,7 @@ async function main() {
   // ---------------- the setup
   const setup = Object.assign({ name: '', size: 2, diff: 'pro', team: 0, body: 'kart', theme: 'sara', hat: 'god', boom: 'party', ballcam: true, gfx: TOUCH ? 'low' : 'high' }, load(SETUP_KEY, {}));
   // the graphics level: HIGH has the sun's shadows, MSAA and light shafts; LOW drops them (bloom, grade and FXAA stay)
-  const applyGfx = q => { const hi = q === 'high'; sun.castShadow = hi; post.shafts = hi; post.ao = hi; const sm = hi && !TOUCH ? 4 : 0; if (post.rt.samples !== sm) { post.rt.samples = sm; post.rt.dispose(); } };
+  const applyGfx = q => { const hi = q === 'high'; sun.castShadow = hi; post.shafts = hi; post.ao = hi; if (grass) grass.mesh.visible = hi; const sm = hi && !TOUCH ? 4 : 0; if (post.rt.samples !== sm) { post.rt.samples = sm; post.rt.dispose(); } };
   applyGfx(setup.gfx);
   if (!setup.name) setup.name = 'Player' + (100 + Math.floor(Math.random() * 900));
   let net = null, netMsg = '', netEv = [], m = null, vis = [], me = null, mode = 'menu', paused = false, endShown = false, preview = null, previewKey = '', ballcam = setup.ballcam;
@@ -476,7 +476,7 @@ async function main() {
     }
     { const fast = mode === 'game' && me && !me.demoT && !(replay && replay.wait <= 0) ? (me.sonic ? 0.55 : me.boosting ? 0.22 : 0) : 0; post.speed += (fast - post.speed) * Math.min(1, dt * 5); if (post.speed < 0.01) post.speed = 0; }   // (the speed smear)
     sky.position.copy(camera.position); sky.material.uniforms.time.value = tt;
-    stadium.floorU.camL.value.copy(camera.position); arena.worldToLocal(stadium.floorU.camL.value);
+    stadium.floorU.camL.value.copy(camera.position); arena.worldToLocal(stadium.floorU.camL.value); grass?.update(stadium.floorU.camL.value, tt);
     draw();
   }
   requestAnimationFrame(frame);

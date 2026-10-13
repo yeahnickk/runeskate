@@ -277,6 +277,38 @@ export class Pads {
   }
 }
 
+// ---------------------------------------------------------------- grass: real blades round the camera (HIGH)
+// One instanced blade, tiled in a square that follows the camera (each blade wraps to stay round it), only over the
+// pitch's floor, coloured like the stripe under it (dark at the root, light at the tip), swaying, gone by ~1600 uu.
+export class Grass {
+  constructor(group, n = 20000) {
+    const S = 2600, g = new THREE.InstancedBufferGeometry(), w = 2.6;
+    g.setAttribute('position', new THREE.Float32BufferAttribute([-w, 0, 0, w, 0, 0, w * 0.5, 0.5, 0, -w * 0.5, 0.5, 0, 0, 1, 0], 3));
+    g.setIndex([0, 1, 2, 0, 2, 3, 3, 2, 4]);
+    const o = new Float32Array(n * 4); for (let i = 0; i < n; i++) { o[i * 4] = Math.random() * S; o[i * 4 + 1] = Math.random() * S; o[i * 4 + 2] = Math.random(); o[i * 4 + 3] = Math.random() * 6.283; }
+    g.setAttribute('ofs', new THREE.InstancedBufferAttribute(o, 4)); g.instanceCount = n;
+    const c = (h, k) => new THREE.Vector3(...shade(rgb(h), new THREE.Vector3(0, 1, 0), k));
+    this.u = { cam: { value: new THREE.Vector3() }, time: { value: 0 }, S: { value: S }, ga: { value: new THREE.Vector3(...shade(GRASS, new THREE.Vector3(0, 1, 0))) }, gb: { value: new THREE.Vector3(...shade(GRASS2, new THREE.Vector3(0, 1, 0))) }, lim: { value: new THREE.Vector4(kx, kz, kc, L) } };
+    const m = new THREE.ShaderMaterial({ uniforms: this.u, side: THREE.DoubleSide, fog: false,
+      vertexShader: `uniform vec3 cam, ga, gb; uniform float time, S; uniform vec4 lim; attribute vec4 ofs; varying vec3 vC;
+        void main(){
+          vec2 p = cam.xz + mod(ofs.xy - cam.xz + S * 0.5, S) - S * 0.5;                      // (wrapped round the camera)
+          float d = length(p - cam.xz), ax = abs(p.x), az = abs(p.y);
+          float on = step(ax, lim.x - 120.0) * step(az, lim.y - 120.0) * step(ax + az, lim.z - 160.0);   // (the octagon's floor, clear of the curve)
+          float k = on * (1.0 - smoothstep(700.0, 1250.0, d)), h = (6.0 + ofs.z * 7.0) * k;
+          float ang = ofs.w, sw = sin(time * 1.7 + p.x * 0.004 + p.y * 0.003) * 0.35 + 0.15;
+          vec3 v = position; v.x *= k; vec3 l = vec3(v.x * cos(ang), 0.0, v.x * sin(ang));
+          float ln = (0.35 + 0.5 * fract(ofs.z * 7.13)) * position.y * h;   // (each blade leans off its own plane: seen from above it still shows)
+          vec3 wp = vec3(p.x + l.x - sin(ang) * ln + sw * position.y * h * 0.5, position.y * h * 0.85 + 1.0, p.y + l.z + cos(ang) * ln + sw * position.y * h * 0.3);
+          float band = mod(floor((p.y + 6144.0) / 512.0), 2.0);
+          vC = mix(gb, ga, band) * mix(0.72, 1.12, position.y) * (0.93 + 0.14 * ofs.z);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(wp, 1.0); }`,
+      fragmentShader: 'varying vec3 vC; void main(){ gl_FragColor = vec4(vC, 1.0); }' });
+    this.mesh = new THREE.Mesh(g, m); this.mesh.frustumCulled = false; group.add(this.mesh);
+  }
+  update(camLocal, t) { this.u.cam.value.copy(camLocal); this.u.time.value = t; }
+}
+
 // ---------------------------------------------------------------- the ball: RS's own cabbage, six heads of it wrapped round
 // a ball (one on each face of a cube, pushed out onto the sphere), the outer leaves overlapping at the seams
 export function buildCabbage(r) {
@@ -287,14 +319,14 @@ export function buildCabbage(r) {
   faces.forEach((fq, fi) => {
     tw.setFromAxisAngle(new THREE.Vector3(0, 1, 0), fi * 1.1);
     for (let i = 0; i < p.length; i += 3) {
-      const x = p[i], y = p[i + 1], z = p[i + 2] - 3, rho = Math.min(1, Math.hypot(x, z) / rmax), phi = Math.atan2(z, x), th = rho * 1.05;   // (a head spans ~60 degrees: neighbours overlap)
+      const x = p[i], y = p[i + 1], z = p[i + 2] - 3, rho = Math.min(1, Math.hypot(x, z) / rmax), phi = Math.atan2(z, x), th = rho * 1.32;   // (a head spans ~75 degrees: neighbours overlap well, no gaps to the heart)
       v.set(Math.sin(th) * Math.cos(phi), Math.cos(th), Math.sin(th) * Math.sin(phi)).multiplyScalar(r * (0.93 + 0.1 * (y - 2) / 13)).applyQuaternion(tw).applyQuaternion(fq);
       P.push(v.x, v.y, v.z); Cc.push(c[i] * 1.15, c[i + 1] * 1.15, c[i + 2] * 1.15);
     }
   });
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(Cc, 3));
   const grp = new THREE.Group(); grp.add(new THREE.Mesh(g, rsMat));
-  grp.add(new THREE.Mesh(new THREE.IcosahedronGeometry(r * 0.9, 2), new THREE.MeshBasicMaterial({ color: 0x5f9a38 })));   // (the heart, under the leaves)
+  grp.add(new THREE.Mesh(new THREE.IcosahedronGeometry(r * 0.9, 2), new THREE.MeshBasicMaterial({ color: 0x3c6e22 })));   // (the heart, under the leaves: inner-leaf green)
   grp.add(new THREE.Mesh(new THREE.IcosahedronGeometry(r * 1.03, 2), new THREE.MeshBasicMaterial({ color: 0x223214, side: THREE.BackSide })));   // (a dark rim: it reads on the grass)
   return grp;
 }

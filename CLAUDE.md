@@ -90,8 +90,9 @@ z down the pitch, blue defends -z; a car's forward +x, up +y, right +z), 120 Hz.
   (`buildSky`), resolution that follows the frame rate (`Scaler`); main.js adds the sun's shadow map (a `ShadowMaterial`
   floor from `floorShape`) and scenery's `pitchMat` sheens the mown stripes. Kart paint is lacquered (cars.js `paint`: standard material lit by a
   PMREM of the sky, `setEnv`); the RS drivers stay matte. Glows are colours over 1 (team trims, goal
-  frames), so the HDR bloom catches them. The menu's GRAPHICS HIGH / LOW (`applyGfx`: shadows, MSAA, shafts, AO; LOW is the
-  phone default). A HIGH frame is ~340 draw calls, ~410k triangles; the sim + bots ~0.4 ms. No canvas textures standing in for RS things.
+  frames), so the HDR bloom catches them. The menu's GRAPHICS HIGH / LOW (`applyGfx`: shadows, MSAA, shafts, AO, scenery's `Grass` blades
+  round the camera; LOW is the
+  phone default). A HIGH frame is ~345 draw calls, ~470k triangles; the sim + bots ~0.4 ms. No canvas textures standing in for RS things.
 - `cars.js` CartScape's karts painted per team; `hud.js` RS fonts at native size on brown panels; `input.js` RL's
   PC defaults (right mouse jump, left mouse boost, SHIFT powerslide, SPACE ball cam; J/K without a mouse), pad, touch; `main.js` the client (menu, camera, replays, sfx).
 - Online: `netserver.js` one always-on 3v3 inside serve.ts (`/league-ws`; bots fill seats, people take them, idle when
