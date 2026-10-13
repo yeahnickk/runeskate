@@ -81,8 +81,9 @@ function wheel(r, w, tyre, rim, iron = false) {
 }
 
 /** a kart: { group, body (the sprung part), wheels: [{ g, front, r }], steer, seat, exhaust: [Vector3], theme } */
+/** themeK: a THEMES key, or a theme object of its own (Rune League paints them in team colours) */
 export function buildKart(bodyK = 'kart', themeK = 'sara') {
-  const T = THEMES[themeK] || THEMES.sara, P = new Parts(), group = new THREE.Group(), body = new THREE.Group(); group.add(body);
+  const T = typeof themeK === 'object' ? themeK : THEMES[themeK] || THEMES.sara, P = new Parts(), group = new THREE.Group(), body = new THREE.Group(); group.add(body);
   const { body: B, trim: Tr, acc: A, dark: D } = T, grey = 0x3a3a3e, black = 0x141414, metal = 0x9a9aa2;
   const wheels = [], exhaust = [], decals = [];
   let seat = new THREE.Vector3(-0.32, 0.36, 0), wheelAt = new THREE.Vector3(0.32, 0.78, 0), rw = 0.34, fw = 0.27;

@@ -98,6 +98,15 @@ map data and running in the browser. Every door and gate stands open.
   ahead, an overload, ice barrage, dragonfire on the leader), dodge the cows and chickens wandering over, the swinging
   blades and the rolling boulders. Mithril, Rune and Dragon classes, easy / normal / hard CPUs, and online highscores
   per class (fastest three laps). Keyboard, gamepad or touch.
+- **Rune League, Rocket League in the cabbage patch.** Pick RUNE LEAGUE on the home page (or open `league.html`).
+  RL's soccar arena to the unit, built in the Lumbridge cabbage patch out of real RS models (the patch's own fence,
+  standards, haystacks, torches, energy potions over the boost pads, a ball made of RS's cabbage) and RL's own
+  numbers: throttle, boost, supersonic, jumps, double jumps, flips and dodges, air roll, wall and ceiling driving,
+  the Psyonix hit, demolitions, 100 and 12 boost pads, kickoffs, overtime, shots, saves, assists, MVP, goal
+  replays, ball cam. 1v1, 2v2 or 3v3 against Rookie, Pro or All-Star bots (All-Stars rotate, power flip and go up
+  for aerials), free play, or PLAY ONLINE: one always-on 3v3 on the server where people take the bots' seats (the
+  server runs the match; your browser runs ahead on your own inputs, like RL's netcode). OSRS quick chat, god
+  karts and party hats, goal explosions. Keyboard (RL's layout), gamepad or touch.
 
 ![The world map](assets/map.png)
 
@@ -175,6 +184,7 @@ with `.gz` siblings, whenever they are missing or stale (a few seconds, gitignor
   launch pads, spike traps, mine carts, victory dances, duos and squads (knocks, revives, reboots, team wins),
   fishing, upgrade benches, rifts, ziplines and the locker (pass tiers, shop).
 - `bun test/net.js` starts the server on a spare port and plays it: S.K.A.T.E. turns, park limits, spot claims.
+- `bun test/league.js` checks Rune League: RL's car and ball numbers, goals, kickoffs, pads, demos, overtime, the state round-tripping for the wire, the bots (in order, aerials connect, nobody in the walls) and the online match end to end. `bun --preload ./tools/preload.ts tools/league-models.ts` re-exports the RS models it dresses the stadium with; `bun tools/league-arena.ts` re-cuts the patch around it.
 - `bun test/cart.js` checks CartScape's baked road, whole CPU races in every class and difficulty, every item, that cutting or reversing earns no lap, and the highscores; `bun tools/cart-track.ts` re-bakes the track after a route change.
 - `bun tools/spot-check.ts` checks every challenge spot is reachable from spawn.
 - `bun tools/pocket-check.ts` (after split) checks spawn and every teleport drop land in a big connected area, never a pocket you cannot skate out of.

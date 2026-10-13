@@ -18,6 +18,7 @@ bun test/castle-fuzz.js           # CODScape: bodies wander the castles; no popp
 bun test/supply-fuzz.js           # CODScape: bodies scramble round the supply tables; nobody ends up stuck (body.js unstuck)
 node test/cod-e2e.cjs [base]      # CODScape in a real browser (needs playwright; server on base, default :8199)
 bun test/cart.js                  # CartScape: the road, CPU races per class + difficulty, every item, no lap from cutting/reversing, highscores (boots the server)
+bun test/league.js                # Rune League: RL numbers, rules, wire state, bot matches, aerials, online 3v3 (boots the server)
 bun tools/cart-track.ts            # CartScape: re-bake assets/cart_lumbridge.* after changing the route in src/cart/track.js
 ```
 
@@ -71,6 +72,27 @@ the CODScape pattern).
   IK'd onto the rim (`gripAt`, `placeWheel` moves the wheel to their reach) and turning it with the steering.
   `scenery.js` the road mesh, fence/bales, gantry, arches, pads, chests, obstacles. `hud.js`, `input.js`, `main.js`.
 - Dev page: `test/karts.html` (every kart, `?body=mine`, `?one=3`, `?spin=1`, `?close=1&steer=0.7` grip markers). `window.CART` exposes the race.
+
+## Rune League (league.html, src/league/)
+
+Rocket League in the Lumbridge cabbage patch. The sim is RL's own numbers in RL units (uu), three.js axes (x across, y up,
+z down the pitch, blue defends -z; a car's forward +x, up +y, right +z), 120 Hz.
+- `arena.js` RL's soccar arena as a distance field (`D` > 0 inside, `N` its normal), pads, kickoff + respawn spots.
+- `match.js` the match (pure): `Car`/`Ball` physics, rules, events; `save()`/`load()` the whole state for the wire,
+  `packIn`/`unpackIn` inputs. `bots.js` the bots (`DIFFS` rookie/pro/allstar: rotation, power flips, aerials).
+- `site.js` + `tools/league-arena.ts` cut `assets/league_patch.*` (the world round the patch, ground flattened under the
+  stadium). The arena group sits at the site scaled by `K` (1/400 world units a uu), the pitch run east.
+- Looks: `scenery.js` builds the stadium like RS draws (flat colours, light baked in, no textures) and dresses it with
+  real RS models from `assets/league_models.json` (`tools/league-models.ts`, loaded by `rsmodels.js`: `meshOf`,
+  `merged`, team `tint`). main.js renders through one post pass (MSAA target + FXAA + grade). Keep it that way: no
+  canvas textures standing in for RS things.
+- `cars.js` CartScape's karts painted per team; `hud.js` RS fonts at native size on brown panels; `input.js` RL's
+  layout (keys, pad, touch); `main.js` the client (menu, camera, replays, sfx).
+- Online: `netserver.js` one always-on 3v3 inside serve.ts (`/league-ws`; bots fill seats, people take them, idle when
+  empty), 120 Hz, state out 30 a second. `netclient.js` loads each snapshot and replays our unacked inputs (2 ticks
+  each), easing corrections out visually (`drawn`). Rule events (goals, demos...) only ever come from the server.
+- Dev page: `test/league-models.html` (every RS model it uses, `?tint=0x..`, `?ball=1`). `window.LEAGUE` exposes the
+  match (`LEAGUE.auto = true` lets a bot drive your car).
 
 ## RuneRoyale (battle royale inside the skate game)
 

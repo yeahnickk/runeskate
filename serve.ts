@@ -317,6 +317,10 @@ function brMsg(s: Sess, m: any) {
 let cod: any = null;
 import('./src/cod/netserver.js').then(m => { cod = new m.CodServer(ROOT, cleanChat); console.log('CODScape online match up'); }).catch(e => console.warn('CODScape online off:', e?.message || e));
 
+// Rune League online: the always-on 3v3 in the cabbage patch (src/league/netserver.js). Off, not fatal, if it can't load.
+let league: any = null;
+import('./src/league/netserver.js').then(m => { league = new m.LeagueServer(cleanChat); console.log('Rune League online match up'); }).catch(e => console.warn('Rune League online off:', e?.message || e));
+
 Bun.serve({
   port,
   idleTimeout: 255,          // (seconds, Bun's max) the default 10 cut big map downloads off for anyone slow to read them
@@ -324,6 +328,8 @@ Bun.serve({
     const url = new URL(req.url);
     let p = decodeURIComponent(url.pathname);
     if (p === '/ws') return server.upgrade(req, { data: { sess: null } }) ? undefined : new Response('upgrade failed', { status: 400 });
+    if (p === '/league-ws') return league && server.upgrade(req, { data: { league: true } }) ? undefined : new Response('Rune League online is off', { status: 503 });
+    if (p === '/league' || p === '/league/' || p === '/runeleague') return Response.redirect('/league.html', 302);
     if (p === '/cod-ws') return cod && server.upgrade(req, { data: { cod: true } }) ? undefined : new Response('CODScape online is off', { status: 503 });
     if (p === '/api/top') {                                         // leaderboard: all accounts by XP
       const online = new Set([...sessions.values()].map(s => s.k));
@@ -376,9 +382,10 @@ Bun.serve({
     return sendFile(req, full);
   },
   websocket: {
-    open(ws: any) { if (ws.data.cod) cod?.open(ws); },
+    open(ws: any) { if (ws.data.cod) cod?.open(ws); if (ws.data.league) league?.open(ws); },
     async message(ws: any, raw) {
       if (ws.data.cod) return cod?.message(ws, raw);
+      if (ws.data.league) return league?.message(ws, raw);
       let m: any; try { m = JSON.parse(String(raw)); } catch { return; }
       const s: Sess | null = ws.data.sess;
       if (!s) {
@@ -466,6 +473,7 @@ Bun.serve({
     },
     close(ws: any) {
       if (ws.data.cod) return cod?.close(ws);
+      if (ws.data.league) return league?.close(ws);
       const s: Sess | null = ws.data.sess;
       if (s && sessions.get(s.id) === s) {
         sessions.delete(s.id); broadcast({ t: 'leave', id: s.id });

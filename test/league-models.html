@@ -1,0 +1,20 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Rune League models</title><base href="../">
+<style>html,body{margin:0;background:#7fa6dc;overflow:hidden;font:12px monospace}canvas{display:block}.l{position:absolute;color:#ff0;text-shadow:1px 1px #000}</style>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script></head>
+<body><script type="module">
+// every RS model Rune League dresses the stadium with (tools/league-models.ts), in a grid; ?tint=0x2f6bff recolours
+import * as THREE from 'three';
+import { loadModels, meshOf, modelKeys } from './src/league/rsmodels.js';
+import { buildCabbage } from './src/league/scenery.js';
+const q = new URLSearchParams(location.search), r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(innerWidth, innerHeight); document.body.appendChild(r.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x7fa6dc);
+await loadModels(); const keys = modelKeys(), n = Math.ceil(Math.sqrt(keys.length * 1.6)), tint = q.get('tint') ? +q.get('tint') : null;
+const cam = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 1, 1e5); const sp = 320;
+keys.forEach((k, i) => { const m = meshOf(k, tint); const big = /essence|energy|cabbage/.test(k) ? 6 : 1; m.scale.setScalar(big); m.position.set((i % n - n / 2) * sp, 0, Math.floor(i / n) * sp); m.rotation.y = 0.5; scene.add(m); m.userData.k = k; });
+const rows = Math.ceil(keys.length / n); cam.position.set(0, rows * sp * 1.2, rows * sp * 1.9); cam.lookAt(0, 0, rows * sp / 2); 
+r.render(scene, cam);
+for (const m of scene.children) { const v = m.position.clone(); v.y -= 30; v.project(cam); const d = document.createElement('div'); d.className = 'l'; d.textContent = m.userData.k; d.style.left = ((v.x + 1) / 2 * innerWidth - 20) + 'px'; d.style.top = ((1 - v.y) / 2 * innerHeight) + 'px'; document.body.appendChild(d); }
+if (q.get('ball')) { for (const m of [...scene.children]) scene.remove(m); for (const l of document.querySelectorAll('.l')) l.remove(); const b = buildCabbage(92.75); scene.add(b); cam.position.set(150, 260, 380); cam.lookAt(0, 0, 0); r.render(scene, cam); }
+window.ready = true;
+</script></body></html>

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2b2117">
+<title>Rune League</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --ink: #ff981f; --panel: rgba(46,38,27,.94); --edge: #2b2117; --light: #7a6a4c; }
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent;
+    background: linear-gradient(180deg, #3f6fb8 0%, #7fa6dc 40%, #b9cbe0 62%); font-family: monospace; color: #fff; }
+  body { position: fixed; inset: 0; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  #hud { pointer-events: none; image-rendering: pixelated; z-index: 2; }
+  .panel { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: safe center; gap: 14px; z-index: 5;
+    background: radial-gradient(ellipse at center, rgba(40,30,15,.55), rgba(0,0,0,.82)); text-align: center; padding: 16px; box-sizing: border-box; overflow-y: auto; }
+  .box { background: var(--panel); border: 3px solid var(--edge); outline: 2px solid var(--light); outline-offset: -7px; padding: 22px 26px; max-width: 640px; width: 100%;
+    box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; align-items: stretch; box-shadow: 6px 6px 0 rgba(0,0,0,.5); }
+  .title { font-size: clamp(40px, 9vw, 84px); font-weight: 900; color: var(--ink); letter-spacing: 4px; text-shadow: 4px 4px 0 #000, -2px -2px 0 #5a3a10;
+    font-family: Impact, 'Arial Black', sans-serif; text-align: center; }
+  .title.sm { font-size: clamp(26px, 5vw, 40px); }
+  .sub { color: #ff0; font-size: 15px; text-shadow: 1px 1px 0 #000; text-align: center; }
+  .col { display: flex; flex-direction: column; gap: 10px; align-items: center; margin-top: 6px; }
+  .col.top { margin: 4px 0 14px; }
+  button, a.small { font: bold 18px monospace; padding: 11px 30px; background: #5a4a2a; color: #ff0; border: 3px solid #2e2412; cursor: pointer; box-shadow: 3px 3px 0 #000; text-decoration: none; min-width: 220px; }
+  button:hover, a.small:hover { background: #6d5a33; }
+  button.small, a.small { font-size: 14px; padding: 8px 18px; background: #3a3020; min-width: 160px; }
+  a.back { color: #9cf; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: space-between; }
+  .lab { color: var(--ink); font-weight: bold; min-width: 90px; text-align: left; }
+  .lab2 { color: var(--ink); font-weight: bold; text-align: left; margin-top: 4px; }
+  .seg { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; justify-content: flex-end; }
+  .seg.wrap { justify-content: flex-start; }
+  .seg button { min-width: 0; font-size: 13px; padding: 7px 10px; box-shadow: 2px 2px 0 #000; background: #3a3020; color: #d8c890; }
+  .seg button.sel { background: #8a6a2a; color: #fff; border-color: #ff981f; }
+  .desc { color: #ccc; font-size: 13px; text-align: right; min-height: 1em; }
+  .keys { color: #ddd; font-size: 13px; line-height: 1.7; text-align: left; } .keys b { color: #ff0; }
+  .row input[type=range] { flex: 1; accent-color: #ff981f; } .val { width: 40px; color: #fff; }
+  .row.name input { font: 16px monospace; padding: 6px 10px; background: #1a1408; color: #ff0; border: 2px solid #5a4a2a; flex: 1; max-width: 220px; }
+  @media (max-height: 520px) { .panel { padding: 8px; gap: 8px; } .box { padding: 12px 16px; gap: 8px; } .title { font-size: 36px; } button { padding: 8px 18px; font-size: 15px; } }
+  .seg button i { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border: 1px solid #000; vertical-align: -1px; }
+  #pause, #endbox { display: none; }
+  table.sb td { text-align: center; } table.sb td:first-child { text-align: left; }
+  .hs { max-height: 26vh; overflow-y: auto; } .hs table.res { margin-top: 2px; }
+  #endbox .stats { color: #fff; font-size: 15px; }
+  table.res { border-collapse: collapse; margin: 8px auto 0; font: bold 15px monospace; min-width: 280px; }
+  table.res td { padding: 3px 10px; text-align: left; border-bottom: 1px solid rgba(122,106,76,.5); } table.res td:last-child { text-align: right; color: #fff; }
+  table.res i { display: inline-block; width: 10px; height: 10px; margin-right: 7px; border: 1px solid #000; }
+  #touch { position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+  #touch .tb { position: absolute; pointer-events: auto; display: flex; align-items: center; justify-content: center; font: bold 15px monospace; color: #ff0;
+    background: rgba(62,53,41,.72); border: 3px solid #2b2117; outline: 2px solid rgba(122,106,76,.8); outline-offset: -6px; border-radius: 50%; touch-action: none; -webkit-user-select: none; user-select: none; }
+  #touch .tb.on { background: rgba(138,106,42,.9); color: #fff; }
+  #stick { position: absolute; left: 22px; bottom: 22px; width: 150px; height: 150px; border-radius: 50%; background: rgba(62,53,41,.45); border: 3px solid rgba(43,33,23,.8); pointer-events: auto; touch-action: none; }
+  #knob { position: absolute; left: 45px; top: 45px; width: 60px; height: 60px; border-radius: 50%; background: rgba(138,106,42,.85); border: 3px solid #2b2117; pointer-events: none; }
+  #touch [data-k=jump] { right: 20px; bottom: 24px; width: 100px; height: 100px; } #touch [data-k=boost] { right: 132px; bottom: 30px; width: 84px; height: 84px; }
+  #touch [data-k=slide] { right: 40px; bottom: 140px; width: 66px; height: 66px; font-size: 12px; } #touch [data-k=cam] { right: 122px; bottom: 128px; width: 54px; height: 54px; font-size: 11px; }
+  #pausebtn { position: fixed; top: 8px; right: 8px; z-index: 4; min-width: 0; padding: 6px 12px; font-size: 14px; display: none; }
+  body.playing #menu { display: none; } body.playing #pausebtn { display: block; }
+  @media (min-width: 900px) { #menu { align-items: flex-start; padding-left: 4vw; background: linear-gradient(90deg, rgba(0,0,0,.6), rgba(0,0,0,0) 62%); } #menu .box { max-width: 540px; } }
+
+</style>
+<link rel="preload" href="assets/league_patch.bin" as="fetch" crossorigin="anonymous">
+<link rel="preload" href="assets/league_patch.json" as="fetch" crossorigin="anonymous">
+<script type="importmap">
+  { "imports": { "three": "./vendor/three.module.js" } }
+</script>
+<link rel="modulepreload" href="./vendor/three.module.js">
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="hud"></canvas>
+<div class="panel" id="loading"><div class="title">RUNE LEAGUE</div><div class="sub" id="status">loading...</div></div>
+<div class="panel" id="menu" style="display:none"><div class="box" id="menubox"></div></div>
+<div id="touch" style="display:none"><div id="stick"><div id="knob"></div></div><div class="tb" data-k="jump">JUMP</div><div class="tb" data-k="boost">BOOST</div><div class="tb" data-k="slide">SLIDE</div><div class="tb" data-k="cam">CAM</div></div>
+<button id="pausebtn" class="small">II</button>
+<div class="panel" id="pause"><div class="box"><div class="title sm">PAUSED</div><div class="col">
+  <button id="p-resume">RESUME</button><button id="p-restart" class="small">RESTART MATCH</button><button id="p-quit" class="small">QUIT TO MENU</button>
+</div></div></div>
+<div class="panel" id="endbox"><div class="box"><div class="title sm">RESULTS</div><div class="stats"></div><div class="col">
+  <button id="e-again">PLAY AGAIN</button><button id="e-menu" class="small">MENU</button>
+</div></div></div>
+<script type="module" src="./src/league/main.js"></script>
+</body>
+</html>
