@@ -31,6 +31,12 @@ const run = (m, secs, inp, every) => { const c = m.cars[0]; for (let i = 0; i < 
   check('air control rights the car before it lands', c.ground && basis(c.q).u[1] > 0.9, `up.y ${basis(c.q).u[1].toFixed(2)}`);
 }
 // ---- the ball
+{ // a straight hit: RL's extra (Psyonix) impulse scales with the closing speed before contact, so the ball leaves well
+  // ahead of the car (~1900 off a 1410 drive, ~3000 off a supersonic one), not stuck to the bumper
+  const out = [1410, 2300].map(sp => { const m = new Match({ players: [{ id: 'a', team: 0 }], freeplay: true }); m.state = 'play'; const c = m.cars[0]; c.place([0, C.ride, -700], 0); c.v = [0, 0, sp];
+    for (let i = 0; i < 240 && Math.hypot(m.ball.v[0], m.ball.v[2]) < 1; i++) { c.in = I({ throttle: 1, boost: sp > 1410 }); m.tickOnce(); } for (let i = 0; i < 10; i++) m.tickOnce(); return Math.hypot(...m.ball.v); });
+  check('a straight hit sends the ball off like RL', out[0] > 1750 && out[0] < 2200 && out[1] > 2800 && out[1] < 3400, out.map(v => v.toFixed(0)).join(' / '));
+}
 {
   const m = new Match({ players: [] }); m.state = 'play'; m.ball.p = [0, 1000, 0]; let peak = 0, up = false, last = 1000, peaks = [];
   for (let i = 0; i < 600; i++) { m.ball.step(1 / 120); const y = m.ball.p[1]; if (y < last && up) peaks.push(last); up = y > last; last = y; }

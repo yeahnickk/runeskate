@@ -22,9 +22,11 @@ export class CarVis {
     this.kart = buildKart(car.body, th);
     const g = this.kart.group; g.scale.setScalar(MS); g.position.set(14, -C.ride, 0); this.root.add(g);
     for (const w of this.kart.wheels) w.g.rotation.order = 'YZX';
-    buildDriver(outfitOf(car.theme, car.hat), this.kart).then(d => { if (this.root.parent) { this.kart.body.add(d.group); this.driver = d; } }).catch(e => console.warn('driver', e));
+    const shade = o => o.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = !!m.material?.isMeshLambertMaterial; } });
+    shade(g);
+    buildDriver(outfitOf(car.theme, car.hat), this.kart).then(d => { if (this.root.parent) { this.kart.body.add(d.group); this.driver = d; shade(d.group); } }).catch(e => console.warn('driver', e));
     // a shadow under it (on the floor only: walls get none)
-    const sh = new THREE.Mesh(new THREE.CircleGeometry(52, 16), new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 }));
+    const sh = new THREE.Mesh(new THREE.CircleGeometry(52, 16), new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.2, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 }));
     sh.rotation.x = -Math.PI / 2; sh.scale.set(1.2, 0.8, 1); parent.add(sh); this.shadow = sh;
     this.st = 0; this.ex = new THREE.Vector3(); this.tmp = new THREE.Vector3(); this.trail = TRAIL[car.theme] || TRAIL.sara;
   }
@@ -35,7 +37,7 @@ export class CarVis {
     if (s.demo) return;
     r.position.set(s.p[0], s.p[1], s.p[2]); r.quaternion.set(s.q[0], s.q[1], s.q[2], s.q[3]);
     this.shadow.position.set(s.p[0], 4, s.p[2]); this.tmp.set(1, 0, 0).applyQuaternion(r.quaternion); this.shadow.rotation.z = Math.atan2(-this.tmp.z, this.tmp.x);
-    this.shadow.material.opacity = 0.3 / (1 + Math.max(0, s.p[1] - 20) / 300);
+    this.shadow.material.opacity = 0.18 / (1 + Math.max(0, s.p[1] - 20) / 300);   // (a soft contact shadow under the sun's)
     this.st += ((s.steer || 0) - this.st) * Math.min(1, dt * 14);
     const fwd = s.fwd || 0;
     for (const w of this.kart.wheels) { w.g.rotation.z -= fwd / MS * dt / w.r; if (w.front) w.g.rotation.y = -this.st * 0.45; }

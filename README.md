@@ -106,7 +106,8 @@ map data and running in the browser. Every door and gate stands open.
   replays, ball cam. 1v1, 2v2 or 3v3 against Rookie, Pro or All-Star bots (All-Stars rotate, power flip and go up
   for aerials), free play, or PLAY ONLINE: one always-on 3v3 on the server where people take the bots' seats (the
   server runs the match; your browser runs ahead on your own inputs, like RL's netcode). OSRS quick chat, god
-  karts and party hats, goal explosions. Keyboard (RL's layout), gamepad or touch.
+  karts and party hats, goal explosions. RL's PC controls (right mouse jump, left mouse boost, SHIFT powerslide /
+  air roll, SPACE ball cam, Q E air roll; J K jump / boost without a mouse), gamepad or touch.
 
 ![The world map](assets/map.png)
 

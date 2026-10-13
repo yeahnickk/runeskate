@@ -79,15 +79,16 @@ Rocket League in the Lumbridge cabbage patch. The sim is RL's own numbers in RL 
 z down the pitch, blue defends -z; a car's forward +x, up +y, right +z), 120 Hz.
 - `arena.js` RL's soccar arena as a distance field (`D` > 0 inside, `N` its normal), pads, kickoff + respawn spots.
 - `match.js` the match (pure): `Car`/`Ball` physics, rules, events; `save()`/`load()` the whole state for the wire,
-  `packIn`/`unpackIn` inputs. `bots.js` the bots (`DIFFS` rookie/pro/allstar: rotation, power flips, aerials).
+  `packIn`/`unpackIn` inputs. The Psyonix hit scales by the closing speed *before* contact (as RL/RocketSim). `bots.js` the bots (`DIFFS` rookie/pro/allstar: rotation, power flips, aerials).
 - `site.js` + `tools/league-arena.ts` cut `assets/league_patch.*` (the world round the patch, ground flattened under the
   stadium). The arena group sits at the site scaled by `K` (1/400 world units a uu), the pitch run east.
 - Looks: `scenery.js` builds the stadium like RS draws (flat colours, light baked in, no textures) and dresses it with
   real RS models from `assets/league_models.json` (`tools/league-models.ts`, loaded by `rsmodels.js`: `meshOf`,
-  `merged`, team `tint`). main.js renders through one post pass (MSAA target + FXAA + grade). Keep it that way: no
-  canvas textures standing in for RS things.
+  `merged`, team `tint`). `gfx.js` the finish: HDR MSAA target, bloom, FXAA, filmic grade (`Post`), the sky dome
+  (`buildSky`), resolution that follows the frame rate (`Scaler`); main.js adds the sun's shadow map (a `ShadowMaterial`
+  floor from `floorShape`) and scenery's `pitchMat` sheens the mown stripes. No canvas textures standing in for RS things.
 - `cars.js` CartScape's karts painted per team; `hud.js` RS fonts at native size on brown panels; `input.js` RL's
-  layout (keys, pad, touch); `main.js` the client (menu, camera, replays, sfx).
+  PC defaults (right mouse jump, left mouse boost, SHIFT powerslide, SPACE ball cam; J/K without a mouse), pad, touch; `main.js` the client (menu, camera, replays, sfx).
 - Online: `netserver.js` one always-on 3v3 inside serve.ts (`/league-ws`; bots fill seats, people take them, idle when
   empty), 120 Hz, state out 30 a second. `netclient.js` loads each snapshot and replays our unacked inputs (2 ticks
   each), easing corrections out visually (`drawn`). Rule events (goals, demos...) only ever come from the server.

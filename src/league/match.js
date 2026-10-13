@@ -364,6 +364,7 @@ export class Match {
     const n = [b.f[0] * nl[0] + b.u[0] * nl[1] + b.r[0] * nl[2], b.f[1] * nl[0] + b.u[1] * nl[1] + b.r[1] * nl[2], b.f[2] * nl[0] + b.u[2] * nl[1] + b.r[2] * nl[2]];
     const cw = [c.p[0] + b.f[0] * (cl[0] + C.box.o[0]) + b.u[0] * (cl[1] + C.box.o[1]) + b.r[0] * cl[2], c.p[1] + b.f[1] * (cl[0] + C.box.o[0]) + b.u[1] * (cl[1] + C.box.o[1]) + b.r[1] * cl[2], c.p[2] + b.f[2] * (cl[0] + C.box.o[0]) + b.u[2] * (cl[1] + C.box.o[1]) + b.r[2] * cl[2]];
     const pen = C.ballR - (dist > 1e-3 ? dist : -0), mt = C.ballM + C.carM;
+    const rv0 = [ball.v[0] - c.v[0], ball.v[1] - c.v[1], ball.v[2] - c.v[2]];   // (the closing speed BEFORE contact: what RL scales its extra hit by)
     addS(ball.p, n, pen * C.carM / mt); if (!c.ground) addS(c.p, n, -pen * C.ballM / mt);
     const before = this.tick - c.hitTick > 1 ? this.predict(ball, 3) : null;
     const rc = [cw[0] - c.p[0], cw[1] - c.p[1], cw[2] - c.p[2]], rb = [-n[0] * C.ballR, -n[1] * C.ballR, -n[2] * C.ballR];
@@ -376,7 +377,7 @@ export class Match {
       if (tl > 1) { const t = [vt[0] / tl, vt[1] / tl, vt[2] / tl], jt = Math.min(2 * j, tl / (1 / C.ballM + 1 / C.carM + C.ballR ** 2 / IB)); addS(ball.v, t, -jt / C.ballM); addS(ball.w, cross(rb, t), -jt / IB); addS(c.v, t, jt / C.carM); }
     }
     if (this.tick - c.hitTick > 1) {
-      const rv = [ball.v[0] - c.v[0], ball.v[1] - c.v[1], ball.v[2] - c.v[2]], rs = Math.min(len(rv), 4600);
+      const rs = Math.min(len(rv0), 4600);
       if (rs > 0) {
         let hd = [rel[0], rel[1] * 0.35, rel[2]]; const fa = dot(hd, b.f) * (1 - 0.65); hd = norm([hd[0] - b.f[0] * fa, hd[1] - b.f[1] * fa, hd[2] - b.f[2] * fa]);
         addS(ball.v, hd, rs * curve(HIT, rs));

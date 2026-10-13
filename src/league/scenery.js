@@ -16,7 +16,7 @@ const S2 = Math.SQRT2, kx = W - R, kz = L - R, kc = CH - R * S2;
 export const TS = 600 / 128;                                     // RS units -> uu (a tile is 600 uu here: 1.5 world units at K)
 
 // ---------------------------------------------------------------- baked light (RS bakes its light into the colours too)
-const SUN = new THREE.Vector3(-0.42, 0.8, 0.43).normalize();
+export const SUN = new THREE.Vector3(-0.42, 0.8, 0.43).normalize();
 const shade = (c, n, ao = 1) => { const k = (0.66 + 0.42 * Math.max(0, n.x * SUN.x + n.y * SUN.y + n.z * SUN.z)) * ao; return [c[0] * k, c[1] * k, c[2] * k]; };
 const rgb = h => [(h >> 16 & 255) / 255, (h >> 8 & 255) / 255, (h & 255) / 255];
 const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
@@ -25,11 +25,11 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _n = new THREE.Vector3
 class Soup {
   constructor() { this.P = []; this.C = []; }
   /** a quad a b c d (in order round it), one colour per corner (or one for all), lit by its face normal */
-  quad(a, b, c, d, col, ao = [1, 1, 1, 1], lit = true) {
+  quad(a, b, c, d, col, ao = [1, 1, 1, 1], lit = true, ns = null) {   // (ns: a normal per corner, for smooth curves)
     _a.set(c[0] - a[0], c[1] - a[1], c[2] - a[2]); _b.set(d[0] - b[0], d[1] - b[1], d[2] - b[2]); _n.crossVectors(_a, _b).normalize();
     if (_n.y < 0 || (_n.y === 0 && _n.x * SUN.x + _n.z * SUN.z < 0)) _n.negate();   // (double sided: light whichever face looks up / sunward)
     const cs = Array.isArray(col[0]) ? col : [col, col, col, col];
-    const cl = [0, 1, 2, 3].map(i => lit ? shade(cs[i], _n, ao[i]) : cs[i].map(x => x * ao[i])), vs = [a, b, c, d];
+    const cl = [0, 1, 2, 3].map(i => lit ? shade(cs[i], ns ? ns[i] : _n, ao[i]) : cs[i].map(x => x * ao[i])), vs = [a, b, c, d];
     for (const i of [0, 1, 2, 0, 2, 3]) { this.P.push(vs[i][0], vs[i][1], vs[i][2]); this.C.push(cl[i][0], cl[i][1], cl[i][2]); }
   }
   mesh(mat = rsMat) { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(this.P, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(this.C, 3)); return new THREE.Mesh(g, mat); }
@@ -91,7 +91,7 @@ function profile() {
 }
 
 export function buildArena(lite) {
-  const group = new THREE.Group(), RG = ring(), PR = profile(), S = new Soup(), G = { P: [], C: [] };
+  const group = new THREE.Group(), RG = ring(), PR = profile(), S = new Soup(), F = new Soup(), G = { P: [], C: [] };
   const vtx = (j, k, out = 0) => { const { b, m } = RG[j], [o, y] = PR[k]; return [b[0] + m[0] * (o + out), y, b[1] + m[1] * (o + out)]; };
   const goalMouth = (j, k) => RG[j].back && RG[j + 1].back && Math.abs((RG[j].b[0] + RG[j + 1].b[0]) / 2) < GW && PR[k + 1][1] <= GH + 1;
   const L2 = (p, r, t) => [p[0] + (r[0] - p[0]) * t, p[1] + (r[1] - p[1]) * t, p[2] + (r[2] - p[2]) * t];
@@ -103,13 +103,20 @@ export function buildArena(lite) {
       const a = vtx(j, k), b2 = vtx(j + 1, k), c = vtx(j + 1, k + 1), d = vtx(j, k + 1);
       if (part === 'turf') {
         const g = p => mix(grassAt(p[0] * 0.98, p[2] * 0.98), TURF, Math.min(1, p[1] / R) * 0.6), ao = p => 0.86 + 0.14 * Math.min(1, p[1] / 120);
-        S.quad(a, b2, c, d, [g(a), g(b2), g(c), g(d)], [ao(a), ao(b2), ao(c), ao(d)]);
+        // lit smooth (the curve's own normal at each corner), so the quarter pipe reads as one curve, not 8 facets
+        const nr = (jj, kk) => { const { m } = RG[jj], an = -Math.PI / 2 + Math.min(8, kk) / 8 * Math.PI / 2; return { x: -m[0] * Math.cos(an), y: -Math.sin(an), z: -m[1] * Math.cos(an) }; };
+        S.quad(a, b2, c, d, [g(a), g(b2), g(c), g(d)], [ao(a), ao(b2), ao(c), ao(d)], true, [nr(j, k), nr(j + 1, k), nr(j + 1, k + 1), nr(j, k + 1)]);
       } else if (part === 'wood') {
         // planks: ~110 uu boards, each its own shade (like RS's wooden walls), darker toward the floor
         const len = Math.hypot(b2[0] - a[0], b2[2] - a[2]), n = Math.max(1, Math.round(len / 110));
         for (let q = 0; q < n; q++) {
-          const t0 = q / n, t1 = (q + 1) / n, col = q % 2 ? PLANKS[0] : PLANKS[1], ao = y => 0.8 + 0.2 * Math.min(1, (y - R) / 500);
-          S.quad(L2(a, b2, t0), L2(a, b2, t1), L2(d, c, t1), L2(d, c, t0), col, [ao(a[1]), ao(b2[1]), ao(c[1]), ao(d[1])]);
+          // each board its own shade and grain (lighter in the middle of the board, dark seams between): RS's barn wood
+          const h = hash(j * 7.31 + q, k * 3.7), base = (q % 2 ? PLANKS[0] : PLANKS[1]).map(v => v * (0.86 + 0.24 * h)), ao = y => 0.8 + 0.2 * Math.min(1, (y - R) / 500);
+          const t0 = q / n, t1 = (q + 1) / n, tm0 = t0 + 0.12 / n, tm1 = t1 - 0.12 / n, seam = base.map(v => v * 0.62), mid = base.map(v => v * 1.05);
+          const A = [ao(a[1]), ao(a[1]), ao(d[1]), ao(d[1])];
+          S.quad(L2(a, b2, t0), L2(a, b2, tm0), L2(d, c, tm0), L2(d, c, t0), [seam, mid, mid, seam], A);
+          S.quad(L2(a, b2, tm0), L2(a, b2, tm1), L2(d, c, tm1), L2(d, c, tm0), [mid, mid, mid, mid].map((v, i) => v.map(x => x * (i === 1 || i === 2 ? 0.94 : 1))), A);
+          S.quad(L2(a, b2, tm1), L2(a, b2, t1), L2(d, c, t1), L2(d, c, tm1), [mid, seam, seam, mid].map((v, i) => v.map(x => x * (i === 0 || i === 3 ? 0.94 : 1))), A);
         }
       } else if (part === 'trim') S.quad(a, b2, c, d, teamC(team));
       else { const t = mix([0.75, 0.85, 0.9], teamC(team), 0.25); for (const v of [a, b2, c, a, c, d]) { G.P.push(v[0], v[1], v[2]); G.C.push(t[0], t[1], t[2]); } }
@@ -129,8 +136,10 @@ export function buildArena(lite) {
     if (z1 <= za || !floorAt(x, za) || !floorAt(x1, za) || !floorAt(x, z1) || !floorAt(x1, z1)) continue;
     const band = Math.floor((z + 6144) / 512) % 2, inGoal = Math.abs(z + zs / 2) > L;
     const g = (px, pz) => { const c = grassAt(px, pz, band); return inGoal ? mix(c, teamC(pz < 0 ? 0 : 1), 0.25) : c; };
-    S.quad([x, 0, za], [x1, 0, za], [x1, 0, z1], [x, 0, z1], [g(x, za), g(x1, za), g(x1, z1), g(x, z1)]);
+    F.quad([x, 0, za], [x1, 0, za], [x1, 0, z1], [x, 0, z1], [g(x, za), g(x1, za), g(x1, z1), g(x, z1)]);
   }
+  const floorU = { camL: { value: new THREE.Vector3(0, 1000, -6000) } };
+  group.add(F.mesh(pitchMat(floorU, lite)));
   { const sh = new THREE.Shape(); OCT.forEach(([x, z], i) => i ? sh.lineTo(x, -z) : sh.moveTo(x, -z)); sh.closePath();
     const fg = new THREE.ShapeGeometry(sh); fg.rotateX(-Math.PI / 2); fg.translate(0, -2, 0);
     group.add(new THREE.Mesh(fg, new THREE.MeshBasicMaterial({ color: new THREE.Color(...shade(GRASS, new THREE.Vector3(0, 1, 0), 0.85)) }))); }
@@ -179,7 +188,31 @@ export function buildArena(lite) {
   const gm = new THREE.Mesh(glass, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.06, side: THREE.DoubleSide, depthWrite: false })); gm.renderOrder = 3; group.add(gm);
   group.add(S.mesh());
   dress(group, lite);
-  return { group };
+  return { group, floorU };
+}
+
+/** the pitch: its baked colours, plus what a real pitch does as you move: the mown stripes swap light and dark with
+ *  the way you look down them (grass leaning toward or away from you), and a fine grain of blades close up */
+function pitchMat(U, lite) {
+  const m = new THREE.MeshBasicMaterial({ vertexColors: true });
+  m.onBeforeCompile = sh => {
+    sh.uniforms.camL = U.camL;
+    sh.vertexShader = 'varying vec3 vL;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vL = position;');
+    sh.fragmentShader = 'uniform vec3 camL; varying vec3 vL;\nfloat gh(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 15731.743); }\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+      vec3 V = camL - vL; float dist = length(V); V /= dist;
+      float band = mod(floor((vL.z + 6144.0) / 512.0), 2.0) * 2.0 - 1.0;
+      diffuseColor.rgb *= 1.0 + band * V.z * 0.09 * smoothstep(0.02, 0.35, V.y + 0.3);
+      ${lite ? '' : `float fine = 1.0 - smoothstep(600.0, 2400.0, dist);
+      if (fine > 0.0) { vec2 c = floor(vL.xz / 14.0); float g = gh(c) * 0.6 + gh(floor(vL.xz / 41.0)) * 0.4; diffuseColor.rgb *= 1.0 + (g - 0.5) * 0.12 * fine; }`}`);
+  };
+  return m;
+}
+
+/** the pitch's floor outline (the octagon and both goals' floors), flat at y 0: for the sun's shadows to land on */
+export function floorShape() {
+  const sh = new THREE.Shape(), P = [[kc - kz, kz], [GW, kz], [GW, L + GD], [-GW, L + GD], [-GW, kz], [-(kc - kz), kz], [-kx, kc - kx], [-kx, -(kc - kx)], [-(kc - kz), -kz], [-GW, -kz], [-GW, -(L + GD)], [GW, -(L + GD)], [GW, -kz], [kc - kz, -kz], [kx, -(kc - kx)], [kx, kc - kx]];
+  P.forEach(([x, z], i) => i ? sh.lineTo(x, -z) : sh.moveTo(x, -z)); sh.closePath();
+  const g = new THREE.ShapeGeometry(sh); g.rotateX(-Math.PI / 2); return g;
 }
 
 // ---------------------------------------------------------------- RS models round it (merged: three draws)

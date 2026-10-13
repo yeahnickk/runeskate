@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { Match, C, MODES, basis, TICK } from './match.js';
 import { botInput, DIFFS } from './bots.js';
 import { D, N, L, GH } from './arena.js';
-import { buildArena, Pads, buildCabbage, TEAM } from './scenery.js';
+import { buildArena, Pads, buildCabbage, TEAM, SUN, floorShape } from './scenery.js';
 import { CarVis, HATS } from './cars.js';
 import { LeagueHud, QUICK, clock } from './hud.js';
 import { LeagueInput, TOUCH } from './input.js';
@@ -15,6 +15,7 @@ import { THEMES, BODIES } from '../cart/models.js';
 import { loadRSModel } from '../model.js';
 import { loadModels } from './rsmodels.js';
 import { LeagueNet } from './netclient.js';
+import { Post, buildSky, Scaler } from './gfx.js';
 import { Puffs, puffTex, glowTex } from '../cod/wrathfx.js';
 import { Sfx } from '../cod/sfx.js';
 import { RSFont } from '../hud.js';
@@ -145,7 +146,8 @@ async function main() {
   const canvas = $('gl');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, powerPreference: 'high-performance', logarithmicDepthBuffer: false });
   renderer.setPixelRatio(Math.min(devicePixelRatio, TOUCH ? 1.25 : 1.75));
-  renderer.outputColorSpace = THREE.LinearSRGBColorSpace; renderer.setClearColor(0, 0);
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace; renderer.setClearColor(FOG, 1);
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(FOG, 60, 260);
   scene.add(new THREE.HemisphereLight(0xe4ecff, 0x5a5040, 1.15));
@@ -157,11 +159,20 @@ async function main() {
   const arena = new THREE.Group(); arena.position.set(site.x, site.y, -site.z); arena.rotation.y = site.rot; arena.scale.setScalar(site.K); scene.add(arena);
   const toWorld = (p, out = new THREE.Vector3()) => out.set(p[0], p[1], p[2]).applyMatrix4(arena.matrixWorld);
   arena.updateMatrixWorld();
+  // the sun: where the stadium's baked light comes from, casting real shadows (cars, ball, fence, rafters) on the pitch
+  const sunW = SUN.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), site.rot), mid = toWorld([0, 0, 0]);
+  sun.position.copy(mid).addScaledVector(sunW, 60); sun.target.position.copy(mid); scene.add(sun.target);
+  sun.castShadow = true; sun.shadow.mapSize.set(TOUCH ? 1024 : 2048, TOUCH ? 1024 : 2048);
+  Object.assign(sun.shadow.camera, { left: -19, right: 19, top: 19, bottom: -19, near: 20, far: 110 }); sun.shadow.camera.updateProjectionMatrix();
+  sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02; sun.shadow.radius = 3;
+  const sky = buildSky(sunW, FOG); scene.add(sky);
   const pack = await pPack; scene.add(pack.group);
   status('building the stadium...'); await pModels;
   const stadium = buildArena(TOUCH); arena.add(stadium.group);
+  stadium.group.traverse(o => { if (o.isMesh && !o.material.transparent && !o.userData.noShadow) o.castShadow = true; });
+  { const rec = new THREE.Mesh(floorShape(), new THREE.ShadowMaterial({ opacity: 0.34, color: 0x10200a })); rec.position.y = 3; rec.receiveShadow = true; arena.add(rec); }   // (just over the chalk)
   const pads = new Pads(arena);
-  const ballM = buildCabbage(C.ballR); arena.add(ballM);
+  const ballM = buildCabbage(C.ballR); arena.add(ballM); ballM.traverse(o => { if (o.isMesh && o.material.side !== THREE.BackSide) o.castShadow = true; });
   const ballQ = new THREE.Quaternion();
   const ballSh = new THREE.Mesh(new THREE.CircleGeometry(C.ballR, 20), new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.4, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 }));
   ballSh.rotation.x = -Math.PI / 2; arena.add(ballSh);
@@ -178,37 +189,12 @@ async function main() {
   const fx = new Fx(scene, TOUCH), booms = new Booms(scene, fx);
   const sfx = new LeagueSfx();
   const input = new LeagueInput(canvas); input.bindTouch($('touch'), $('stick'), $('knob'));
-  // the finish: the scene drawn multisampled into a target, then FXAA over it (no jaggies on the fence and posts, even
-  // where MSAA isn't there), the sky filled in behind, a touch of grade and vignette. One extra full-screen pass: cheap
-  const rt = new THREE.WebGLRenderTarget(4, 4, { samples: TOUCH ? 0 : 4 });
-  const post = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
-    uniforms: { tDiffuse: { value: rt.texture }, px: { value: new THREE.Vector2(1, 1) } },
-    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
-    fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 px; varying vec2 vUv;
-      vec3 sky(float y) { vec3 a = vec3(0.725, 0.796, 0.878), b = vec3(0.498, 0.651, 0.863), c = vec3(0.247, 0.435, 0.722); return y < 0.6 ? mix(a, b, smoothstep(0.38, 0.6, y)) : mix(b, c, smoothstep(0.6, 1.0, y)); }
-      vec3 S(vec2 uv) { vec4 c = texture2D(tDiffuse, uv); return sky(uv.y) * (1.0 - min(c.a, 1.0)) + c.rgb; }   // (premultiplied: what was drawn over the clear)
-      float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
-      void main(){
-        vec3 m = S(vUv), nw = S(vUv + vec2(-1.0, 1.0) * px), ne = S(vUv + vec2(1.0, 1.0) * px), sw = S(vUv + vec2(-1.0, -1.0) * px), se = S(vUv + vec2(1.0, -1.0) * px);
-        float lm = lum(m), lnw = lum(nw), lne = lum(ne), lsw = lum(sw), lse = lum(se);
-        float lo = min(lm, min(min(lnw, lne), min(lsw, lse))), hi = max(lm, max(max(lnw, lne), max(lsw, lse)));
-        vec2 dir = vec2(-((lnw + lne) - (lsw + lse)), (lnw + lsw) - (lne + lse));
-        float red = max((lnw + lne + lsw + lse) * 0.03125, 0.0078125), rcp = 1.0 / (min(abs(dir.x), abs(dir.y)) + red);
-        dir = clamp(dir * rcp, -8.0, 8.0) * px;
-        vec3 a = 0.5 * (S(vUv + dir * (1.0 / 3.0 - 0.5)) + S(vUv + dir * (2.0 / 3.0 - 0.5)));
-        vec3 b = a * 0.5 + 0.25 * (S(vUv - dir * 0.5) + S(vUv + dir * 0.5));
-        float lb = lum(b); vec3 c = (lb < lo || lb > hi) ? a : b;
-        float l = lum(c); c = mix(vec3(l), c, 1.1); c = (c - 0.5) * 1.04 + 0.5;          // (a little richer)
-        vec2 v = vUv - 0.5; c *= 1.0 - 0.28 * dot(v, v);                                     // (vignette)
-        gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
-      }`,
-    depthTest: false, depthWrite: false,
-  }));
-  const postScene = new THREE.Scene(); postScene.add(post); const postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  const draw = () => { renderer.setRenderTarget(rt); renderer.clear(); renderer.render(scene, camera); renderer.setRenderTarget(null); renderer.render(postScene, postCam); };
+  // the finish (gfx.js): HDR + MSAA, bloom, FXAA, filmic grade; the resolution follows the frame rate
+  const post = new Post(renderer, TOUCH), baseDpr = renderer.getPixelRatio(), scaler = new Scaler(baseDpr, TOUCH ? 0.72 : 0.6);
+  const draw = () => post.render(scene, camera);
   const resize = () => {
     renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); hud.resize();
-    const pr = renderer.getPixelRatio(), w = Math.round(innerWidth * pr), h = Math.round(innerHeight * pr); rt.setSize(w, h); post.material.uniforms.px.value.set(1 / w, 1 / h);
+    const pr = renderer.getPixelRatio(); post.setSize(Math.round(innerWidth * pr), Math.round(innerHeight * pr));
   };
   addEventListener('resize', resize); resize();
 
@@ -241,7 +227,7 @@ async function main() {
       <div id="m-hat">${seg('HAT', Object.entries(HATS).map(([k, h]) => [k, h[0]]), setup.hat)}</div>
       <div id="m-boom">${seg('GOAL FX', Object.entries(BOOMS).map(([k, n]) => [k, n]), setup.boom)}</div>
       <div class="keys">${TOUCH ? 'The gas is on for you. <b>Stick</b> steers (and tips the nose in the air; pull it right back to reverse). <b>JUMP</b> twice to double jump, or with the stick pushed to flip. <b>BOOST</b>, <b>SLIDE</b> powerslides / air rolls, <b>CAM</b> ball cam.'
-        : '<b>W S</b> drive (nose down / up in the air) &nbsp; <b>A D</b> steer &nbsp; <b>SPACE / right mouse</b> jump (again to double jump, with a direction to flip) &nbsp; <b>SHIFT / left mouse</b> boost &nbsp; <b>CTRL / C</b> powerslide + air roll &nbsp; <b>Q E</b> air roll &nbsp; <b>F</b> ball cam &nbsp; <b>TAB</b> scores &nbsp; <b>1-4</b> quick chat &nbsp; <b>ESC</b> pause. A pad plays like RL.'}</div>`;
+        : '<b>W S</b> drive (nose down / up in the air) &nbsp; <b>A D</b> steer &nbsp; <b>RIGHT MOUSE</b> jump (again to double jump, with a direction to flip) &nbsp; <b>LEFT MOUSE</b> boost &nbsp; <b>SHIFT</b> powerslide + air roll &nbsp; <b>Q E</b> air roll &nbsp; <b>SPACE</b> ball cam on / off &nbsp; (no mouse: <b>J</b> jump, <b>K</b> boost) &nbsp; <b>TAB</b> scores &nbsp; <b>1-4</b> quick chat &nbsp; <b>ESC</b> pause. A pad plays like RL.'}</div>`;
     const wire = (id, key, after, num) => { for (const b of $(id).querySelectorAll('button')) b.onclick = () => { setup[key] = num ? +b.dataset.v : b.dataset.v; save(SETUP_KEY, setup); for (const o of $(id).querySelectorAll('button')) o.classList.toggle('sel', o === b); after?.(); }; };
     wire('m-size', 'size', null, true); wire('m-diff', 'diff'); wire('m-team', 'team', showPreview, true); wire('m-body', 'body', showPreview); wire('m-theme', 'theme', showPreview); wire('m-hat', 'hat', showPreview); wire('m-boom', 'boom');
     $('m-name').oninput = e => { setup.name = e.target.value.trim().slice(0, 12) || setup.name; save(SETUP_KEY, setup); };
@@ -411,10 +397,11 @@ async function main() {
   function frame(now) {
     requestAnimationFrame(frame);
     const rawDt = Math.min(0.25, (now - last) / 1000), dt = Math.min(0.05, rawDt); last = now; tt += dt;
+    { const pr = scaler.tick(rawDt * 1000, rawDt); if (pr) { renderer.setPixelRatio(pr); resize(); } }
     for (const md of crowd) md.update(dt);
     pads.update(m || { pads: [] }, tt, dt);
     if (input.take('pause') && mode === 'game' && !endShown) setPaused(!paused);
-    if (mode === 'game' && net && !m) { orbit(tt); fx.update(dt, camera); hud.draw(dt, { score: [0, 0] }, null, { hidden: true }); hud.T(netMsg || 'connecting...', hud.c.width / 2, hud.c.height * 0.45, '#ff0', 'c', hud.k * 2); draw(); return; }
+    if (mode === 'game' && net && !m) { orbit(tt); fx.update(dt, camera); hud.draw(dt, { score: [0, 0] }, null, { hidden: true }); hud.T(netMsg || 'connecting...', hud.c.width / 2, hud.c.height * 0.45, '#ff0', 'c', hud.k * 2); sky.position.copy(camera.position); draw(); return; }
     if (mode === 'game' && m) {
       const inp = input.read(dt, TOUCH, me.ground);
       if (input.take('ballcam')) { ballcam = !ballcam; setup.ballcam = ballcam; save(SETUP_KEY, setup); }
@@ -468,6 +455,8 @@ async function main() {
       orbit(tt); fx.update(dt, camera);
       hud.draw(dt, { score: [0, 0] }, null, { hidden: true });
     }
+    sky.position.copy(camera.position); sky.material.uniforms.time.value = tt;
+    stadium.floorU.camL.value.copy(camera.position); arena.worldToLocal(stadium.floorU.camL.value);
     draw();
   }
   requestAnimationFrame(frame);

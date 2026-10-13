@@ -1,8 +1,8 @@
 // Rune League's controls, RL's layout three ways in, one shape out ({ throttle, steer, pitch, yaw, roll, jump, boost,
 // handbrake } for the car, plus ballcam / board / chat for the client):
-//  keys: W S throttle (and nose down / up in the air), A D steer (yaw in the air), SPACE or right mouse jump, SHIFT
-//    or left mouse boost, CTRL / C powerslide + air roll (A D roll while held), Q E air roll left / right, F or middle
-//    mouse ball cam, TAB the scoreboard, 1-4 quick chat, ESC pause
+//  keys (RL's PC defaults): W S throttle (and nose down / up in the air), A D steer (yaw in the air), right mouse jump,
+//    left mouse boost, SHIFT powerslide + air roll (A D roll while held), Q E air roll left / right, SPACE ball cam
+//    on / off, TAB the scoreboard, 1-4 quick chat, ESC pause. No mouse? J jump, K boost, CTRL / C slide, F ball cam
 //  a pad: RT / LT throttle / reverse, left stick steer + pitch, A jump, B boost, X powerslide + air roll, LB RB air
 //    roll left / right, Y ball cam, BACK the scoreboard, d-pad quick chat, START pause
 //  touch: a stick on the left (steer, pitch; pull it right back to reverse), JUMP / BOOST / SLIDE / BALL CAM buttons
@@ -16,7 +16,7 @@ export class LeagueInput {
       if (e.target?.tagName === 'INPUT') return;
       if (['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
       if (!e.repeat) {
-        if (e.code === 'KeyF') this.q.ballcam = true;
+        if (e.code === 'Space' || e.code === 'KeyF') this.q.ballcam = true;
         if (e.code === 'Escape' || e.code === 'KeyP') this.q.pause = true;
         const d = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code); if (d >= 0) this.q.chat = d + 1;
       }
@@ -46,8 +46,8 @@ export class LeagueInput {
     const K = c => this.keys.has(c), M = b => this.mouse.has(b);
     const fwd = (K('KeyW') || K('ArrowUp') ? 1 : 0) - (K('KeyS') || K('ArrowDown') ? 1 : 0);
     let side = (K('KeyD') || K('ArrowRight') ? 1 : 0) - (K('KeyA') || K('ArrowLeft') ? 1 : 0);
-    let throttle = fwd, pitch = -fwd, jump = K('Space') || M(2), boost = K('ShiftLeft') || K('ShiftRight') || M(0);
-    let slide = K('ControlLeft') || K('ControlRight') || K('KeyC'), rollL = K('KeyQ'), rollR = K('KeyE'), board = K('Tab');
+    let throttle = fwd, pitch = -fwd, jump = M(2) || K('KeyJ'), boost = M(0) || K('KeyK');
+    let slide = K('ShiftLeft') || K('ShiftRight') || K('ControlLeft') || K('ControlRight') || K('KeyC'), rollL = K('KeyQ'), rollR = K('KeyE'), board = K('Tab');
     let analog = false;
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     for (const p of pads) {

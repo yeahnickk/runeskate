@@ -74,9 +74,10 @@ function plan(m, c, b, k, dir, ownGoal, theirGoal) {
   const reach = o => {
     const ob = basis(o.q), aer = o.boost > 30 ? k.aerial : 0;
     for (const s of path) {
-      const h = s.p[1]; if (h > 260 + aer) continue;
-      if (h > 260 && (!airy(s.p) || rise(h) > s.t)) continue;     // (up there: only out in the open, and only if we can climb to it in time)
-      if (eta(o, s.p, ob) + (h > 260 ? 0.25 : 0) <= s.t) return s;
+      const h = s.p[1], jumpy = h > 190 && h <= 470;             // (a jump or a double jump gets there: no boost needed)
+      if (h > 260 + aer && !jumpy) continue;
+      if (h > 470 && (!airy(s.p) || rise(h) > s.t)) continue;     // (up there: only out in the open, and only if we can climb to it in time)
+      if (eta(o, s.p, ob) + (h > 190 ? 0.3 : 0) <= s.t) return s;
     }
     return path[path.length - 1] || { t: 4, p: m.ball.p, v: m.ball.v };
   };
