@@ -237,9 +237,10 @@ export function meshChunk(world, cx, cz, opts = {}) {
       const d = BLOCKS[id]
       if (!d) continue
       const hid = rs && hidden(rx, rz, y)
-      if (hid && d.shape !== 'cube' && d.shape !== 'liquid') continue
-      if (hid && y > hz[colK(rx, rz)] + 1 && d.shape === 'cube') continue        // (over the ground the tile's RS models still stand: a roof, a wall)
-      const sh = d.shape, meta = me.m[ci(lx, lz, y)]
+      const slab = hid && Array.isArray(d.shape) && d.shape[3] - d.shape[0] === 16 && d.shape[5] - d.shape[2] === 16 && d.shape[4] >= 14   // (a path or farmland the map has at its ground: a cube to the tunnel beside it)
+      if (hid && !slab && d.shape !== 'cube' && d.shape !== 'liquid') continue
+      if (hid && y > hz[colK(rx, rz)] + 1 && (slab || d.shape === 'cube')) continue        // (over the ground the tile's RS models still stand: a roof, a wall)
+      const sh = slab ? 'cube' : d.shape, meta = me.m[ci(lx, lz, y)]
       S.tf = d.tint ? tf : null
       if (sh === 'cube') {
         const tr = d.tr === 'cut'

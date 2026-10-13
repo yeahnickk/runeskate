@@ -170,13 +170,32 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
     }
     for (const [x, y, z] of was) for (const d of D6) {
       const nx = x + d[0], ny = y + d[1], nz = z + d[2], id = w.get(nx, ny, nz), B = BLOCKS[id]
-      if (!id || !B.op || B.shape !== 'cube' || ny >= w.gy[w.tile(nx, nz)] - 1) continue            // (at the RS ground the map draws it: the pit test covers that edge)
+      const slab = Array.isArray(B.shape) && B.shape[3] - B.shape[0] === 16 && B.shape[5] - B.shape[2] === 16 && B.shape[4] >= 14   // (paths and farmland: the tunnel's wall too)
+      if (!id || !((B.op && B.shape === 'cube') || slab) || ny > w.gy[w.tile(nx, nz)] || (d[1] > 0 && ny === w.gy[w.tile(nx, nz)]) || (ny === w.gy[w.tile(nx, nz)] && w.gy[w.tile(x, z)] <= ny)) continue   // (the ground's top block counts where the tunnel beside it is under its own ground: no seeing out under the RS ground)
       const a = d[0] ? 0 : d[1] ? 1 : 2, pl = [x, y, z][a] + (d[a] > 0 ? 1 : 0), o = [nx, ny, nz].filter((_, k) => k !== a); faces++
       if (!got.has(a + ':' + pl + ':' + o[0] + ':' + o[1])) bad.push(`${nx},${ny},${nz} ${B.n} ${'xyz'[a]}${d[a] > 0 ? '+' : '-'}`)
     }
     for (const [x, y, z, id] of was.reverse()) w.set(x, y, z, id); vx[X + tz * w.W] = 0
   }
   check('tunnels dug all over the map are watertight (every face they open is drawn)', n >= 60 && !bad.length, `${n} tunnels, ${faces} faces ${bad.length} missing ${bad.slice(0, 5).join(', ')}`)
+}
+
+// ---------------------------------------------------------------- a tunnel into a hill beside an RS path: the path block (the RS ground draws its top) still walls the tunnel
+{
+  const { w } = fresh(), vx = new Uint8Array(w.W * w.H), cover = new Uint8Array(w.W * w.H).fill(1)
+  const rs = { vx, cover, h: (x, z) => w.gy[w.tile(x, z)] + 1.43 }; let n = 0; const bad = []
+  for (let tz = 20; tz < w.H - 20 && n < 80; tz += 3) for (let tx = 20; tx < w.W - 20 && n < 80; tx += 3) {
+    const X = tx, Z = -tz - 1, g = w.gy[w.tile(X, Z)], id = w.get(X, g, Z); if (id !== 20 && id !== 45) continue
+    const O = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([a, c]) => w.gy[w.tile(X + a, Z + c)] >= g + 2 && w.get(X + a, g, Z + c)); if (!O) continue
+    const ox = X + O[0], oz = Z + O[1], was = w.get(ox, g, oz); w.set(ox, g, oz, 0); n++
+    const m = meshChunk(w, ox >> 4, oz >> 4, { rs }).s, m2 = (X >> 4) !== (ox >> 4) || (Z >> 4) !== (oz >> 4) ? meshChunk(w, X >> 4, Z >> 4, { rs }).s : null
+    const has = (mm, cx, cz) => { for (let q = 0; q < mm.n; q++) { const p = mm.pos.subarray(q * 12, q * 12 + 12), v = [0, 1, 2, 3].map(i => [p[i * 3] + cx * 16, p[i * 3 + 1], p[i * 3 + 2] + cz * 16])
+      const a = O[0] ? 0 : 2, pl = O[0] ? Math.max(X, ox) : Math.max(Z, oz), b = O[0] ? 2 : 0, cell = O[0] ? Z : X
+      if (v.every(e => Math.abs(e[a] - pl) < 1e-4) && v.every(e => e[b] > cell - 1e-4 && e[b] < cell + 1 + 1e-4) && Math.min(...v.map(e => e[1])) <= g + 1e-4 && Math.max(...v.map(e => e[1])) >= g + 0.9) return true } return false }
+    if (!has(m, ox >> 4, oz >> 4) && !(m2 && has(m2, X >> 4, Z >> 4))) bad.push(`${X},${g},${Z} ${BLOCKS[id].n}`)
+    w.set(ox, g, oz, was)
+  }
+  check('a tunnel into a hill beside an RS path or field is walled by it (no seeing out under the RS ground)', n >= 20 && !bad.length, `${n} spots ${bad.length} open ${bad.slice(0, 4).join(', ')}`)
 }
 
 // ---------------------------------------------------------------- a pit beside a tree, wall or rock: its wall meets the RS ground (no sliver of sky)
