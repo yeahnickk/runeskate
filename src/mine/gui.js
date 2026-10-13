@@ -75,7 +75,7 @@ export class Gui {
       X.globalAlpha = 0.08; for (let i = 0; i < w * h / 18; i++) { const a = (i * 7919) % (w - 4), b = (i * 104729) % (h - 5); this.rect(x + 2 + a, y + 2 + b, 1, 1, i % 2 ? '#000' : '#fff') } X.globalAlpha = 1
     }
     textC(X, label, x + w / 2, y + (h - 8) / 2, on ? (hov ? '#ffffff' : '#ff981f') : '#7a6a50')
-    if (on) this.hit(x, y, w, h, () => { this.sfx.play('click'); fn() })
+    if (on) this.hit(x, y, w, h, () => { this.sfx.play('click'); fn() }, { label })
   }
   slider(x, y, w, h, label, v, set) {
     this.rect(x, y, w, h, '#000'); this.rect(x + 1, y + 1, w - 2, h - 2, '#241e16')
