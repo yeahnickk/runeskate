@@ -8,7 +8,7 @@ import { BLOCKS, ITEMS, craft, digInfo, toolId, RECIPES, placeOf, nameOf } from 
 import { meshChunk, lightRegion } from '../src/mine/mesh.js';
 import { tickMove } from '../src/mine/phys.js';
 import { screenFor, click, give, count } from '../src/mine/inv.js';
-import { makeMob } from '../src/mine/mobs.js';
+import { makeMob, MOBS } from '../src/mine/mobs.js';
 let fails = 0; const check = (name, ok, info = '') => { console.log((ok ? 'PASS ' : 'FAIL ') + name + (info ? '  ' + info : '')); if (!ok) fails++; };
 const json = JSON.parse(readFileSync(new URL('../assets/mine_world.json', import.meta.url), 'utf8'));
 const bin = new Uint8Array(readFileSync(new URL('../assets/mine_world.bin', import.meta.url)));
@@ -142,6 +142,41 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
     n++; if (t.y < w.gy[w.tile(t.x, t.z)] - 1 && !w.get(t.x, t.y + 1, t.z)) deep++     // (a riverbed seen through its water is fine)
   }
   check('looking at the ground anywhere on the map hits the ground, never a block hidden under it', n > 10000 && !deep, `${deep} of ${n} too deep`)
+}
+
+// ---------------------------------------------------------------- tunnels anywhere on the map are watertight: dig a shaft down and a tunnel along,
+// and every solid face the tunnel opens up (walls, floor, ceiling, ore, cave edges) is drawn, so nothing shows through to the void
+{
+  const { w } = fresh(), vx = new Uint8Array(w.W * w.H), cover = new Uint8Array(w.W * w.H).fill(1)
+  const rs = { vx, cover, h: (x, z) => w.gy[w.tile(x, z)] + 1.43 }; let n = 0, faces = 0; const bad = []
+  const D6 = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
+  for (let tx = 30; tx < w.W - 40 && n < 120; tx += 23) for (let tz = 30; tz < w.H - 40 && n < 120; tz += 19) {
+    const X = tx, Z = -tz - 1, g0 = w.gy[w.tile(X, Z)]; if (g0 < 12 || w.get(X, g0, Z) === 8) continue
+    let low = g0; for (let i = 0; i < 9; i++) low = Math.min(low, w.gy[w.tile(X + i, Z)]); const y0 = low - 5; if (y0 < 6) continue
+    const was = [], dig = (x, y, z) => { was.push([x, y, z, w.get(x, y, z)]); w.set(x, y, z, 0) }
+    for (let y = g0 + 1; y >= y0; y--) dig(X, y, Z); vx[X + tz * w.W] = 1                       // the shaft (its tile dug: the RS ground goes)
+    for (let i = 1; i < 9; i++) { dig(X + i, y0, Z); dig(X + i, y0 + 1, Z) }                       // the tunnel, 1 x 2
+    dig(X + 8, y0 + 1, Z + 1); dig(X + 8, y0 + 1, Z - 1); dig(X + 4, y0 + 2, Z)                    // a turn each way and a step up
+    n++
+    const got = new Set()
+    for (const cx of new Set([(X - 1) >> 4, (X + 9) >> 4])) for (const cz of new Set([(Z - 2) >> 4, (Z + 2) >> 4])) {
+      const m = meshChunk(w, cx, cz, { rs }).s
+      for (let q = 0; q < m.n; q++) {
+        const p = m.pos.subarray(q * 12, q * 12 + 12), v = [0, 1, 2, 3].map(i => [p[i * 3] + cx * 16, p[i * 3 + 1], p[i * 3 + 2] + cz * 16])
+        for (let a = 0; a < 3; a++) { if (!v.every(c => Math.abs(c[a] - v[0][a]) < 1e-4) || Math.abs(v[0][a] - Math.round(v[0][a])) > 1e-4) continue
+          const [b, c] = [0, 1, 2].filter(k => k !== a), lo = k => Math.min(...v.map(e => e[k])), hi = k => Math.max(...v.map(e => e[k]))
+          for (let i = Math.floor(lo(b) + 1e-4); i < hi(b) - 1e-4; i++) for (let j = Math.floor(lo(c) + 1e-4); j < hi(c) - 1e-4; j++) got.add(a + ':' + Math.round(v[0][a]) + ':' + i + ':' + j) }
+      }
+    }
+    for (const [x, y, z] of was) for (const d of D6) {
+      const nx = x + d[0], ny = y + d[1], nz = z + d[2], id = w.get(nx, ny, nz), B = BLOCKS[id]
+      if (!id || !B.op || B.shape !== 'cube' || ny >= w.gy[w.tile(nx, nz)] - 1) continue            // (at the RS ground the map draws it: the pit test covers that edge)
+      const a = d[0] ? 0 : d[1] ? 1 : 2, pl = [x, y, z][a] + (d[a] > 0 ? 1 : 0), o = [nx, ny, nz].filter((_, k) => k !== a); faces++
+      if (!got.has(a + ':' + pl + ':' + o[0] + ':' + o[1])) bad.push(`${nx},${ny},${nz} ${B.n} ${'xyz'[a]}${d[a] > 0 ? '+' : '-'}`)
+    }
+    for (const [x, y, z, id] of was.reverse()) w.set(x, y, z, id); vx[X + tz * w.W] = 0
+  }
+  check('tunnels dug all over the map are watertight (every face they open is drawn)', n >= 60 && !bad.length, `${n} tunnels, ${faces} faces ${bad.length} missing ${bad.slice(0, 5).join(', ')}`)
 }
 
 // ---------------------------------------------------------------- a pit beside a tree, wall or rock: its wall meets the RS ground (no sliver of sky)
@@ -439,6 +474,28 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   const angry = m.angry
   P.x = 4040.5; P.z = -4040.5; for (let i = 0; i < 5; i++) g.tick({})
   check('a man you punch hits back, then calms down when you leave', angry && hits >= 2 && hits <= 9 && low >= 10 && !m.angry, `${hits} hits, hp down to ${low}, angry after leaving ${m.angry}`)
+}
+{ // every mob: hostiles come for you and hurt you (melee, arrows, spells, a creeper's blast), and everything dies to your hits and drops its loot
+  const out = [], bad = []
+  for (const type of Object.keys(MOBS)) {
+    if (type === 'villager') continue
+    const M = MOBS[type]
+    if (M.hostile) {
+      const { w, g, P } = fresh(); pad(w, 6000, -6000, 16); Object.assign(P, { x: 6000.5, y: 101, z: -6000.5, hunger: 20 }); g.time = 18000; g.ents = []
+      const m = makeMob(type, 6000.5, 101, -6006.5, seeded(5)); g.ents.push(m)
+      let took = 0, t = 0
+      for (; t < 600 && !took; t++) { const h = P.hp; g.tick({}); if (P.hp < h) took = h - P.hp; P.hp = 20; P.dead = false }
+      out.push(type + ' ' + (took ? t + 't' : 'never')); if (!took) bad.push(type + ' never hurt you')
+    }
+    const { w, g, P } = fresh(); pad(w, 6000, -6000, 16); Object.assign(P, { x: 6000.5, y: 101, z: -6000.5 }); g.time = 6000; g.ents = []
+    const m = makeMob(type, 6000.5, 101, -6002.5, seeded(5)); g.ents.push(m)
+    P.inv[P.sel] = { id: toolId(3, 'sword'), n: 1, d: 0 }   // (a diamond sword)
+    let n = 0; while (!m.death && n < 300) { m.hurt = 0; P.atkT = 100; g.attackMob(m); n++ }
+    for (let i = 0; i < 25; i++) { g.tick({}); P.hp = 20 }
+    const loot = g.ents.filter(e => e.e === 'item').length, needs = M.drops.some(([, a]) => a > 0)
+    if (!m.death) bad.push(type + ' would not die'); else if (needs && !loot) bad.push(type + ' dropped nothing')
+  }
+  check('every hostile mob comes for you and hurts you; every mob dies and drops its loot', !bad.length, bad.join(', ') || out.join(', '))
 }
 { // the RS ground stays as the map has it: MC's grass/dirt ticks leave natural cells alone when the client says so
   const { w, g, P } = fresh(); P.x = 1170.5; P.z = -402.5
