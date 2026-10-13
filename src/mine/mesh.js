@@ -105,6 +105,7 @@ export function lightAt(world, x, y, z) {
   return sky
 }
 
+const SEAM = 1 / 512, TUCK = 0.01    // (faces past their edges; a top stretched to the RS ground tucks a little under it)
 export function meshChunk(world, cx, cz, opts = {}) {
   const { b, sky, bl, Hr, ch } = lightRegion(world, cx, cz)
   const me = ch[4], fancy = opts.fancy !== false
@@ -136,6 +137,8 @@ export function meshChunk(world, cx, cz, opts = {}) {
       const c = F.c[j], v = tmp[j]
       const p = [c[0] ? box[3] : box[0], c[1] ? (tops ? (tops.length === 4 ? tops[c[0] + 2 * c[2]] : tops[c[0] + c[2]]) : box[4]) : box[1], c[2] ? box[5] : box[2]]
       v[0] = rx - P + p[0] + ox - ox; v[1] = ry + p[1]; v[2] = rz - P + p[2]
+      if (smooth && box[t1] === 0 && box[t1 + 3] === 1) v[t1] += c[t1] ? SEAM : -SEAM      // (a whole block's face reaches a hair past its edges: no pixel cracks at the
+      if (smooth && ((box[t2] === 0 && box[t2 + 3] === 1) || (t2 === 1 && tops && c[1]))) v[t2] += c[t2] ? (t2 === 1 && tops ? TUCK : SEAM) : -SEAM   //  seams, or under the RS ground's edge, for the sky to show through)
       // uv: sides use (horizontal tangent, y); top/bottom use (x, z)
       let u, w
       if (ax === 1) { u = p[0]; w = 1 - p[2] } else { u = ax === 0 ? (n[0] > 0 ? 1 - p[2] : p[2]) : (n[2] > 0 ? p[0] : 1 - p[0]); w = Math.min(1, p[1]) }
@@ -221,12 +224,13 @@ export function meshChunk(world, cx, cz, opts = {}) {
     const n = FACES[f].n, X = ox + rx - P, Z = oz + rz - P
     // the face's two top corners: (c0 + c2) indexes them as face() does
     const cs = n[0] ? [[n[0] > 0 ? 1 : 0, 0], [n[0] > 0 ? 1 : 0, 1]] : [[0, n[2] > 0 ? 1 : 0], [1, n[2] > 0 ? 1 : 0]]
-    let any = false
+    let any = false, up = false
     for (const [a, c] of cs) {
       const g = rs.h(X + a, Z + c); if (g === null) return null
-      let h = g - y; if (!top) h = Math.min(1, h); h = Math.max(0, Math.min(2.5, h)); if (h > 0.01) any = true
+      let h = g - y; if (h > 1.01) up = true; if (!top) h = Math.min(1, h); h = Math.max(0, Math.min(2.5, h)); if (h > 0.01) any = true
       RT[a + c] = h
     }
+    if (!top && up) RT[0] = RT[1] = RT[2] = 1     // (the block over it draws its own face from y + 1 up: no slit between the two)
     return any ? RT : false
   }
   for (let lz = 0; lz < CS; lz++) for (let lx = 0; lx < CS; lx++) {
@@ -280,7 +284,14 @@ export function meshChunk(world, cx, cz, opts = {}) {
         const tops = full ? null : [corner(0, 0), corner(1, 0), corner(0, 1), corner(1, 1)]
         for (let f = 0; f < 6; f++) {
           const n = FACES[f].n, nb = at(rx + n[0], rz + n[2], y + n[1])
-          if (nb === id || OPQ[nb]) continue
+          if (OPQ[nb]) continue
+          // the map's water or lava beside a hole: its side stops at the surface, the RS bank over it sits higher, so the
+          // strip between is earth (no seeing out under the bank)
+          if (hid && !full && n[1] === 0 && hz[colK(rx + n[0], rz + n[2])] === WH && !OPQ[at(rx + n[0], rz + n[2], y + 1)]) {
+            const lt = Math.min(...tops), T = rsTops(f, rx, rz, y, true)
+            if (T && Math.max(T[0], T[1], T[2]) > lt + 0.01) face(S, f, rx, y, rz, [0, lt, 0, 1, 1, 1], 'dirt', 0, true, 0, [Math.max(lt, T[0]), Math.max(lt, T[1]), Math.max(lt, T[2])])
+          }
+          if (nb === id) continue
           if (hid && !faceShows(rx + n[0], rz + n[2], y + n[1])) continue
           if (f !== 2 && BLOCKS[nb] && BLOCKS[nb].liquid) continue
           face(buf, f, rx, y, rz, [0, 0, 0, 1, 1, 1], d.t.side, d.liquid === 'water' ? 1 : 3, false, 0, n[1] < 0 ? null : tops)

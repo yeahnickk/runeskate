@@ -191,7 +191,7 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
     const m = meshChunk(w, ox >> 4, oz >> 4, { rs }).s, m2 = (X >> 4) !== (ox >> 4) || (Z >> 4) !== (oz >> 4) ? meshChunk(w, X >> 4, Z >> 4, { rs }).s : null
     const has = (mm, cx, cz) => { for (let q = 0; q < mm.n; q++) { const p = mm.pos.subarray(q * 12, q * 12 + 12), v = [0, 1, 2, 3].map(i => [p[i * 3] + cx * 16, p[i * 3 + 1], p[i * 3 + 2] + cz * 16])
       const a = O[0] ? 0 : 2, pl = O[0] ? Math.max(X, ox) : Math.max(Z, oz), b = O[0] ? 2 : 0, cell = O[0] ? Z : X
-      if (v.every(e => Math.abs(e[a] - pl) < 1e-4) && v.every(e => e[b] > cell - 1e-4 && e[b] < cell + 1 + 1e-4) && Math.min(...v.map(e => e[1])) <= g + 1e-4 && Math.max(...v.map(e => e[1])) >= g + 0.9) return true } return false }
+      if (v.every(e => Math.abs(e[a] - pl) < 1e-4) && v.every(e => e[b] > cell - 0.01 && e[b] < cell + 1.01) && Math.min(...v.map(e => e[1])) <= g + 0.01 && Math.max(...v.map(e => e[1])) >= g + 0.9) return true } return false }
     if (!has(m, ox >> 4, oz >> 4) && !(m2 && has(m2, X >> 4, Z >> 4))) bad.push(`${X},${g},${Z} ${BLOCKS[id].n}`)
     w.set(ox, g, oz, was)
   }
