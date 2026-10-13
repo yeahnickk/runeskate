@@ -6,7 +6,7 @@
 import * as THREE from 'three'
 import { nearFarPlan } from '../nearfirst.js'
 
-const PARTS = ['terrain', 'locs', 'locs_alpha'], STREAM_AT = 40, RANK = [0, 3, 1, 2]
+const PARTS = ['terrain', 'locs', 'locs_alpha'], STREAM_AT = 40, RANK = [0, 3, 1, 2], GROUND = { terrain: 1, water: 1 }
 
 // RS walls carry pure black caps on top and roofs are black underneath (OSRS shows them with the roofs off). From
 // first person they show through every gap under an upper floor and under every eave, so an all-black triangle takes
@@ -64,6 +64,7 @@ export class RSWorld {
     this.mats = {
       opaque: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }),
       alpha: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.4, depthWrite: false }),
+      water: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.62, depthWrite: false }),
     }
     this.meshes = []; this.byChunk = new Map()            // 'cx,cz' -> [meshes]
     this.cover = new Uint8Array(world.W * world.H)          // 1 where an RS pack draws the tile
@@ -88,6 +89,21 @@ export class RSWorld {
     }
     onp(1)
   }
+  // a chunk's terrain split into the ground and its water (blue triangles on water tiles), the water drawn see-through
+  // so the bed shows from the bank as in MC
+  waterOut(p, c, gx, gz) {
+    const n = p.length / 9, W = this.world, wet = new Uint8Array(n); let nw = 0
+    for (let i = 0; i < n; i++) {
+      const o = i * 9, tx = gx + Math.floor((p[o] + p[o + 3] + p[o + 6]) / 384), tz = gz + Math.floor((p[o + 2] + p[o + 5] + p[o + 8]) / 384)
+      if (tx < 0 || tz < 0 || tx >= W.W || tz >= W.H || !(W.fl[tz * W.W + tx] & 8)) continue
+      const r = c[o] + c[o + 3] + c[o + 6], g = c[o + 1] + c[o + 4] + c[o + 7], b = c[o + 2] + c[o + 5] + c[o + 8]
+      if (b > r + 30 && b > g) { wet[i] = 1; nw++ }
+    }
+    if (!nw) return [['terrain', p, c]]
+    const out = [[new Int16Array((n - nw) * 9), new Uint8Array((n - nw) * 9)], [new Int16Array(nw * 9), new Uint8Array(nw * 9)]], at = [0, 0]
+    for (let i = 0; i < n; i++) { const w = wet[i], o = at[w]++ * 9; out[w][0].set(p.subarray(i * 9, i * 9 + 9), o); out[w][1].set(c.subarray(i * 9, i * 9 + 9), o) }
+    return [['terrain', ...out[0]], ['water', ...out[1]]]
+  }
   // the RS meshes of a pack; rect: also mark its tiles drawn (after its far half too, for the core)
   addPack(pack, bin, rect) {
     const CH = pack.index.chunk
@@ -95,20 +111,24 @@ export class RSWorld {
     for (const ch of pack.index.chunks) {
       for (const k of PARTS) {
         const part = ch[k]; if (!part || !part.n) continue
-        const g = new THREE.BufferGeometry()
         let pos = new Int16Array(bin, part.posOff, part.n * 3), col = new Uint8Array(bin, part.colOff, part.n * 3)
         if (k === 'locs') capWalls(pos, col)
         if (k !== 'terrain') [pos, col] = splitBig(pos, col)
-        g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-        g.setAttribute('color', new THREE.BufferAttribute(col, 3, true))
-        const alpha = k === 'locs_alpha', m = new THREE.Mesh(g, alpha ? this.mats.alpha : this.mats.opaque)
-        m.position.set(ch.cx * CH, this.base, -ch.cz * CH); m.scale.set(1 / 128, -1 / 128, -1 / 128)
-        m.updateMatrix(); m.matrixAutoUpdate = false
-        m.userData = { cx: ch.cx, cz: ch.cz, kind: k, c: [(ch.cx + 0.5) * CH, -(ch.cz + 0.5) * CH], tri: null }
-        if (alpha) m.renderOrder = 1
-        this.group.add(m); this.meshes.push(m)
-        const key = ch.cx + ',' + ch.cz; let L = this.byChunk.get(key); if (!L) this.byChunk.set(key, L = []); L.push(m)
-        this.dirty.add(m)
+        const parts = k === 'terrain' ? this.waterOut(pos, col, ch.cx * CH, ch.cz * CH) : [[k, pos, col]]
+        for (const [kind, pos, col] of parts) {
+          if (!pos.length) continue
+          const g = new THREE.BufferGeometry()
+          g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+          g.setAttribute('color', new THREE.BufferAttribute(col, 3, true))
+          const m = new THREE.Mesh(g, kind === 'locs_alpha' ? this.mats.alpha : kind === 'water' ? this.mats.water : this.mats.opaque)
+          m.position.set(ch.cx * CH, this.base, -ch.cz * CH); m.scale.set(1 / 128, -1 / 128, -1 / 128)
+          m.updateMatrix(); m.matrixAutoUpdate = false
+          m.userData = { cx: ch.cx, cz: ch.cz, kind, c: [(ch.cx + 0.5) * CH, -(ch.cz + 0.5) * CH], tri: null }
+          if (kind === 'locs_alpha') m.renderOrder = 1; if (kind === 'water') m.renderOrder = 2
+          this.group.add(m); this.meshes.push(m)
+          const key = ch.cx + ',' + ch.cz; let L = this.byChunk.get(key); if (!L) this.byChunk.set(key, L = []); L.push(m)
+          this.dirty.add(m)
+        }
       }
       if (!rect) this.markCover(ch.cx * CH, ch.cz * CH, CH, CH)
     }
@@ -178,7 +198,7 @@ export class RSWorld {
       let k = 0
       for (let i = 0; i < t.length; i++) {
         const v = this.vx[(cz * CH + (t[i] >> 5)) * W + cx * CH + (t[i] & 31)]
-        if (v === 1 || (v === 3 && kind !== 'terrain') || (v === 2 && kind !== 'terrain' && h[i] > 0.9)) continue
+        if (v === 1 || (v === 3 && !GROUND[kind]) || (v === 2 && !GROUND[kind] && h[i] > 0.9)) continue
         out[k++] = i * 3; out[k++] = i * 3 + 1; out[k++] = i * 3 + 2
       }
       m.geometry.setIndex(new THREE.BufferAttribute(out.slice(0, k), 1))
@@ -210,7 +230,7 @@ export class RSWorld {
     const L = this.byChunk.get((tx >> 5) + ',' + (tz >> 5)) || [], want = (tz & 31) * 32 + (tx & 31)
     let r = 0, g = 0, b = 0, n = 0
     for (const m of L) {
-      if (m.userData.kind === 'terrain') continue
+      if (GROUND[m.userData.kind]) continue
       const { t, h } = this.tris(m), c = m.geometry.attributes.color.array
       for (let i = 0; i < t.length; i++) if (t[i] === want && h[i] > 0.15) { const o = i * 9; r += c[o]; g += c[o + 1]; b += c[o + 2]; n++ }
     }
@@ -233,7 +253,7 @@ export class RSWorld {
       const v = this.vx[tz * W + tx], want = (tz & 31) * CH + (tx & 31)
       if (v === 1 || v === 3) continue
       for (const m of L) {
-        const { kind, cx, cz } = m.userData; if (!m.visible) continue
+        const { kind, cx, cz } = m.userData; if (!m.visible || kind === 'water') continue
         const { t, h } = this.tris(m)
         if (!m.userData.bk) { const B = m.userData.bk = new Map(); for (let i = 0; i < t.length; i++) { let a = B.get(t[i]); if (!a) B.set(t[i], a = []); a.push(i) } }
         const ids = m.userData.bk.get(want); if (!ids) continue
@@ -248,5 +268,5 @@ export class RSWorld {
     }
     return best
   }
-  setLight(k) { this.mats.opaque.color.setScalar(k); this.mats.alpha.color.setScalar(k) }
+  setLight(k) { for (const m of Object.values(this.mats)) m.color.setScalar(k) }
 }

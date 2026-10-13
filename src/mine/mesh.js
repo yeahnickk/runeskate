@@ -245,11 +245,12 @@ export function meshChunk(world, cx, cz, opts = {}) {
         for (let f = 0; f < 6; f++) {
           const n = FACES[f].n, nb = at(rx + n[0], rz + n[2], y + n[1])
           if (OPQ[nb]) continue
-          if (hid && !faceShows(rx + n[0], rz + n[2], y + n[1])) continue
+          const wet = BLOCKS[nb] && BLOCKS[nb].liquid === 'water'       // (RS draws nothing under the water: the banks and bed are blocks)
+          if (hid && !faceShows(rx + n[0], rz + n[2], y + n[1]) && !wet) continue
           if (hid && n[1] > 0 && y === hz[colK(rx, rz)] + 1) continue     // (the ground's own top: RS draws it, even under a felled tree)
           if (tr && nb === id && (!d.leaves || !fancy)) continue
           let tops = null
-          if (hid && n[1] === 0 && hz[colK(rx + n[0], rz + n[2])] === WH) { tops = rsTops(f, rx, rz, y, !OPQ[at(rx, rz, y + 1)]); if (tops === false) continue }
+          if (hid && n[1] === 0 && (wet || hz[colK(rx + n[0], rz + n[2])] === WH)) { tops = rsTops(f, rx, rz, y, !OPQ[at(rx, rz, y + 1)]); if (tops === false) continue }
           let tile = d.t[FACES[f].k]
           let rot = 0
           if (d.facing && d.t.front && f === FRONT[meta & 3]) tile = d.t.front

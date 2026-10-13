@@ -139,13 +139,24 @@ export function tickMove(world, e, inp) {
   if (e.inWater || e.inLava) {
     const y0 = e.y
     mr(0.02)
-    if (inp.jump) e.vy += 0.04
+    // MC: only shallowly in (the water's top under 0.4 over your feet) a jump is a real jump; deeper, a stroke up
+    let wy = Math.floor(e.y); while (BLOCKS[world.get(Math.floor(e.x), wy + 1, Math.floor(e.z))].liquid === 'water') wy++
+    const fh = BLOCKS[world.get(Math.floor(e.x), wy, Math.floor(e.z))].liquid === 'water' ? wy + 14 / 16 - e.y : 0
+    if (inp.jump && e.inWater && fh <= 0.4 && !(e.jumpCd > 0)) { e.vy = 0.42; e.jumpCd = 10 }
+    else if (inp.jump) e.vy += 0.04
+    if (e.jumpCd > 0) e.jumpCd--
+    if (!inp.jump) e.jumpCd = 0
     move(world, e, e.vx, e.vy, e.vz)
     const k = e.inWater ? 0.8 : 0.5
     e.vx *= k; e.vy *= k; e.vz *= k
     e.vy -= e.inWater ? 0.02 : 0.02
     // MC: swimming into a bank pops you up onto it
-    if (e.hitH) { const t = { ...e, y: e.y + 0.6 - (e.y - y0) }; const a = aabb(t); if (!collect(world, a, tmpB).length && !medium(world, t).water) e.vy = 0.3 }
+    // (and at the top, a bank a block up: RS banks slope where the blocks step, so they let you out)
+    if (e.hitH) {
+      const free = (dy) => { const t = { ...e, y: e.y + dy - (e.y - y0) }; return !collect(world, aabb(t), tmpB).length && !medium(world, t).water }
+      if (fh <= 1 && free(1.3)) e.vy = Math.max(e.vy, 0.45)
+      else if (free(0.6)) e.vy = 0.3
+    }
     e.fall = 0
     return
   }

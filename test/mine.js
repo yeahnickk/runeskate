@@ -86,6 +86,15 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   pad(w, 7000, -7000, 1); Object.assign(P, { x: 7000.5, y: 101, z: -7000.5, vx: 0, vy: 0, vz: 0 }); for (let i = 0; i < 5; i++) g.tick({})
   for (let i = 0; i < 80; i++) g.tick({ fw: 1, sneak: true })
   check('sneaking won\'t walk off a ledge', P.y > 100.9, `y ${P.y.toFixed(2)} z ${P.z.toFixed(2)}`);
+  // out of the water: swim to a bank level with the water, and to one a block higher (jump + forward, as in MC)
+  for (const [d, name] of [[0, 'level'], [1, 'a block up']]) {
+    const X = 9000 + d * 20
+    for (let x = X - 6; x <= X + 6; x++) for (let z = -9012; z <= -8990; z++) { for (let y = 90; y <= 110; y++) w.set(x, y, z, 0); w.set(x, 96, z, 3)
+      for (let y = 97; y <= 99 + (z <= -9006 ? d : 0); y++) w.set(x, y, z, z <= -9006 || x === X - 6 || x === X + 6 || z === -8990 ? 3 : 8) }
+    Object.assign(P, { x: X + 0.5, y: 98.2, z: -8998.5, vx: 0, vy: 0, vz: 0, flying: false })
+    let t = 0; for (; t < 200 && !(P.onGround && P.y >= 100 + d - 0.01); t++) g.tick({ fw: 1, jump: true })
+    check(`swimming out onto a bank ${name}`, P.y >= 100 + d - 0.01 && P.onGround, `${(t / 20).toFixed(1)} s, y ${P.y.toFixed(2)}`)
+  }
 }
 
 // ---------------------------------------------------------------- digging + tools
