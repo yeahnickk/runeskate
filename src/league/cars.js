@@ -13,6 +13,14 @@ export const TRAIL = {
   sara: { c0: [1, 1, 0.92], c1: [1, 0.78, 0.25] }, zam: { c0: [1, 0.85, 0.5], c1: [0.95, 0.12, 0.02] }, guthix: { c0: [0.85, 1, 0.6], c1: [0.2, 0.62, 0.12] },
   arma: { c0: [0.92, 1, 1], c1: [0.2, 0.7, 0.85] }, bandos: { c0: [1, 0.8, 0.5], c1: [0.62, 0.32, 0.08] }, zaros: { c0: [0.95, 0.7, 1], c1: [0.42, 0.06, 0.6] }, seren: { c0: [0.9, 1, 1], c1: [0.4, 0.85, 1] },
 };
+/** the sky as a reflection map (main.js sets it): kart paint picks it up, glossy like RL's cars (the driver stays RS-matte) */
+let ENV = null; export const setEnv = t => { ENV = t; };
+const gloss = new Map();
+const paint = m => {                                              // (Lambert -> a lacquered standard material, one per source material)
+  if (!ENV || !m.isMeshLambertMaterial || m.transparent) return m;
+  if (!gloss.has(m)) gloss.set(m, new THREE.MeshStandardMaterial({ color: m.color, vertexColors: m.vertexColors, flatShading: m.flatShading, emissive: m.emissive, roughness: m.vertexColors ? 0.32 : 0.55, metalness: 0.08, envMap: ENV, envMapIntensity: 0.55 }));
+  return gloss.get(m);
+};
 export const outfitOf = (th, hat) => { const o = THEMES[th].outfit, h = HATS[hat]?.[1]; return { 0: h || o[0], 4: o[1], 7: o[2] }; };
 
 export class CarVis {
@@ -22,7 +30,8 @@ export class CarVis {
     this.kart = buildKart(car.body, th);
     const g = this.kart.group; g.scale.setScalar(MS); g.position.set(14, -C.ride, 0); this.root.add(g);
     for (const w of this.kart.wheels) w.g.rotation.order = 'YZX';
-    const shade = o => o.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = !!m.material?.isMeshLambertMaterial; } });
+    const shade = o => o.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = !!(m.material?.isMeshLambertMaterial || m.material?.isMeshStandardMaterial); } });
+    g.traverse(m => { if (m.isMesh) m.material = paint(m.material); });
     shade(g);
     buildDriver(outfitOf(car.theme, car.hat), this.kart).then(d => { if (this.root.parent) { this.kart.body.add(d.group); this.driver = d; shade(d.group); } }).catch(e => console.warn('driver', e));
     // a shadow under it (on the floor only: walls get none)

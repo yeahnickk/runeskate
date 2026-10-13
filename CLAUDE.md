@@ -85,10 +85,12 @@ z down the pitch, blue defends -z; a car's forward +x, up +y, right +z), 120 Hz.
 - Looks: `scenery.js` builds the stadium like RS draws (flat colours, light baked in, no textures) and dresses it with
   real RS models from `assets/league_models.json` (`tools/league-models.ts`, loaded by `rsmodels.js`: `meshOf`,
   `merged`, team `tint`). `gfx.js` the finish: HDR MSAA target, bloom, FXAA, filmic grade, sun shafts from the depth
-  buffer's open sky + lens flare, a speed smear at supersonic (`Post`), the sky dome
+  buffer's open sky + lens flare, ambient occlusion from depth (normals rebuilt, so flat ground never darkens itself), a
+  speed smear at supersonic (`Post`), the sky dome
   (`buildSky`), resolution that follows the frame rate (`Scaler`); main.js adds the sun's shadow map (a `ShadowMaterial`
-  floor from `floorShape`) and scenery's `pitchMat` sheens the mown stripes. Glows are colours over 1 (team trims, goal
-  frames), so the HDR bloom catches them. The menu's GRAPHICS HIGH / LOW (`applyGfx`: shadows, MSAA, shafts; LOW is the
+  floor from `floorShape`) and scenery's `pitchMat` sheens the mown stripes. Kart paint is lacquered (cars.js `paint`: standard material lit by a
+  PMREM of the sky, `setEnv`); the RS drivers stay matte. Glows are colours over 1 (team trims, goal
+  frames), so the HDR bloom catches them. The menu's GRAPHICS HIGH / LOW (`applyGfx`: shadows, MSAA, shafts, AO; LOW is the
   phone default). A HIGH frame is ~340 draw calls, ~410k triangles; the sim + bots ~0.4 ms. No canvas textures standing in for RS things.
 - `cars.js` CartScape's karts painted per team; `hud.js` RS fonts at native size on brown panels; `input.js` RL's
   PC defaults (right mouse jump, left mouse boost, SHIFT powerslide, SPACE ball cam; J/K without a mouse), pad, touch; `main.js` the client (menu, camera, replays, sfx).

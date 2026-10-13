@@ -37,9 +37,24 @@ export class Post {
       void main(){ vec2 d = (sun - vUv) * step; vec2 uv = vUv; vec3 c = vec3(0.0); float w = 1.0, ws = 0.0;
         for (int i = 0; i < 16; i++) { c += texture2D(t, uv).rgb * w; ws += w; w *= 0.94; uv += d; }
         gl_FragColor = vec4(c / ws, 1.0); }`, { t: { value: null }, sun: { value: new THREE.Vector2() }, step: { value: 0.06 } });
+    // ambient occlusion (HIGH): view-space positions from depth, normals from neighbours, 12 taps round a disc whose
+    // size is fixed in the world; occluders must sit above the surface's own plane, so flat ground never darkens itself
+    this.ssao = pass(`uniform sampler2D dep; uniform vec2 nf, tanF, px; uniform float rad; varying vec2 vUv;
+      float ld(vec2 uv) { float d = texture2D(dep, uv).r; return nf.x * nf.y / (nf.y - d * (nf.y - nf.x)); }
+      vec3 P(vec2 uv) { float z = ld(uv); return vec3((uv * 2.0 - 1.0) * tanF * z, -z); }
+      void main(){
+        if (texture2D(dep, vUv).r > 0.99995) { gl_FragColor = vec4(1.0); return; }
+        vec3 p = P(vUv), px1 = P(vUv + vec2(px.x, 0.0)) - p, py1 = P(vUv + vec2(0.0, px.y)) - p, px2 = p - P(vUv - vec2(px.x, 0.0)), py2 = p - P(vUv - vec2(0.0, px.y));
+        vec3 n = normalize(cross(dot(px1, px1) < dot(px2, px2) ? px1 : px2, dot(py1, py1) < dot(py2, py2) ? py1 : py2));
+        float sr = rad / (-p.z * tanF.y * 2.0), a0 = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.283, occ = 0.0;
+        for (int i = 0; i < 12; i++) { float r = (float(i) + 0.5) / 12.0, a = a0 + float(i) * 2.39996;
+          vec3 v = P(vUv + vec2(cos(a), sin(a)) * r * sr) - p; float vv = dot(v, v);
+          occ += max(0.0, dot(v, n) - 0.01 * -p.z) / (vv + 0.02 * rad * rad) * (1.0 - smoothstep(rad * 0.5, rad * 1.5, sqrt(vv))); }
+        gl_FragColor = vec4(vec3(clamp(1.0 - occ / 12.0 * rad * 1.6, 0.0, 1.0)), 1.0); }`, { dep: { value: null }, nf: { value: new THREE.Vector2() }, tanF: { value: new THREE.Vector2() }, px: { value: new THREE.Vector2() }, rad: { value: 0.5 } });
+    this.ao = !lite;
     this.copy = pass(`uniform sampler2D t; varying vec2 vUv; void main(){ gl_FragColor = vec4(texture2D(t, vUv).rgb, 1.0); }`, { t: { value: null } });
     // the composite: FXAA on the scene, the bloom on top, the filmic curve, grade, vignette, dither
-    this.final = pass(`uniform sampler2D t, b1, b2, sh; uniform vec2 px, sun, asp; uniform float bloom, time, shK, flK, speed; varying vec2 vUv;
+    this.final = pass(`uniform sampler2D t, b1, b2, sh, ao; uniform float aoK; uniform vec2 px, sun, asp; uniform float bloom, time, shK, flK, speed; varying vec2 vUv;
       vec3 S(vec2 uv) { return texture2D(t, uv).rgb; }
       float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
       void main(){
@@ -52,6 +67,7 @@ export class Post {
         vec3 a = 0.5 * (S(vUv + dir * (1.0 / 3.0 - 0.5)) + S(vUv + dir * (2.0 / 3.0 - 0.5)));
         vec3 b = a * 0.5 + 0.25 * (S(vUv - dir * 0.5) + S(vUv + dir * 0.5));
         float lb = lum(b); vec3 c = (lb < lo || lb > hi) ? a : b;
+        if (aoK > 0.0) c *= mix(1.0, texture2D(ao, vUv).r, aoK);
         c += (texture2D(b1, vUv).rgb * 0.6 + texture2D(b2, vUv).rgb * 0.9) * bloom;
         // speed: at supersonic the edges streak toward the middle (a radial smear of the bloom-free image, cheap: 6 taps)
         if (speed > 0.0) { vec2 dc = vUv - 0.5; float e = smoothstep(0.15, 0.7, length(dc)) * speed; vec3 r = vec3(0.0);
@@ -71,13 +87,13 @@ export class Post {
         c += (fract(sin(dot(gl_FragCoord.xy + time, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) / 255.0;   // (dither: no banding in the sky)
         gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
       }`, { t: { value: this.rt.texture }, b1: { value: this.q[0].texture }, b2: { value: this.e[0].texture }, px: { value: new THREE.Vector2() }, bloom: { value: 0.55 }, time: { value: 0 },
-      sh: { value: null }, sun: { value: new THREE.Vector2() }, asp: { value: new THREE.Vector2(1, 1) }, shK: { value: 0 }, flK: { value: 0 }, speed: { value: 0 } });
-    this.s = [mk(), mk()];
+      sh: { value: null }, sun: { value: new THREE.Vector2() }, asp: { value: new THREE.Vector2(1, 1) }, shK: { value: 0 }, flK: { value: 0 }, speed: { value: 0 }, ao: { value: null }, aoK: { value: 0 } });
+    this.s = [mk(), mk()]; this.a = [mk(), mk()];
   }
   setSize(w, h) {
     this.w = w; this.h = h; this.rt.setSize(w, h);
     const qw = Math.max(1, w >> 2), qh = Math.max(1, h >> 2), ew = Math.max(1, w >> 3), eh = Math.max(1, h >> 3);
-    for (const t of this.q) t.setSize(qw, qh); for (const t of this.e) t.setSize(ew, eh); for (const t of this.s) t.setSize(qw, qh);
+    for (const t of this.q) t.setSize(qw, qh); for (const t of this.e) t.setSize(ew, eh); for (const t of this.s) t.setSize(qw, qh); for (const t of this.a) t.setSize(w >> 1, h >> 1);
     const asp = new THREE.Vector2(w / h, 1); this.final.u.asp.value.copy(asp); this.mask.u.asp.value.copy(asp);
     this.final.u.px.value.set(1 / w, 1 / h); this.bright.u.px.value.set(1 / w, 1 / h);
   }
@@ -102,7 +118,13 @@ export class Post {
       F.shK.value = 0.5 * Math.min(1, front * 2.5);
       const on = Math.abs(ss.x) < 1 && Math.abs(ss.y) < 1 ? 1 : 0; this.flK += (on * Math.min(1, front * 2) - this.flK) * 0.15; F.flK.value = this.flK || 0;
     }
-    F.speed.value = this.speed;
+    F.speed.value = this.speed; F.aoK.value = 0;
+    if (this.ao && camera.isPerspectiveCamera) {
+      const A = this.ssao.u, ty = Math.tan(camera.fov * Math.PI / 360); A.dep.value = this.rt.depthTexture; A.nf.value.set(camera.near, camera.far); A.tanF.value.set(ty * camera.aspect, ty);
+      A.px.value.set(1 / this.w, 1 / this.h); this.run(this.ssao, this.a[0]);
+      const B = this.blur.u; B.t.value = this.a[0].texture; B.d.value.set(1 / this.a[0].width, 0); this.run(this.blur, this.a[1]); B.t.value = this.a[1].texture; B.d.value.set(0, 1 / this.a[0].height); this.run(this.blur, this.a[0]);
+      F.ao.value = this.a[0].texture; F.aoK.value = 0.85;
+    }
     F.time.value = (F.time.value + 1) % 1000; this.run(this.final, null);
   }
 }

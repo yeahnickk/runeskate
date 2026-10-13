@@ -7,7 +7,7 @@ import { Match, C, MODES, basis, TICK } from './match.js';
 import { botInput, DIFFS } from './bots.js';
 import { D, N, L, GH } from './arena.js';
 import { buildArena, Pads, buildCabbage, TEAM, SUN, floorShape } from './scenery.js';
-import { CarVis, HATS } from './cars.js';
+import { CarVis, HATS, setEnv } from './cars.js';
 import { LeagueHud, QUICK, clock } from './hud.js';
 import { LeagueInput, TOUCH } from './input.js';
 import { loadPack } from '../cart/scenery.js';
@@ -167,6 +167,7 @@ async function main() {
   Object.assign(sun.shadow.camera, { left: -19, right: 19, top: 19, bottom: -19, near: 20, far: 110 }); sun.shadow.camera.updateProjectionMatrix();
   sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02; sun.shadow.radius = 3;
   const sky = buildSky(sunW, FOG); scene.add(sky);
+  { const pm = new THREE.PMREMGenerator(renderer), es = new THREE.Scene(); es.add(buildSky(sunW, FOG)); setEnv(pm.fromScene(es, 0, 0.1, 1000).texture); pm.dispose(); }   // (the sky, for the karts' paint to shine with)
   const pack = await pPack; scene.add(pack.group);
   status('building the stadium...'); await pModels;
   const stadium = buildArena(TOUCH); arena.add(stadium.group);
@@ -212,7 +213,7 @@ async function main() {
   // ---------------- the setup
   const setup = Object.assign({ name: '', size: 2, diff: 'pro', team: 0, body: 'kart', theme: 'sara', hat: 'god', boom: 'party', ballcam: true, gfx: TOUCH ? 'low' : 'high' }, load(SETUP_KEY, {}));
   // the graphics level: HIGH has the sun's shadows, MSAA and light shafts; LOW drops them (bloom, grade and FXAA stay)
-  const applyGfx = q => { const hi = q === 'high'; sun.castShadow = hi; post.shafts = hi; const sm = hi && !TOUCH ? 4 : 0; if (post.rt.samples !== sm) { post.rt.samples = sm; post.rt.dispose(); } };
+  const applyGfx = q => { const hi = q === 'high'; sun.castShadow = hi; post.shafts = hi; post.ao = hi; const sm = hi && !TOUCH ? 4 : 0; if (post.rt.samples !== sm) { post.rt.samples = sm; post.rt.dispose(); } };
   applyGfx(setup.gfx);
   if (!setup.name) setup.name = 'Player' + (100 + Math.floor(Math.random() * 900));
   let net = null, netMsg = '', netEv = [], m = null, vis = [], me = null, mode = 'menu', paused = false, endShown = false, preview = null, previewKey = '', ballcam = setup.ballcam;
@@ -479,7 +480,7 @@ async function main() {
     draw();
   }
   requestAnimationFrame(frame);
-  window.LEAGUE = { auto: false, botInput, renderer, post, setGfx: q => { setup.gfx = q; applyGfx(q); }, get m() { return m; }, get me() { return me; }, start, menu, scene, camera, arena, get replay() { return replay; } };
+  window.LEAGUE = { auto: false, botInput, renderer, post, scaler, setGfx: q => { setup.gfx = q; applyGfx(q); }, get m() { return m; }, get me() { return me; }, start, menu, scene, camera, arena, get replay() { return replay; } };
 }
 
 main().catch(e => { console.error(e); status('failed to load: ' + e.message); });
