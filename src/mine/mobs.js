@@ -116,10 +116,11 @@ export function tickMob(game, m) {
     ai.shoot = (ai.shoot || 40) - 1
     if (ai.shoot <= 0 && dist < 16) { ai.shoot = 30 + (R() * 30 | 0); game.shoot(m, P.x, P.y + 0.6, P.z) } // MC aims a third of the way up the target, then lifts by distance
   } else if (chase) {
-    yaw = yawTo(m, P.x, P.z); fw = 1
+    const reach = m.w / 2 + 0.9
+    yaw = yawTo(m, P.x, P.z); fw = dist > reach - 0.2 ? 1 : dist < m.w / 2 + 0.35 ? -0.5 : 0   // (stand off at arm's length, not inside you)
     if (m.type === 'spider' && dist < 4 && dist > 2 && m.onGround && R() < 0.1) { m.vy = 0.4; m.vx += -Math.sin(yaw) * 0.25; m.vz += -Math.cos(yaw) * 0.25 }
     ai.cd = (ai.cd || 0) - 1
-    if (dist < m.w / 2 + 0.3 + 0.6 && Math.abs(dy) < 1.5 && ai.cd <= 0) { ai.cd = 20; m.atkFx = 0.25; game.hurtPlayer(M.dmg, m) }
+    if (dist < reach && Math.abs(dy) < 1.5 && ai.cd <= 0) { ai.cd = 20; m.atkFx = 0.25; game.hurtPlayer(M.dmg, m) }
   } else if (M.villager) {
     if (night) fw = 0
     else {
