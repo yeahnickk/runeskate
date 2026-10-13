@@ -15,7 +15,41 @@ export const MOBS = {
   creeper: { n: 'Creeper', w: 0.6, h: 1.7, hp: 20, sp: 0.6, xp: [5, 5], drops: [[277, 0, 2]], hostile: true, creeper: true },
   spider: { n: 'Spider', w: 1.4, h: 0.9, hp: 16, sp: 0.75, dmg: 2, xp: [5, 5], drops: [[276, 0, 2]], hostile: true, climbs: true },
   villager: { n: 'Villager', w: 0.6, h: 1.95, hp: 20, sp: 0.4, xp: [0, 0], drops: [], villager: true },
+  // the RS map's own monsters, at their RS spawns (lvl: the RS combat level shown on the mouse-over; aggro: how close
+  // you get before they come for you, as RS's aggressive NPCs; 0 = only once hit)
+  goblin: { n: 'Goblin', lvl: 2, w: 0.6, h: 1.3, hp: 10, sp: 0.5, dmg: 1, xp: [2, 4], drops: [[275, 1, 1], [328, 0, 5]], hostile: true, aggro: 5 },
+  rat: { n: 'Giant rat', lvl: 3, w: 0.8, h: 0.6, hp: 10, sp: 0.55, dmg: 1, xp: [2, 3], drops: [[275, 1, 1], [274, 0, 1]], hostile: true, aggro: 4 },
+  imp: { n: 'Imp', lvl: 2, w: 0.5, h: 0.9, hp: 8, sp: 0.6, dmg: 1, xp: [2, 3], drops: [[262, 0, 2], [288, 0, 1]], hostile: true, aggro: 0 },
+  darkwizard: { n: 'Dark wizard', lvl: 7, w: 0.6, h: 1.9, hp: 24, sp: 0.5, xp: [5, 7], drops: [[262, 1, 3], [275, 1, 1]], hostile: true, aggro: 7, ranged: true },
+  darkwarrior: { n: 'Dark warrior', lvl: 8, w: 0.6, h: 1.9, hp: 20, sp: 0.55, dmg: 2, xp: [5, 7], drops: [[275, 1, 1], [258, 0, 1]], hostile: true, aggro: 5, rs: 'blackknight' },
+  blackknight: { n: 'Black Knight', lvl: 33, w: 0.6, h: 1.95, hp: 40, sp: 0.55, dmg: 4, xp: [8, 12], drops: [[275, 1, 1], [258, 1, 2]], hostile: true, aggro: 6, armor: 8 },
+  bear: { n: 'Grizzly bear', lvl: 21, w: 1.2, h: 1.4, hp: 30, sp: 0.55, dmg: 3, xp: [5, 8], drops: [[275, 1, 1], [268, 1, 2], [279, 1, 2]], hostile: true, aggro: 0 },
+  unicorn: { n: 'Unicorn', lvl: 15, w: 1.1, h: 1.7, hp: 25, sp: 0.6, dmg: 2, xp: [5, 7], drops: [[275, 1, 1]], hostile: true, aggro: 0 },
+  blackunicorn: { n: 'Black unicorn', lvl: 27, w: 1.1, h: 1.7, hp: 30, sp: 0.6, dmg: 3, xp: [6, 9], drops: [[275, 1, 1]], hostile: true, aggro: 6 },
+  scorpion: { n: 'Scorpion', lvl: 14, w: 1.0, h: 0.6, hp: 20, sp: 0.6, dmg: 2, xp: [5, 7], drops: [], hostile: true, aggro: 5 },
+  ghost: { n: 'Ghost', lvl: 19, w: 0.6, h: 1.9, hp: 25, sp: 0.5, dmg: 2, xp: [5, 8], drops: [[262, 0, 2]], hostile: true, aggro: 5 },
+  icewarrior: { n: 'Ice warrior', lvl: 57, w: 0.6, h: 2.0, hp: 59, sp: 0.5, dmg: 5, xp: [10, 15], drops: [[275, 1, 1], [258, 0, 2]], hostile: true, aggro: 6, armor: 10 },
+  giant: { n: 'Hill Giant', lvl: 28, w: 1.0, h: 2.6, hp: 35, sp: 0.5, dmg: 4, xp: [8, 12], drops: [[275, 2, 2], [258, 0, 1]], hostile: true, aggro: 6 },
+  mossgiant: { n: 'Moss giant', lvl: 42, w: 1.0, h: 2.6, hp: 60, sp: 0.5, dmg: 5, xp: [10, 15], drops: [[275, 2, 2], [257, 1, 3]], hostile: true, aggro: 6 },
+  icegiant: { n: 'Ice giant', lvl: 53, w: 1.0, h: 2.8, hp: 70, sp: 0.5, dmg: 6, xp: [12, 18], drops: [[275, 2, 2], [259, 0, 2]], hostile: true, aggro: 6 },
+  lesserdemon: { n: 'Lesser demon', lvl: 82, w: 1.0, h: 2.6, hp: 79, sp: 0.55, dmg: 7, xp: [15, 25], drops: [[275, 2, 2], [259, 1, 2], [260, 0, 1]], hostile: true, aggro: 7 },
+  greaterdemon: { n: 'Greater demon', lvl: 92, w: 1.3, h: 3.2, hp: 87, sp: 0.55, dmg: 8, xp: [20, 30], drops: [[275, 2, 2], [260, 0, 2]], hostile: true, aggro: 7 },
+  greendragon: { n: 'Green dragon', lvl: 79, w: 1.6, h: 3.0, hp: 75, sp: 0.55, dmg: 8, xp: [25, 35], drops: [[275, 3, 3], [279, 2, 4], [260, 0, 1]], hostile: true, aggro: 7 },
+  kbd: { n: 'King Black Dragon', lvl: 276, w: 2.8, h: 5.5, hp: 240, sp: 0.5, dmg: 12, xp: [100, 150], drops: [[275, 5, 5], [260, 2, 5], [68, 0, 1]], hostile: true, aggro: 10, armor: 15 },
 }
+// the RS model of each mob (assets/npc_*.json); MC's own (pig, sheep, creeper) have none and keep the block model
+for (const [k, r] of Object.entries({ cow: 'cow', chicken: 'chicken', zombie: 'zombie', skeleton: 'skeleton', spider: 'giantspider' })) MOBS[k].rs = r
+for (const [k, M] of Object.entries(MOBS)) if (M.lvl !== undefined && !M.rs) M.rs = k
+Object.assign(MOBS.cow, { lvl: 2 }); Object.assign(MOBS.chicken, { lvl: 1 }); Object.assign(MOBS.zombie, { lvl: 13 }); Object.assign(MOBS.skeleton, { lvl: 21 }); Object.assign(MOBS.spider, { n: 'Giant spider', lvl: 2 })
+// RS spawn kinds -> [mob type, extra]
+export const RS_SPAWN = {
+  cow: ['cow'], chicken: ['chicken'], giantspider: ['spider'], skeleton: ['skeleton'], zombie: ['zombie'],
+  man: ['villager', { kind: 'man' }], guard: ['villager', { kind: 'guard', rs: 'guard' }], whiteknight: ['villager', { kind: 'guard', rs: 'whiteknight' }],
+  dwarf: ['villager', { kind: 'dwarf', rs: 'dwarf' }], barbarian: ['villager', { kind: 'barbarian', rs: 'barbarian' }],
+}
+for (const k of Object.keys(MOBS)) if (MOBS[k].lvl !== undefined && !RS_SPAWN[k] && k !== 'cow') RS_SPAWN[k] = [k]
+// the RS model a villager wears (no RS woman/monk/shopkeeper models in the export: they're men)
+export const FOLK_RS = { guard: 'guard', dwarf: 'dwarf', barbarian: 'barbarian' }
 // RS townsfolk: names + their MC profession's trades ([buy id, n], [sell id, n], max uses)
 export const FOLK = {
   man: { names: ['Hans', 'Gee', 'Donie', 'Bob', 'Thessalia'], job: 'Fisherman', trades: [[[276, 20], [261, 1], 16], [[261, 1], [326, 6], 16], [[257, 10], [261, 1], 16], [[261, 2], [281, 1], 6]] },
@@ -32,7 +66,7 @@ export const FOLK_KINDS = Object.keys(FOLK)
 let nid = 1
 export function makeMob(type, x, y, z, R = Math.random, extra = {}) {
   const M = MOBS[type]
-  const m = { e: 'mob', id: nid++, type, x, y, z, vx: 0, vy: 0, vz: 0, w: M.w, h: M.h, step: 0.6, hp: M.hp, yaw: R() * 6.28, hurt: 0, death: 0, ai: { t: 0 }, fall: 0, onGround: false, age: 0, ...extra }
+  const m = { e: 'mob', id: nid++, type, x, y, z, vx: 0, vy: 0, vz: 0, w: M.w, h: M.h, step: 1.05, hp: M.hp, yaw: R() * 6.28, hurt: 0, death: 0, ai: { t: 0 }, fall: 0, onGround: false, age: 0, ...extra }
   if (type === 'sheep') m.wool = true
   if (type === 'villager') {
     const kind = m.kind || 'man', F = FOLK[kind]
@@ -62,8 +96,10 @@ export function tickMob(game, m) {
   // a hostile's target: the player, if near and seen (spiders only at night, or once hit)
   let chase = false
   if (M.hostile && pAlive && dist < 24 && Math.abs(dy) < 12) {
-    if (m.type !== 'spider' || night || m.angry) chase = ai.seen = dist < 16 || ai.seen ? (m.age % 10 ? ai.seen : sees(W, m, P)) : false
+    if (M.aggro !== undefined) chase = (m.angry && dist < 16) || (dist < M.aggro && (m.age % 10 ? ai.seen : (ai.seen = sees(W, m, P))))   // (RS: aggressive within a few tiles, or once hit)
+    else if (m.type !== 'spider' || night || m.angry || m.home) chase = ai.seen = dist < 16 || ai.seen ? (m.age % 10 ? ai.seen : sees(W, m, P)) : false
   }
+  if (chase && m.home && Math.hypot(m.x - m.home[0], m.z - m.home[1]) > 14) { chase = false; m.angry = false }   // (RS: they don't follow you far from home)
   if (m.panic > 0) {
     m.panic--; sp *= 2
     if (ai.t <= 0) { m.yaw = R() * 6.28; ai.t = 20 }
@@ -99,6 +135,7 @@ export function tickMob(game, m) {
     if (food) { yaw = yawTo(m, P.x, P.z); fw = dist > 2 ? 1 : 0 }
     else {
       if (ai.t <= 0) { ai.walk = R() < 0.35; m.yaw = R() * 6.28 - 3.14; ai.t = 40 + (R() * 100 | 0) }
+      if (m.home && ai.walk && Math.hypot(m.x - m.home[0], m.z - m.home[1]) > 5) m.yaw = yawTo(m, m.home[0], m.home[1])   // (RS: wander a few tiles round the spawn)
       fw = ai.walk ? 1 : 0; yaw = m.yaw
     }
   }
@@ -115,7 +152,7 @@ export function tickMob(game, m) {
   // fall damage, drowning-free (mobs float), lava + daylight burn
   if (m.landed > 3 && m.type !== 'chicken') game.hurtMob(m, Math.ceil(m.landed - 3), null)
   if (m.inLava) { m.fire = 100; if (m.age % 10 === 0) game.hurtMob(m, 4, null) }
-  if (M.burns && !night && m.age % 20 === 0 && skyAbove(W, m)) m.fire = Math.max(m.fire || 0, 60)
+  if (M.burns && !m.home && !night && m.age % 20 === 0 && skyAbove(W, m)) m.fire = Math.max(m.fire || 0, 60)
   if (m.fire > 0) { m.fire--; if (m.inWater) m.fire = 0; else if (m.age % 20 === 0) game.hurtMob(m, 1, null) }
 }
 // will a step forward drop more than 3? (mobs don't walk off cliffs unless chasing; MC pathing)

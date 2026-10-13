@@ -24,18 +24,22 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   const [sx, sz] = json.spawn, X = sx, Z = -sz - 1, gy = w.groundY(X, Z);
   check('spawn is on dry ground in Lumbridge', BLOCKS[w.get(X, gy, Z)].solid && w.get(X, gy + 1, Z) !== 8 && w.placeName(X, Z) === 'Lumbridge', `ground y ${gy}, block ${BLOCKS[w.get(X, gy, Z)].n}`);
   check('bedrock floors the world', w.get(X, 0, Z) === 5);
-  let walls = 0, roofs = 0, ores = {}, caves = 0, logs = 0, leaves = 0
+  let walls = 0, ores = {}, caves = 0, trees = 0
   for (let x = X - 40; x < X + 40; x++) for (let z = Z - 40; z < Z + 40; z++) for (let y = 1; y < 80; y++) {
     const b = w.get(x, y, z)
-    if ([21, 38, 4, 63, 11, 36].includes(b) && y > w.groundY(x, z)) walls++
-    if ([33, 34, 35, 36, 37].includes(b) && y > w.groundY(x, z) + 2) roofs++
+    if (b >= 72 && b <= 77) walls++
     if ([14, 15, 16, 17, 18, 19].includes(b)) ores[BLOCKS[b].n] = (ores[BLOCKS[b].n] || 0) + 1
     if (b === 0 && y < w.groundY(x, z) - 6) caves++
-    if (b === 10 || b === 46) logs++
-    if (b === 12 || b === 47) leaves++
+    if (b === 79) trees++
   }
-  check('Lumbridge has walls and roofs', walls > 500 && roofs > 300, `wall blocks ${walls}, roof blocks ${roofs}`);
-  check('trees grow from the RS trunks', logs > 30 && leaves > logs * 5, `logs ${logs}, leaves ${leaves}`);
+  check('Lumbridge castle has its RS walls (thin, on the tile edges)', walls > 500, `wall blocks ${walls}`);
+  check('the RS trees stand where RS has them', trees > 30, `tree blocks ${trees}`);
+  // the Lumbridge bridge (RS 3240, 3226 -> tiles 1192..1200, 409..410): a plank deck over the River Lum
+  const bz = -409 - 1, deck = w.groundY(1196, bz)
+  check('the Lumbridge bridge is a deck over the river', w.get(1196, deck, bz) === 11 && [0, 8].includes(w.get(1196, deck - 1, bz)) && w.get(1196, deck - 3, bz) === 8, `deck y ${deck}, under ${w.get(1196, deck - 1, bz)} / ${w.get(1196, deck - 3, bz)}`);
+  // RS spawns: goblins east of the river, cows in the cow field, chickens at the farm
+  const near = (kind, x0, x1) => json.npcs.filter(n => n[2] === kind && n[0] >= x0 && n[0] < x1).length
+  check('goblins spawn over the bridge, cows in the field (RS spawns)', near('goblin', 1196, 1220) >= 5 && near('cow', 1195, 1220) >= 3 && json.npcs.some(n => n[2] === 'chicken'), `goblins ${near('goblin', 1196, 1220)}, cows ${near('cow', 1195, 1220)}`);
   check('ores under the ground (coal, iron, gold, redstone, diamond)', ores['Coal Ore'] > 200 && ores['Iron Ore'] > 100 && ores['Gold Ore'] > 5 && ores['Redstone Ore'] > 10 && ores['Diamond Ore'] > 0, JSON.stringify(ores));
   check('caves wind under the ground', caves > 2000, `cave air ${caves}`);
   // the river Lum: water east of the castle
@@ -59,12 +63,17 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   P.z = -5000.5; for (let i = 0; i < 10; i++) g.tick({});
   let top = P.y, y0 = P.y; for (let i = 0; i < 20; i++) { g.tick({ jump: i === 0 }); top = Math.max(top, P.y) }
   check('a jump clears 1.25 blocks', Math.abs(top - y0 - 1.25) < 0.05, (top - y0).toFixed(3));
-  // a block in the way needs a jump (no auto step), a slab-height path doesn't
-  w.set(5000, 101, -5003, 3); P.x = 5000.5; P.z = -5000.5
-  for (let i = 0; i < 30; i++) g.tick({ fw: 1 })
-  check('a full block stops you walking', P.z > -5002.4, P.z.toFixed(2));
-  for (let i = 0; i < 30; i++) g.tick({ fw: 1, jump: true })
-  check('jumping gets you up onto it', P.y > 101.9, P.y.toFixed(2));
+  // MC's auto-jump: one block steps up as you walk (RS ground rises a tile at a time), two stop you
+  for (let z = -5003; z >= -5009; z--) w.set(5000, 101, z, 3); P.x = 5000.5; P.z = -5000.5
+  for (let i = 0; i < 12; i++) g.tick({ fw: 1 })
+  check('walking steps up one block (auto-jump)', P.y > 101.9, P.y.toFixed(2));
+  w.set(5000, 102, -5006, 3); w.set(5000, 103, -5006, 3)
+  for (let i = 0; i < 40; i++) g.tick({ fw: 1 })
+  check('a two-block wall stops you', P.z > -5005.4, P.z.toFixed(2));
+  // a thin RS wall on a tile edge stops you right at the edge
+  Object.assign(P, { x: 5003.5, y: 102, z: -5003.5, vx: 0, vy: 0, vz: 0 }); w.set(5003, 102, -5006, 72, 2); w.set(5003, 103, -5006, 72, 2)
+  for (let i = 0; i < 40; i++) g.tick({ fw: 1 })
+  check('a thin RS wall stops you at the tile edge', P.z > -5005.2 && P.z < -5004.4, P.z.toFixed(2));
   // fall damage: 10 blocks = 7 damage
   pad(w, 6000, -6000, 4); Object.assign(P, { x: 6000.5, y: 111, z: -6000.5, vx: 0, vy: 0, vz: 0, hp: 20, food: 17, fall: 0, invul: 0 }); // food under 18: no regen muddying the count
   for (let i = 0; i < 60; i++) g.tick({});

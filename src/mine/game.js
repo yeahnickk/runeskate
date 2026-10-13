@@ -6,7 +6,7 @@
 import { BLOCKS, ITEMS, def, digInfo, dropsOf, placeOf, melee, SMELT, SMELT_XP, COOK_TICKS, fuelOf, maxStack, nameOf, ARMOR_MATS } from './blocks.js'
 import { World, rngOf, hash, CS, WH } from './world.js'
 import { tickMove, raycast, aabb, rayBox, move } from './phys.js'
-import { MOBS, makeMob, tickMob, FOLK_KINDS, setNid } from './mobs.js'
+import { MOBS, makeMob, tickMob, FOLK_KINDS, setNid, RS_SPAWN } from './mobs.js'
 import { give, stack, same, count, take } from './inv.js'
 
 export const TPS = 20, DAY = 24000
@@ -48,7 +48,7 @@ export class Game {
     this.time = 1000; this.ticks = 0
     this.ents = []; this.events = []
     this.furnaces = new Map(); this.chests = new Map()
-    this.adv = {}; this.populated = new Set(); this.torches = new Set(); this.flow = []
+    this.adv = {}; this.populated = new Set(); this.torches = new Set(); this.flow = []; this.respawns = []
     this.name = opts.name || 'Steve'
     const j = world.json, sx = j.spawn[0], sz = -j.spawn[1] - 1
     this.spawn = [sx + 0.5, world.top(sx, sz, true) + 1, sz + 0.5]
@@ -60,7 +60,7 @@ export class Game {
   }
   newPlayer() {
     const s = this.spawn
-    return { x: s[0], y: s[1], z: s[2], vx: 0, vy: 0, vz: 0, w: 0.6, h: 1.8, eye: 1.62, step: 0.6, yaw: 0, pitch: 0, onGround: false, fall: 0,
+    return { x: s[0], y: s[1], z: s[2], vx: 0, vy: 0, vz: 0, w: 0.6, h: 1.8, eye: 1.62, step: 1.05, yaw: 0, pitch: 0, onGround: false, fall: 0,
       hp: 20, food: 20, sat: 5, exh: 0, air: 300, xp: 0, lvl: 0, score: 0, inv: Array(36).fill(null), armor: Array(4).fill(null), off: null,
       craft2: Array(4).fill(null), cursor: null, sel: 0, dead: false, invul: 0, hurtT: 0, fire: 0, regen: 0, starve: 0, swing: 0, dig: null,
       digCd: 0, useCd: 0, eat: 0, bowT: 0, sneak: false, sprint: false, flying: false, atkT: 100, bed: null }
@@ -100,7 +100,7 @@ export class Game {
     if (!P.dead) this.tickPlayer(inp)
     // entities near the player
     for (const e of this.ents) {
-      if (Math.abs(e.x - P.x) > 96 || Math.abs(e.z - P.z) > 96) { if (e.e === 'mob' && MOBS[e.type].hostile) e.gone = true; continue }
+      if (Math.abs(e.x - P.x) > 96 || Math.abs(e.z - P.z) > 96) { if (e.e === 'mob' && MOBS[e.type].hostile && !e.home) e.gone = true; continue }
       if (!W.has(Math.floor(e.x) >> 4, Math.floor(e.z) >> 4)) continue
       if (e.e === 'mob') { tickMob(this, e); if (e.death > 20) { e.gone = true; this.emit({ t: 'poof', x: e.x, y: e.y + e.h / 2, z: e.z }) } }
       else if (e.e === 'item') this.tickItem(e)
@@ -380,6 +380,19 @@ export class Game {
     if (!id || d.h < 0 && !crea) return
     if (id === 5 && !crea) return
     const meta = W.meta(x, y, z)
+    if (d.tree) {                                       // an RS tree falls whole (RS woodcutting): logs, a sapling, maybe an apple
+      const ys = W.treeAt(x, y, z)
+      for (const yy of ys) W.set(x, yy, z, 0)
+      this.emit({ t: 'fell', x, y: ys[0], z })
+      if (!crea) {
+        this.dropItem({ id: 10, n: 2 + Math.floor(this.rng() * 3), d: 0 }, x + 0.5, ys[0] + 0.5, z + 0.5)
+        if (this.rng() < 0.4) this.dropItem({ id: 65, n: 1, d: 0 }, x + 0.5, ys[0] + 0.5, z + 0.5)
+        if (this.rng() < 0.08) this.dropItem({ id: 256, n: 1, d: 0 }, x + 0.5, ys[0] + 0.5, z + 0.5)
+        const h = this.player.inv[this.player.sel], it = h && ITEMS[h.id]
+        if (it && it.tool) this.wear(it.tool === 'sword' ? 2 : 1)
+      }
+      return
+    }
     W.set(x, y, z, 0)
     this.emit({ t: 'break', id, x, y, z })
     if (d.door) { const oy = d.door === 1 ? y + 1 : y - 1; if (BLOCKS[W.get(x, oy, z)].door) W.set(x, oy, z, 0) }
@@ -462,15 +475,17 @@ export class Game {
     const M = MOBS[m.type]
     if (M.armor) dmg *= 1 - M.armor * 0.04
     m.hp -= dmg; m.hurt = 10
+    this.emit({ t: 'splat', id: m.id, n: Math.max(0, Math.round(dmg)) })                   // (the client's RS hitsplat)
     this.emit({ t: 'snd', s: 'hurt_' + m.type, x: m.x, y: m.y, z: m.z })
     if (by) {
       const dx = m.x - by.x, dz = m.z - by.z, L = Math.hypot(dx, dz) || 1
       m.vx = dx / L * kb; m.vz = dz / L * kb; m.vy = 0.36
       if (!M.hostile && !M.villager) m.panic = 80
-      if (m.type === 'spider') m.angry = true
+      if (m.type === 'spider' || M.aggro !== undefined) m.angry = true
     }
     if (m.hp <= 0) {
       m.death = 1
+      if (m.spawn) this.respawns.push([this.ticks + 600, m.spawn])                        // (RS: it comes back in half a minute)
       this.emit({ t: 'snd', s: 'death_' + m.type, x: m.x, y: m.y, z: m.z })
       if (by === this.player || (by && by.by === 'player')) {
         const R = this.rng, burnt = m.fire > 0
@@ -700,9 +715,10 @@ export class Game {
       this.populated.add(k)
       this.populate(cx, cz)
     }
+    for (let i = this.respawns.length - 1; i >= 0; i--) if (this.respawns[i][0] <= this.ticks) { this.spawnRS(this.respawns[i][1]); this.respawns.splice(i, 1) }
     if (this.mode === 'creative' && !this.monstersInCreative) return
     let hostile = 0
-    for (const m of this.ents) if (m.e === 'mob' && MOBS[m.type].hostile) {
+    for (const m of this.ents) if (m.e === 'mob' && MOBS[m.type].hostile && !m.home) {
       hostile++
       const d = Math.hypot(m.x - P.x, m.z - P.z)
       if (d > 48 && R() < 0.02) m.gone = true
@@ -712,6 +728,7 @@ export class Game {
       const ang = R() * Math.PI * 2, dist = 20 + R() * 28
       const x = Math.floor(P.x + Math.cos(ang) * dist), z = Math.floor(P.z + Math.sin(ang) * dist)
       if (!W.has(x >> 4, z >> 4)) continue
+      const tt = W.tile(x, z); if (tt >= 0 && (W.fl[tt] & 116 || W.ed[tt] & 3)) continue     // (not on RS trees, rocks, objects or indoors)
       const top = W.top(x, z, true)
       let y = -1
       const surf = BLOCKS[W.get(x, top, z)]
@@ -722,7 +739,7 @@ export class Game {
       }
       if (y < 0 || Math.hypot(x - this.spawn[0], z - this.spawn[2]) < 12 && !this.isNight()) continue
       if (this.torchNear(x, y, z, 9)) continue
-      const r = R(), type = r < 0.35 ? 'zombie' : r < 0.62 ? 'skeleton' : r < 0.82 ? 'creeper' : 'spider'
+      const r = R(), type = r < 0.4 ? 'zombie' : r < 0.7 ? 'skeleton' : 'spider'   // (RS's undead and giant spiders; no RS creeper)
       this.ents.push(makeMob(type, x + 0.5, y, z + 0.5, R))
     }
   }
@@ -732,14 +749,24 @@ export class Game {
     // glowstone-like blocks: lit furnaces, jack o'lanterns, lava near are light too
     return false
   }
+  spawnRS(sp, R = this.rng) {
+    const [X0, tz, kind] = sp, Z0 = -tz - 1, W = this.world, S = RS_SPAWN[kind]
+    if (!S) return
+    const X = X0, Z = Z0, y = this.standY(X, Z)
+    const m = makeMob(S[0], X + 0.5, y, Z + 0.5, R, { ...(S[1] || {}), home: [X + 0.5, Z + 0.5], spawn: sp })
+    this.ents.push(m)
+    return m
+  }
+  // where something stands on a tile: on top of the ground (not on the RS tree/rock/object sharing it)
+  standY(X, Z) { const W = this.world, t = W.tile(X, Z); if (t >= 0 && !(W.fl[t] & 128)) { let y = W.gy[t] + 1; while (y < 120 && BLOCKS[W.get(X, y, Z)].solid) y++; return y } return W.top(X, Z, true) + 1 }
   populate(cx, cz) {
     const W = this.world, R = rngOf(Math.imul(cx, 7919) ^ Math.imul(cz, 104729) ^ 77)
-    // villagers from the RS spawns
+    // the RS map's NPCs at their RS spawns (cows in the cow field, goblins over the river...)
     const j = W.json
-    for (let i = 0; i < j.villagers.length; i++) {
-      const [tx, tz, kind] = j.villagers[i], X = tx, Z = -tz - 1
+    for (const sp of j.npcs || []) {
+      const [tx, tz] = sp, X = tx, Z = -tz - 1
       if (X >> 4 !== cx || Z >> 4 !== cz) continue
-      this.ents.push(makeMob('villager', X + 0.5, W.top(X, Z, true) + 1, Z + 0.5, R, { kind }))
+      this.spawnRS(sp, R)
     }
     // more townsfolk where there are houses
     let roofed = 0, open = []
@@ -756,8 +783,8 @@ export class Game {
     }
     // a herd on open grass
     const grass = open.filter(o => o[2] === 1)
-    if (grass.length > 120 && R() < 0.22) {
-      const type = ['cow', 'pig', 'sheep', 'chicken', 'cow', 'sheep'][(R() * 6) | 0], n = 2 + (R() * 3 | 0)
+    if (grass.length > 120 && R() < 0.06) {
+      const type = ['cow', 'chicken', 'cow'][(R() * 3) | 0], n = 2 + (R() * 3 | 0)
       for (let i = 0; i < n; i++) { const [X, Z] = grass[(R() * grass.length) | 0]; this.ents.push(makeMob(type, X + 0.5, W.top(X, Z, true) + 1, Z + 0.5, R)) }
     }
   }

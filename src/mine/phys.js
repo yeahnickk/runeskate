@@ -4,6 +4,13 @@
 import { BLOCKS } from './blocks.js'
 import { doorBox } from './mesh.js'
 
+// a wall/fence on a block's edges (meta: 1 west -x, 2 south +z, 4 east +x, 8 north -z), 2/16 thick
+export function edgeBoxes(m, h = 1) {
+  const t = 2 / 16, B = []
+  if (m & 1) B.push([0, 0, 0, t, h, 1]); if (m & 4) B.push([1 - t, 0, 0, 1, h, 1])
+  if (m & 2) B.push([0, 0, 1 - t, 1, h, 1]); if (m & 8) B.push([0, 0, 0, 1, h, t])
+  return B.length ? B : [[0, 0, 0, t, h, 1]]
+}
 // collision boxes of a block (in block-local 0..1), or null
 export function boxesOf(world, x, y, z, id) {
   const d = BLOCKS[id]
@@ -20,6 +27,7 @@ export function boxesOf(world, x, y, z, id) {
     return B
   }
   if (sh === 'door') return [doorBox(world.meta(x, y, z)).map(v => v / 16)]
+  if (sh === 'edge') return edgeBoxes(world.meta(x, y, z), d.fence ? 1.5 : 1)
   if (Array.isArray(sh)) return [sh.map(v => v / 16)]
   return null
 }
@@ -199,6 +207,7 @@ export function selBox(world, x, y, z, id) {
   if (sh === 'cross') return [0.15, 0, 0.15, 0.85, id === 29 ? 0.8 : 0.7, 0.85]
   if (sh === 'torch') return [6 / 16, 0, 6 / 16, 10 / 16, 10 / 16, 10 / 16]
   if (sh === 'fence') return [6 / 16, 0, 6 / 16, 10 / 16, 1, 10 / 16]
+  if (sh === 'edge') { const B = edgeBoxes(world.meta(x, y, z)), u = [1, 1, 1, 0, 0, 0]; for (const b of B) for (let k = 0; k < 3; k++) { u[k] = Math.min(u[k], b[k]); u[k + 3] = Math.max(u[k + 3], b[k + 3]) } return u }
   if (sh === 'door') return doorBox(world.meta(x, y, z)).map(v => v / 16)
   if (sh === 'ladder') return [[0, 0, 13, 16, 16, 16], [0, 0, 0, 3, 16, 16], [0, 0, 0, 16, 16, 3], [13, 0, 0, 16, 16, 16]][world.meta(x, y, z) & 3].map(v => v / 16)
   if (Array.isArray(sh)) return sh.map(v => v / 16)

@@ -8,7 +8,7 @@ export const CS = 16, WH = 128
 export const ci = (x, z, y) => ((z << 4) | x) * WH + y          // index in a chunk: columns contiguous
 const ROOF = [33, 34, 35, 36, 37], WALL = [21, 38, 11, 36, 21]
 // a wall's block from its RS colour (bake's json.walls: grey castle stone, dark stone, plaster, timber, brick, sandstone)
-const WALLC = [0, 21, 4, 71, 11, 38, 53]
+const WALLC = [0, 21, 4, 71, 11, 38, 53], WALLE = [0, 72, 76, 73, 74, 75, 77]   // (full blocks / edge walls)
 // grass/leaf tint: the RS ground colour brought to MC grass brightness, over the texture's own green (TREF)
 const TREF = [116, 182, 74], TLUM = 95
 
@@ -37,6 +37,8 @@ export class World {
     Object.assign(this, { W, H, base: j.base, seed, json: j })
     this.gy = b.subarray(0, n); this.sf = b.subarray(n, 2 * n); this.ru = b.subarray(2 * n, 3 * n); this.rc = b.subarray(3 * n, 4 * n); this.fl = b.subarray(4 * n, 5 * n)
     this.wc = b.length >= 6 * n ? b.subarray(5 * n, 6 * n) : new Uint8Array(n)
+    this.ed = b.length >= 10 * n ? b.subarray(9 * n, 10 * n) : new Uint8Array(n)       // wall/fence edges
+    this.wl = b.length >= 11 * n ? b.subarray(10 * n, 11 * n) : this.gy                  // water level under a bridge
     // the tint multiplier per tile (x128 = 1), from the RS ground colour planes
     const T = this.tint = new Uint8Array(n * 3)
     if (b.length >= 9 * n) for (let i = 0; i < n; i++) {
@@ -51,20 +53,6 @@ export class World {
     for (let i = 0; i < n; i++) d[i] = this.ru[i] ? 99 : 0
     for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) { const i = z * W + x; if (!d[i]) continue; d[i] = Math.min(d[i], 1 + Math.min(x ? d[i - 1] : 0, z ? d[i - W] : 0)) }
     for (let z = H - 1; z >= 0; z--) for (let x = W - 1; x >= 0; x--) { const i = z * W + x; if (!d[i]) continue; d[i] = Math.min(d[i], 1 + Math.min(x < W - 1 ? d[i + 1] : 0, z < H - 1 ? d[i + W] : 0)) }
-    // trees: thinned so canopies don't merge into one blob, bucketed by the chunks they reach
-    this.treeAt = new Map()
-    const taken = new Set(), tk = (x, z) => x + ',' + z
-    for (const [x, t] of j.trees) {
-      let near = false
-      for (let a = -2; a <= 2 && !near; a++) for (let c = -2; c <= 2; c++) if (taken.has(tk(x + a, t + c))) { near = true; break }
-      if (near || (this.fl[t * W + x] & 16)) continue
-      taken.add(tk(x, t))
-      const X = x, Z = -t - 1
-      for (let cx = Math.floor((X - 3) / CS); cx <= Math.floor((X + 3) / CS); cx++)
-        for (let cz = Math.floor((Z - 3) / CS); cz <= Math.floor((Z + 3) / CS); cz++) {
-          const k = cx + ',' + cz; if (!this.treeAt.has(k)) this.treeAt.set(k, []); this.treeAt.get(k).push([X, Z, t * W + x])
-        }
-    }
   }
   tile(X, Z) { const t = -Z - 1; return X >= 0 && X < this.W && t >= 0 && t < this.H ? t * this.W + X : -1 }
   // the grass tint multiplier (x128 = 1) at a block, into o[0..2]
@@ -113,7 +101,7 @@ export class World {
   gen(cx, cz) {
     const b = new Uint8Array(CS * CS * WH), m = new Uint8Array(CS * CS * WH), S = this.seed, base = this.base
     let top = 0
-    const put = (x, z, y, id) => { b[ci(x, z, y)] = id; if (y + 1 > top) top = y + 1 }
+    const put = (x, z, y, id, mm = 0) => { const i = ci(x, z, y); b[i] = id; m[i] = mm; if (y + 1 > top) top = y + 1 }
     for (let lz = 0; lz < CS; lz++) for (let lx = 0; lx < CS; lx++) {
       const X = cx * CS + lx, Z = cz * CS + lz, ti = this.tile(X, Z)
       put(lx, lz, 0, 5)
@@ -125,10 +113,18 @@ export class World {
         continue
       }
       const g = this.gy[ti], s = this.sf[ti], f = this.fl[ti]
-      if (s === 8) {                                    // a river or lake: 3 deep, a sand/gravel/clay bed
+      if (f & 128) {                                    // a bridge deck over the river: water, air, planks
+        const w = this.wl[ti]
+        for (let y = 4; y < w - 5; y++) b[ci(lx, lz, y)] = 3
+        for (let y = w - 5; y < w - 2; y++) b[ci(lx, lz, y)] = hash(X, y, Z, S + 2) < 0.6 ? 6 : 7
+        for (let y = w - 2; y <= w; y++) put(lx, lz, y, 8)
+        put(lx, lz, g, 11)
+        continue
+      }
+      if (f & 8) {                                      // a river, lake or the sea: 3 deep, a sand/gravel/clay bed
         const bed = g - 3
         for (let y = 4; y < bed - 2; y++) b[ci(lx, lz, y)] = 3
-        for (let y = bed - 2; y <= bed; y++) { const r = hash(X, y, Z, S + 2); b[ci(lx, lz, y)] = r < 0.12 ? 69 : r < 0.45 ? 7 : r < 0.75 ? 6 : 2 }
+        for (let y = bed - 2; y <= bed; y++) { const r = hash(X, y, Z, S + 2); b[ci(lx, lz, y)] = r < 0.5 ? 6 : r < 0.85 ? 7 : 69 }
         for (let y = bed + 1; y <= g; y++) put(lx, lz, y, 8)
         continue
       }
@@ -145,23 +141,17 @@ export class World {
         if (!cave && y < 30) cave = noise3(X / 26, y / 9, Z / 26, S + 37) > 0.6
         if (cave) b[ci(lx, lz, y)] = y <= 10 ? 9 : 0
       }
-      // above the ground: walls up to the roof, roofs stepping up to a ridge, fences
-      const ru = this.ru[ti]
-      if (f & 1) {
-        const rr = ru || this.nearRoof(X, Z)
-        const wcol = WALLC[this.wc[ti]], hh = rr || 3, mat = wcol || (rr ? WALL[this.rc[ti]] : hash(X, 7, Z, S) < 0.2 ? 63 : 4)
-        for (let y = g + 1; y < g + hh; y++) put(lx, lz, y, mat)
-        if (rr && hh >= 3 && (X + Z) % 3 === 0) put(lx, lz, g + 2, 13)
-        if (!rr) put(lx, lz, g + hh, mat)
-      } else if (f & 2) put(lx, lz, g + 1, 32)
-      if (ru) {
-        const d = this.rd[ti], ry = g + ru + Math.min(d - 1, 3)
-        put(lx, lz, ry, ROOF[this.rc[ti]])
-      } else if (!(f & 3) && !(f & 4)) {                  // plants on open ground
-        const r = hash(X, 1, Z, S + 5)
-        if (s === 1) { if (r < 0.1) put(lx, lz, g + 1, 29); else if (r < 0.112) put(lx, lz, g + 1, 30); else if (r < 0.124) put(lx, lz, g + 1, 31); else if (r < 0.1245) put(lx, lz, g + 1, 61) }
-        else if (s === 6 && r < 0.008) put(lx, lz, g + 1, 52)
-      }
+      // what stands on the tile, as the RS map has it (the client draws the RS models; these are what you touch)
+      const e = this.ed[ti]
+      if (e & 3) {                                      // walls on the tile's west/south edges, up to the roof
+        const hh = this.ru[ti] || this.nearRoof(X, Z) || 2, mat = WALLE[this.wc[ti]] || 72
+        for (let y = g + 1; y <= g + hh; y++) put(lx, lz, y, mat, e & 3)
+      } else if (e & 12) put(lx, lz, g + 1, 78, (e >> 2) & 3)
+      if (f & 4 && !(e & 3)) for (let y = g + 1; y <= g + 3; y++) put(lx, lz, y, 79)              // a tree's trunk
+      else if (f & 32 && !(e & 3)) {                    // an RS rock: mined for stone and ore
+        const r = hash(X, 5, Z, S + 3), ore = r < 0.35 ? 3 : r < 0.6 ? 14 : r < 0.8 ? 15 : r < 0.87 ? 16 : r < 0.93 ? 18 : r < 0.97 ? 69 : 17
+        put(lx, lz, g + 1, -Z - 1 > 704 && r > 0.95 ? 67 : ore)
+      } else if (f & 64 && !(e & 3)) { put(lx, lz, g + 1, 80); put(lx, lz, g + 2, 80) }        // an RS object
     }
     // ores: MC's veins, per chunk from the seed
     const R = rngOf(Math.imul(cx, 73856093) ^ Math.imul(cz, 19349663) ^ S)
@@ -178,34 +168,15 @@ export class World {
     vein(14, 20, 9, 5, base + 10); vein(15, 14, 6, 5, base - 2); vein(16, 2, 6, 5, 30); vein(18, 5, 6, 5, 16); vein(17, 1, 5, 5, 15)
     if (R() < 0.6) vein(19, 1, 1, 6, 30)
     if (-(cz * CS) - 1 > 704 && R() < 0.35) vein(67, 1, 3, 5, 14)    // runite under the Wilderness
-    // trees from the RS trunks (bucketed in the constructor), parts that land in this chunk
-    for (const [X, Z, ti] of this.treeAt.get(cx + ',' + cz) || []) {
-      const g = this.gy[ti], s = this.sf[ti], r = hash(X, 3, Z, S)
-      const loc = (x, y, z, id, over) => {
-        const lx = x - cx * CS, lz = z - cz * CS
-        if (lx < 0 || lx > 15 || lz < 0 || lz > 15 || y >= WH) return
-        const i = ci(lx, lz, y); if (b[i] && !over && b[i] !== 29) return
-        b[i] = id; if (y + 1 > top) top = y + 1
-      }
-      if (s === 6) { const h = 2 + (r * 2 | 0); for (let y = 1; y <= h; y++) loc(X, g + y, Z, 51, true); continue }
-      if (s === 8) continue
-      const birch = r < 0.22, log = birch ? 46 : 10, lv = birch ? 47 : 12, h = 4 + (hash(X, 4, Z, S) * 3 | 0), t = g + h
-      for (let y = t - 3; y <= t + 1; y++) {
-        const rad = y >= t ? 1 : 2
-        for (let a = -rad; a <= rad; a++) for (let c = -rad; c <= rad; c++) {
-          const corner = Math.abs(a) === rad && Math.abs(c) === rad
-          if (corner && (y === t + 1 || hash(X + a, y, Z + c, S + 9) < 0.5)) continue
-          loc(X + a, y, Z + c, lv)
-        }
-      }
-      for (let y = 1; y <= h; y++) loc(X, g + y, Z, log, true)
-      loc(X, g, Z, 2, true)
-    }
     const c = { cx, cz, b, m, top: Math.min(WH, top + 1), ver: 0 }
-    const e = this.edits.get(cx + ',' + cz)
-    if (e) for (const [i, v] of e) { c.b[i] = v & 255; c.m[i] = v >> 8; const y = i % WH; if (y + 1 >= c.top) c.top = Math.min(WH, y + 2) }
+    const ed = this.edits.get(cx + ',' + cz)
+    if (ed) for (const [i, v] of ed) { c.b[i] = v & 255; c.m[i] = v >> 8; const y = i % WH; if (y + 1 >= c.top) c.top = Math.min(WH, y + 2) }
     return c
   }
+  // natural: this block is as the map made it (the client shows the RS model for it, not a block)
+  natural(x, y, z) { const e = this.edits.get((x >> 4) + ',' + (z >> 4)); return !e || !e.has(ci(x & 15, z & 15, y)) }
+  // every block of the RS tree whose trunk includes (x, y, z)
+  treeAt(x, y, z) { const out = []; let y0 = y; while (this.get(x, y0 - 1, z) === 79) y0--; for (let yy = y0; this.get(x, yy, z) === 79; yy++) out.push(yy); return out }
   nearRoof(X, Z) {
     let r = 0
     for (const [a, c] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const t = this.tile(X + a, Z + c); if (t >= 0 && this.ru[t] > r) r = this.ru[t] }

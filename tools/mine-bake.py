@@ -9,7 +9,9 @@ railings (segs) and tree trunks. From npc-spawns: where the villagers live.
 Writes assets/mine_world.bin (gzip'd by compress.ts like the rest) + assets/mine_world.json:
   bin: W*H bytes each of: ground y (block), surface id, roof height over ground (0 = none), roof colour index,
        flags (1 wall, 2 fence, 4 tree, 8 water, 16 indoors), wall colour index (0 none, else 1 + json.walls),
-       then the RS ground colour as three planes R, G, B (grass and leaves are tinted by it, as MC's biome colours)
+       then the RS ground colour as three planes R, G, B, then edges (1 wall on the tile's west edge, 2 wall south,
+       4 fence west, 8 fence south) and the water level (block y) under a bridge.
+  v2 flags: 4 tree, 8 water, 16 indoors, 32 rock, 64 scenery (an RS object blocks the tile), 128 bridge deck
   json: { W, H, x0, z0 (world coords of tile 0,0), sea, spawn, trees: [[x,z]...], villagers: [[x,z,kind]...], roofs: [rgb...] }
 """
 import os, json, glob, re
@@ -152,6 +154,57 @@ med = np.median(np.stack([np.roll(np.roll(gy, dz, 0), dx, 1) for dz in (-1, 0, 1
 gy = np.where(np.abs(gy - med) > 2, med, gy).astype(np.int32)
 roof_up = np.where(roofed, np.clip(np.round(rh), 3, 7), 0).astype(np.uint8)
 
+# ---------------------------------------------------------------- v2: the skate game's own packs (assets/world*.json)
+# The client draws the real RS meshes; the blocks underneath have to match them. So the walkable ground (bridge decks
+# included), what blocks a tile (scenery, water, rocks, trees) and the walls + fences on tile edges come straight from
+# the packs the skate game collides with. Lowest-terrain gy (above) stays as the water level under bridges.
+wl_y = gy.copy()                                      # (lowest terrain: river surface under a bridge)
+pg = np.full((H, W), np.nan, np.float32); kind = np.full((H, W), 255, np.uint8); edges = np.zeros((H, W), np.uint8)
+for fn in sorted(glob.glob(os.path.join(ROOT, 'assets', 'world*.json'))):
+    if re.search(r'\.(near|far)\.', fn): continue
+    d = json.load(open(fn)); x0, z0, w, h = d['x0'], d['z0'], d['w'], d['h']
+    g4 = np.array(d['ground'], np.float32).reshape(w, h, 4).mean(2).T            # [z, x] tile mean of the 4 corners
+    bl = np.array(d['blocked'], np.uint8).reshape(h, w)
+    zs, xs = slice(z0, min(H, z0 + h)), slice(x0, min(W, x0 + w)); hh, ww = zs.stop - z0, xs.stop - x0
+    if hh <= 0 or ww <= 0: continue
+    pg[zs, xs] = g4[:hh, :ww]; kind[zs, xs] = bl[:hh, :ww]
+    for ax, az, bx, bz, k, top in d['segs']:
+        bit = 1 if k == 'wall' else 4 if k in ('fence', 'rail') else 0
+        if not bit: continue
+        if ax == bx: tx, tz = ax, min(az, bz)                 # (an edge at x = ax: the west side of tile ax)
+        else: tx, tz, bit = min(ax, bx), az, bit * 2          # (an edge at z = az: the south side of tile az)
+        if 0 <= tx < W and 0 <= tz < H: edges[tz, tx] |= bit
+    print('pack', os.path.basename(fn), w, h)
+have = ~np.isnan(pg)
+gy = np.where(have, np.clip(np.round(BASE + np.nan_to_num(pg)), 4, 120), gy).astype(np.int32)
+hasT = has.reshape(H, W)                              # (the RS terrain exists here; off it is the sea)
+kind = np.where(~hasT, 2, kind)
+fl2 = (flags_hw & 16).copy()                          # indoors (under a roof) stays
+fl2 |= np.where(kind == 2, 8, 0).astype(np.uint8)
+fl2 |= np.where(kind == 4, 4, 0).astype(np.uint8)
+fl2 |= np.where(kind == 3, 32, 0).astype(np.uint8)
+fl2 |= np.where(kind == 1, 64, 0).astype(np.uint8)
+oldw = (surf.reshape(H, W) == B['water'])
+bridge = have & (kind == 0) & oldw & hasT & (gy > wl_y)  # (walkable over what the terrain says is water: a deck)
+fl2 |= np.where(bridge, 128, 0).astype(np.uint8)
+fl2 |= np.where(~have & oldw, 8, 0).astype(np.uint8)
+sf = sf.copy(); sf[kind == 2] = B['water']; sf[bridge] = B['planks']; sf[(kind != 2) & ~bridge & (sf == B['water'])] = B['dirt']
+for x, z in trees:
+    if 0 <= x < W and 0 <= z < H: fl2[z, x] |= 4
+flags_hw = fl2
+wl_y = np.where(bridge, np.minimum(wl_y, gy - 1), gy).astype(np.int32)
+print('bridge tiles', int(bridge.sum()), 'edge walls', int(((edges & 3) > 0).sum()), 'fences', int(((edges & 12) > 0).sum()))
+
+# npcs: every RS spawn the skate game knows (mapdata.CORE_SPAWNS + npc-spawns.EXTRA_SPAWNS), local tiles
+npcs = []
+for f in (os.path.join(ROOT, 'src', 'mapdata.js'), os.path.join(ROOT, 'src', 'npc-spawns.js')):
+    t = open(f).read()
+    for m in re.finditer(r'\n\s*([a-z]+)\s*:\s*\[((?:\s*\[\d+,\s*\d+\],?)+)\s*\]', t):
+        for x, z in re.findall(r'\[(\d+),\s*(\d+)\]', m.group(2)):
+            lx, lz = int(x) - BX, int(z) - BZ
+            if 0 <= lx < W and 0 <= lz < H: npcs.append([lx, lz, m.group(1)])
+print('npc spawns', len(npcs))
+
 # villagers: the RS townsfolk spawns
 vill = []
 src = open(os.path.join(ROOT, 'src', 'npc-spawns.js')).read()
@@ -169,10 +222,10 @@ num = sum(np.roll(np.roll(gc * hv[..., None], dz, 0), dx, 1) for dz in (-1, 0, 1
 den = sum(np.roll(np.roll(hv, dz, 0), dx, 1) for dz in (-1, 0, 1) for dx in (-1, 0, 1))
 gc = np.where(den[..., None] > 0, num / np.maximum(den, 1)[..., None], [90, 120, 40]).clip(0, 255).astype(np.uint8)
 blob = np.concatenate([gy.astype(np.uint8).ravel(), sf.ravel(), roof_up.ravel(), rci.ravel(), flags_hw.ravel(), wci.ravel(),
-                       gc[..., 0].ravel(), gc[..., 1].ravel(), gc[..., 2].ravel()])
+                       gc[..., 0].ravel(), gc[..., 1].ravel(), gc[..., 2].ravel(), edges.ravel(), wl_y.astype(np.uint8).ravel()])
 blob.tofile(os.path.join(ROOT, 'assets', 'mine_world.bin'))
 # the spawn: Lumbridge castle's courtyard (as the skate game)
 spawn = [3222 - BX, 3218 - BZ]
 json.dump({'W': W, 'H': H, 'x0': BX, 'z0': BZ, 'base': BASE, 'spawn': spawn, 'trees': trees, 'villagers': vill,
-           'roofs': PAL.astype(int).tolist(), 'walls': WPAL.astype(int).tolist()}, open(os.path.join(ROOT, 'assets', 'mine_world.json'), 'w'), separators=(',', ':'))
+           'roofs': PAL.astype(int).tolist(), 'walls': WPAL.astype(int).tolist(), 'npcs': npcs, 'v': 2}, open(os.path.join(ROOT, 'assets', 'mine_world.json'), 'w'), separators=(',', ':'))
 print('wrote assets/mine_world.bin', os.path.getsize(os.path.join(ROOT, 'assets', 'mine_world.bin')) // 1024, 'KB')
