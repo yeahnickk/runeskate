@@ -39,9 +39,7 @@ void main() {
   gl_FragColor = vec4(mix(c, uFog, f), uWater > 0.5 ? t.a : 1.0);
 }`
 
-// RS models face +x... turned so yaw 0 (MC: facing -Z) faces -Z
-export let RS_YAW = Math.PI
-export const setRsYaw = (v) => { RS_YAW = v }
+// turn an angle toward another the short way round
 const turnTo = (a, b, k) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return a + d * Math.min(1, k) }
 
 export class View {
@@ -341,7 +339,7 @@ export class View {
   animMob(e, o, dt) {
     const sp = Math.hypot(e.x - (e.px ?? e.x), e.z - (e.pz ?? e.z))
     o.yaw = turnTo(o.yaw ?? e.yaw, e.yaw, dt * 10)
-    o.g.rotation.y = o.yaw + RS_YAW
+    o.g.rotation.y = o.yaw + Math.PI         // (RS models face +z; MC's yaw 0 faces -z)
     o.g.position.y = this.drawY(e, o.g.position.x, o.g.position.y, o.g.position.z, o); e.drawDy = o.dy
     if (o.rs) {
       const m = o.rs, clip = e.death ? 'death' : sp > 0.01 ? 'walk' : 'ready'
@@ -388,7 +386,7 @@ export class View {
     const x = P.px + (P.x - P.px) * alpha, y = P.py + (P.y - P.py) * alpha, z = P.pz + (P.z - P.pz) * alpha
     this.plG.position.set(x, this.drawY(P, x, y, z, this.plO), z)
     this.plYaw = turnTo(this.plYaw ?? P.yaw, P.face ?? P.yaw, dt * 12)
-    this.plG.rotation.y = this.plYaw + RS_YAW
+    this.plG.rotation.y = this.plYaw + Math.PI
     if (this.pl) {
       const sp = Math.hypot(P.x - P.px, P.z - P.pz), [clip, loop] = playerClip(P, P.inv[P.sel], sp)
       if (P.swing === 6 && !P.dig && this.lastSwing !== 6) this.pl.play(clip, loop, true)
@@ -413,7 +411,8 @@ export class View {
       p.sc.add(p.hold); p.cam.position.set(0, 1.0, 3.5); p.cam.lookAt(0, 0.95, 0)
     }
     const par = pl.group.parent, mat = pl.mesh.material, col = mat.color.clone()
-    p.hold.add(pl.group); p.hold.rotation.y = look; mat.color.setScalar(1)
+    p.hold.add(pl.group); p.hold.rotation.y = look;   // (RS models face +z: at you)
+    mat.color.setScalar(1)
     const R = this.R; R.setRenderTarget(p.rt); R.setClearColor(0, 0); R.clear(); R.render(p.sc, p.cam); R.readRenderTargetPixels(p.rt, 0, 0, w, h, p.px); R.setRenderTarget(null)
     if (par) par.add(pl.group); mat.color.copy(col)
     for (let y = 0; y < h; y++) p.im.data.set(p.px.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4)   // (GL rows run bottom up)
