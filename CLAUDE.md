@@ -116,6 +116,15 @@ Minecraft to play: the real 2004 map draws over the blocks, Minecraft's first pe
   RS ground already draws (never their tops); a pit wall's top edge follows the RS ground's corners (`rsTops`). `height()` the RS ground, so bodies stand on bridges and slopes as drawn.
   `world.keep` (set by render.js) stops MC's grass/dirt ticks on the map's own ground, which would otherwise turn every
   tile under a tree or wall to blocks. Wall triangles on a tile edge go with the tile the bake put the wall block on.
+- Edits hide RS triangles by `vx` kind: 1 dug (whole tile), 3 an above-ground block gone (locs only, terrain stays),
+  2 a felled canopy; terrain + `water` never go for 2/3. Water triangles are their own translucent mesh (`waterOut`).
+  `capWalls` paints black wall caps from their neighbours, `splitBig` cuts wide loc triangles so a broken block leaves
+  a block-sized hole. The mesher never draws a hidden ground top or hidden cubes above the ground.
+- Aiming: `rsworld.pick` rays the RS triangles; `game.target()` takes an RS hit nearer than the voxel hit to a block in
+  that tile's column (or across the nearest edge: fences/gates draw from the next tile). Invisible faces are skipped
+  (`game.hidden`). Generated roofs (`ROOFB`), `sup` blocks break when what holds them goes, big trees fell 2x2 (`trunk`).
+- Creative: tabbed inventory with search (E / I), Digit keys drop the hovered block on the hotbar. Options > Controls
+  rebinds every key (`BINDS` in gui.js, saved in `opts.keys`).
 - Fights go by RS hitpoints for the weak (goblin 5, man 7: three or four punches), hunger drains at half MC's rate.
 - `bodies.js` the RS bodies: mobs are RS NPC models with their clips; the player (F5) is an RS character wearing the
   armour as an RS set and holding a pickaxe of the tool's tier / scimitar / shortbow. Pointer lock is on the GUI
