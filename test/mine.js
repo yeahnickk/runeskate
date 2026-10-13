@@ -161,8 +161,8 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   const { w, g, P } = fresh(); pad(w, 5000, -5000, 60)
   Object.assign(P, { x: 5000.5, y: 101, z: -4960.5 })
   const f0 = P.food + P.sat
-  for (let i = 0; i < 20 * 25; i++) { g.tick({ fw: 1, sprint: true, yaw: i % 200 < 100 ? 0 : Math.PI }) }
-  check('sprinting burns saturation and hunger', P.food + P.sat < f0 - 2, `${f0} -> ${(P.food + P.sat).toFixed(1)}`);
+  for (let i = 0; i < 20 * 60; i++) { g.tick({ fw: 1, sprint: true, yaw: i % 200 < 100 ? 0 : Math.PI }) }
+  check('sprinting burns saturation and hunger (at half the MC rate: a minute costs ~3)', P.food + P.sat < f0 - 2, `${f0} -> ${(P.food + P.sat).toFixed(1)}`);
   Object.assign(P, { hp: 10, food: 20, sat: 20 })
   for (let i = 0; i < 100; i++) g.tick({})
   check('full hunger heals fast (MC 1.11 saturation regen)', P.hp >= 14, `hp ${P.hp.toFixed(1)}`);
@@ -255,6 +255,22 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   const s = JSON.parse(JSON.stringify(g.save()))
   const { w: w2, g: g2 } = fresh(); g2.load(s)
   check('saving and loading keeps edits, inventory, level, time, advancements', w2.get(P.x | 0, 90, P.z | 0) === 50 && count(g2.player.inv, 260) === 7 && g2.player.lvl === 5 && g2.time === 30000 && g2.adv.wood);
+}
+
+
+{ // RS fights: a goblin goes down in three good punches, a man in four (RS hitpoints, not MC's 20)
+  const { g, P } = fresh()
+  const gob = makeMob('goblin', 0, 0, 0), man = makeMob('villager', 0, 0, 0, Math.random, { kind: 'man' })
+  const hits = (m) => { let n = 0; while (m.hp > 0 && n < 50) { m.hurt = 0; P.atkT = 100; g.attackMob(m); n++ } return n }
+  const a = hits(gob), b = hits(man)
+  check('a goblin takes three punches, a man four', a === 3 && b === 4, `goblin ${a}, man ${b}`)
+}
+{ // the RS ground stays as the map has it: MC's grass/dirt ticks leave natural cells alone when the client says so
+  const { w, g, P } = fresh(); P.x = 1170.5; P.z = -402.5
+  w.keep = (x, y, z) => w.natural(x, y, z)
+  let flips = 0; w.listeners.push((x, y, z, id, was) => { if ((id === 1 || id === 2) && (was === 1 || was === 2)) flips++ })
+  for (let i = 0; i < 3000; i++) g.tick({})
+  check('no grass <-> dirt flips on the map\'s own ground', flips === 0, `${flips} flips`)
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');

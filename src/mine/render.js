@@ -65,6 +65,9 @@ export class View {
       this.scene.add(rsw.group)
       this.rs = { vx: rsw.vx, cover: rsw.cover }
       rsw.vx.fill(0); for (const m of rsw.meshes) rsw.dirty.add(m)
+      // MC's grass/dirt ticks leave the map's own ground alone (else every tile under a tree or wall turns to blocks)
+      world.keep = (x, y, z) => { const t = world.tile(x, z); return t >= 0 && rsw.cover[t] && rsw.vx[t] !== 1 && world.natural(x, y, z) }
+      this.forgetFlips()
       this.vxFromEdits()
       rsw.onCover = (x0, z0, w, h) => { for (const [k, c] of this.chunks) { const X = c.cx * CS, T = -c.cz * CS - CS; if (X + CS > x0 && X < x0 + w && T + CS > z0 && T < z0 + h) this.soon.add(k) } }
     }
@@ -78,6 +81,16 @@ export class View {
     if (nat && was) {
       this.rsw.setVx(tx, tz, 1)
       if (was === 79) for (let a = -1; a <= 1; a++) for (let c = -1; c <= 1; c++) if (a || c) this.rsw.setVx(tx + a, tz + c, 2)   // (the canopy)
+    }
+  }
+  // older saves: drop the edits that were only those grass <-> dirt ticks on the map's own ground
+  forgetFlips() {
+    const W = this.world
+    for (const [k, e] of W.edits) {
+      const [cx, cz] = k.split(',').map(Number); let o = null, n = 0
+      for (const [i, v] of e) { if (v !== 1 && v !== 2) continue; if (!o) o = W.orig(cx, cz); const was = o.b[i]; if (was === 1 || was === 2) { e.delete(i); n++ } }
+      if (n) W.chunks.delete(k)
+      if (!e.size) W.edits.delete(k)
     }
   }
   vxFromEdits() {
@@ -329,7 +342,7 @@ export class View {
     const sp = Math.hypot(e.x - (e.px ?? e.x), e.z - (e.pz ?? e.z))
     o.yaw = turnTo(o.yaw ?? e.yaw, e.yaw, dt * 10)
     o.g.rotation.y = o.yaw + RS_YAW
-    o.g.position.y = this.drawY(e, o.g.position.x, o.g.position.y, o.g.position.z, o)
+    o.g.position.y = this.drawY(e, o.g.position.x, o.g.position.y, o.g.position.z, o); e.drawDy = o.dy
     if (o.rs) {
       const m = o.rs, clip = e.death ? 'death' : sp > 0.01 ? 'walk' : 'ready'
       m.play(clip, clip !== 'death'); m.update(dt)
@@ -386,6 +399,26 @@ export class View {
       this.pl.mesh.material.color.setRGB(hurt ? k * 1.4 : k, hurt ? k * 0.5 : k, hurt ? k * 0.5 : k)
     }
     return this.plG.position
+  }
+
+  // the inventory's portrait: your RS body front on (MC draws its player model there, turning to the mouse), drawn to
+  // a little canvas the GUI blits. The body is borrowed from the world for the one render.
+  portrait(w, h, look) {
+    const pl = this.pl; if (!pl) return null
+    let p = this.pt
+    if (!p || p.w !== w || p.h !== h) {
+      if (p) p.rt.dispose()
+      const c = document.createElement('canvas'); c.width = w; c.height = h
+      p = this.pt = { w, h, c, x: c.getContext('2d'), rt: new THREE.WebGLRenderTarget(w, h), px: new Uint8Array(w * h * 4), im: new ImageData(w, h), sc: new THREE.Scene(), hold: new THREE.Group(), cam: new THREE.PerspectiveCamera(28, w / h, 0.1, 20) }
+      p.sc.add(p.hold); p.cam.position.set(0, 1.0, 3.5); p.cam.lookAt(0, 0.95, 0)
+    }
+    const par = pl.group.parent, mat = pl.mesh.material, col = mat.color.clone()
+    p.hold.add(pl.group); p.hold.rotation.y = look; mat.color.setScalar(1)
+    const R = this.R; R.setRenderTarget(p.rt); R.setClearColor(0, 0); R.clear(); R.render(p.sc, p.cam); R.readRenderTargetPixels(p.rt, 0, 0, w, h, p.px); R.setRenderTarget(null)
+    if (par) par.add(pl.group); mat.color.copy(col)
+    for (let y = 0; y < h; y++) p.im.data.set(p.px.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4)   // (GL rows run bottom up)
+    p.x.putImageData(p.im, 0, 0)
+    return p.c
   }
 
   // ------------------------------------------------------------------------ a frame

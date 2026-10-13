@@ -6,10 +6,10 @@ import { BLOCKS } from './blocks.js'
 
 // w/h: hitbox; hp; sp: walk speed (x player walk); dmg: melee; xp; drops: [id, min, max]; hostile
 export const MOBS = {
-  cow: { n: 'Cow', w: 0.9, h: 1.4, hp: 10, sp: 0.45, xp: [1, 3], drops: [[268, 1, 3], [279, 0, 2]], cooked: 269, food: [266] },
+  cow: { n: 'Cow', w: 0.9, h: 1.4, hp: 8, sp: 0.45, xp: [1, 3], drops: [[268, 1, 3], [279, 0, 2]], cooked: 269, food: [266] },
   pig: { n: 'Pig', w: 0.9, h: 0.9, hp: 10, sp: 0.45, xp: [1, 3], drops: [[270, 1, 3]], cooked: 271, food: [266, 267] },
   sheep: { n: 'Sheep', w: 0.9, h: 1.3, hp: 8, sp: 0.45, xp: [1, 3], drops: [[39, 1, 1], [285, 1, 2]], cooked: 286, food: [266] },
-  chicken: { n: 'Chicken', w: 0.4, h: 0.7, hp: 4, sp: 0.4, xp: [1, 3], drops: [[272, 1, 1], [278, 0, 2]], cooked: 273, food: [267] },
+  chicken: { n: 'Chicken', w: 0.4, h: 0.7, hp: 3, sp: 0.4, xp: [1, 3], drops: [[272, 1, 1], [278, 0, 2]], cooked: 273, food: [267] },
   zombie: { n: 'Zombie', w: 0.6, h: 1.95, hp: 20, sp: 0.55, dmg: 3, xp: [5, 5], drops: [[274, 0, 2]], hostile: true, burns: true, armor: 2 },
   skeleton: { n: 'Skeleton', w: 0.6, h: 1.99, hp: 20, sp: 0.6, xp: [5, 5], drops: [[275, 0, 2], [280, 0, 2]], hostile: true, burns: true, ranged: true },
   creeper: { n: 'Creeper', w: 0.6, h: 1.7, hp: 20, sp: 0.6, xp: [5, 5], drops: [[277, 0, 2]], hostile: true, creeper: true },
@@ -17,8 +17,8 @@ export const MOBS = {
   villager: { n: 'Villager', w: 0.6, h: 1.95, hp: 20, sp: 0.4, xp: [0, 0], drops: [], villager: true },
   // the RS map's own monsters, at their RS spawns (lvl: the RS combat level shown on the mouse-over; aggro: how close
   // you get before they come for you, as RS's aggressive NPCs; 0 = only once hit)
-  goblin: { n: 'Goblin', lvl: 2, w: 0.6, h: 1.3, hp: 10, sp: 0.5, dmg: 1, xp: [2, 4], drops: [[275, 1, 1], [328, 0, 5]], hostile: true, aggro: 5 },
-  rat: { n: 'Giant rat', lvl: 3, w: 0.8, h: 0.6, hp: 10, sp: 0.55, dmg: 1, xp: [2, 3], drops: [[275, 1, 1], [274, 0, 1]], hostile: true, aggro: 4 },
+  goblin: { n: 'Goblin', lvl: 2, w: 0.6, h: 1.3, hp: 5, sp: 0.5, dmg: 1, xp: [2, 4], drops: [[275, 1, 1], [328, 0, 5]], hostile: true, aggro: 5 },
+  rat: { n: 'Giant rat', lvl: 3, w: 0.8, h: 0.6, hp: 5, sp: 0.55, dmg: 1, xp: [2, 3], drops: [[275, 1, 1], [274, 0, 1]], hostile: true, aggro: 4 },
   imp: { n: 'Imp', lvl: 2, w: 0.5, h: 0.9, hp: 8, sp: 0.6, dmg: 1, xp: [2, 3], drops: [[262, 0, 2], [288, 0, 1]], hostile: true, aggro: 0 },
   darkwizard: { n: 'Dark wizard', lvl: 7, w: 0.6, h: 1.9, hp: 24, sp: 0.5, xp: [5, 7], drops: [[262, 1, 3], [275, 1, 1]], hostile: true, aggro: 7, ranged: true },
   darkwarrior: { n: 'Dark warrior', lvl: 8, w: 0.6, h: 1.9, hp: 20, sp: 0.55, dmg: 2, xp: [5, 7], drops: [[275, 1, 1], [258, 0, 1]], hostile: true, aggro: 5, rs: 'blackknight' },
@@ -40,7 +40,7 @@ export const MOBS = {
 // the RS model of each mob (assets/npc_*.json); MC's own (pig, sheep, creeper) have none and keep the block model
 for (const [k, r] of Object.entries({ cow: 'cow', chicken: 'chicken', zombie: 'zombie', skeleton: 'skeleton', spider: 'giantspider' })) MOBS[k].rs = r
 for (const [k, M] of Object.entries(MOBS)) if (M.lvl !== undefined && !M.rs) M.rs = k
-Object.assign(MOBS.cow, { lvl: 2 }); Object.assign(MOBS.chicken, { lvl: 1 }); Object.assign(MOBS.zombie, { lvl: 13 }); Object.assign(MOBS.skeleton, { lvl: 21 }); Object.assign(MOBS.spider, { n: 'Giant spider', lvl: 2 })
+Object.assign(MOBS.cow, { lvl: 2 }); Object.assign(MOBS.chicken, { lvl: 1 }); Object.assign(MOBS.zombie, { lvl: 13 }); Object.assign(MOBS.skeleton, { lvl: 21 }); Object.assign(MOBS.spider, { n: 'Giant spider', lvl: 2, hp: 5 })
 // RS spawn kinds -> [mob type, extra]
 export const RS_SPAWN = {
   cow: ['cow'], chicken: ['chicken'], giantspider: ['spider'], skeleton: ['skeleton'], zombie: ['zombie'],
@@ -52,14 +52,14 @@ for (const k of Object.keys(MOBS)) if (MOBS[k].lvl !== undefined && !RS_SPAWN[k]
 export const FOLK_RS = { guard: 'guard', dwarf: 'dwarf', barbarian: 'barbarian' }
 // RS townsfolk: names + their MC profession's trades ([buy id, n], [sell id, n], max uses)
 export const FOLK = {
-  man: { names: ['Hans', 'Gee', 'Donie', 'Bob', 'Thessalia'], job: 'Fisherman', trades: [[[276, 20], [261, 1], 16], [[261, 1], [326, 6], 16], [[257, 10], [261, 1], 16], [[261, 2], [281, 1], 6]] },
-  woman: { names: ['Gillie Groats', 'Aggie', 'Wyson', 'Romily', 'Baraek'], job: 'Shepherd', trades: [[[39, 18], [261, 1], 16], [[261, 1], [39, 1], 16], [[261, 3], [40, 1], 12]] },
-  farmer: { names: ['Fred the Farmer', 'Farmer Brumty', 'Seth Groats', 'Millie Miller'], job: 'Farmer', trades: [[[266, 20], [261, 1], 16], [[261, 1], [265, 6], 16], [[61, 6], [261, 1], 12], [[261, 1], [264, 4], 16], [[261, 1], [329, 1], 12]] },
-  guard: { names: ['Lumbridge Guard', 'Varrock Guard', 'Falador Guard', 'Sir Prysin'], job: 'Armorer', trades: [[[257, 15], [261, 1], 16], [[261, 5], [334, 1], 12], [[261, 9], [335, 1], 12], [[261, 7], [336, 1], 12], [[261, 4], [337, 1], 12], [[261, 30], [347, 1], 3]] },
-  dwarf: { names: ['Doric', 'Thurgo', 'Nurmof', 'Hamal'], job: 'Toolsmith', trades: [[[257, 15], [261, 1], 16], [[261, 1], [308, 1], 12], [[261, 3], [312, 1], 12], [[261, 13], [322, 1], 3], [[261, 32], [352, 1], 2]] },
-  barbarian: { names: ['Peksa', 'Gunthor', 'Haakon', 'Hunding'], job: 'Weaponsmith', trades: [[[257, 15], [261, 1], 16], [[261, 3], [313, 1], 12], [[261, 7], [310, 1], 12], [[261, 14], [320, 1], 3], [[261, 28], [350, 1], 2]] },
-  shopkeeper: { names: ['Shop keeper', 'Lowe', 'Horvik', 'Zaff', 'Aubury'], job: 'Shopkeeper', trades: [[[256, 32], [261, 1], 16], [[261, 1], [28, 8], 16], [[261, 1], [282, 1], 12], [[261, 1], [280, 16], 16], [[261, 4], [27, 1], 12], [[261, 1], [291, 3], 12]] },
-  monk: { names: ['Brother Jered', 'Father Aereck', 'Brother Kojo', 'Father Urhney'], job: 'Cleric', trades: [[[274, 32], [261, 1], 16], [[261, 1], [262, 2], 12], [[259, 3], [261, 1], 12], [[261, 2], [288, 6], 12], [[261, 5], [292, 1], 6]] },
+  man: { hp: 7, names: ['Hans', 'Gee', 'Donie', 'Bob', 'Thessalia'], job: 'Fisherman', trades: [[[276, 20], [261, 1], 16], [[261, 1], [326, 6], 16], [[257, 10], [261, 1], 16], [[261, 2], [281, 1], 6]] },
+  woman: { hp: 7, names: ['Gillie Groats', 'Aggie', 'Wyson', 'Romily', 'Baraek'], job: 'Shepherd', trades: [[[39, 18], [261, 1], 16], [[261, 1], [39, 1], 16], [[261, 3], [40, 1], 12]] },
+  farmer: { hp: 12, names: ['Fred the Farmer', 'Farmer Brumty', 'Seth Groats', 'Millie Miller'], job: 'Farmer', trades: [[[266, 20], [261, 1], 16], [[261, 1], [265, 6], 16], [[61, 6], [261, 1], 12], [[261, 1], [264, 4], 16], [[261, 1], [329, 1], 12]] },
+  guard: { hp: 22, names: ['Lumbridge Guard', 'Varrock Guard', 'Falador Guard', 'Sir Prysin'], job: 'Armorer', trades: [[[257, 15], [261, 1], 16], [[261, 5], [334, 1], 12], [[261, 9], [335, 1], 12], [[261, 7], [336, 1], 12], [[261, 4], [337, 1], 12], [[261, 30], [347, 1], 3]] },
+  dwarf: { hp: 16, names: ['Doric', 'Thurgo', 'Nurmof', 'Hamal'], job: 'Toolsmith', trades: [[[257, 15], [261, 1], 16], [[261, 1], [308, 1], 12], [[261, 3], [312, 1], 12], [[261, 13], [322, 1], 3], [[261, 32], [352, 1], 2]] },
+  barbarian: { hp: 24, names: ['Peksa', 'Gunthor', 'Haakon', 'Hunding'], job: 'Weaponsmith', trades: [[[257, 15], [261, 1], 16], [[261, 3], [313, 1], 12], [[261, 7], [310, 1], 12], [[261, 14], [320, 1], 3], [[261, 28], [350, 1], 2]] },
+  shopkeeper: { hp: 10, names: ['Shop keeper', 'Lowe', 'Horvik', 'Zaff', 'Aubury'], job: 'Shopkeeper', trades: [[[256, 32], [261, 1], 16], [[261, 1], [28, 8], 16], [[261, 1], [282, 1], 12], [[261, 1], [280, 16], 16], [[261, 4], [27, 1], 12], [[261, 1], [291, 3], 12]] },
+  monk: { hp: 15, names: ['Brother Jered', 'Father Aereck', 'Brother Kojo', 'Father Urhney'], job: 'Cleric', trades: [[[274, 32], [261, 1], 16], [[261, 1], [262, 2], 12], [[259, 3], [261, 1], 12], [[261, 2], [288, 6], 12], [[261, 5], [292, 1], 6]] },
 }
 export const FOLK_KINDS = Object.keys(FOLK)
 
@@ -70,7 +70,8 @@ export function makeMob(type, x, y, z, R = Math.random, extra = {}) {
   if (type === 'sheep') m.wool = true
   if (type === 'villager') {
     const kind = m.kind || 'man', F = FOLK[kind]
-    m.kind = kind; m.name = m.name || F.names[(R() * F.names.length) | 0]
+    m.kind = kind; if (!extra.hp) m.hp = F.hp || M.hp   // (RS hitpoints: a man has 7)
+    m.name = m.name || F.names[(R() * F.names.length) | 0]
     m.trades = m.trades || F.trades.map(([buy, sell, max]) => ({ buy, sell, max, uses: 0 }))
     m.home = m.home || [x, z]
   }

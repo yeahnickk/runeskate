@@ -112,6 +112,9 @@ Minecraft to play: the real 2004 map draws over the blocks, Minecraft's first pe
   (pack y = `world.base + 1` - RS height). A tile you dig into or build in turns to blocks (`vx` 1: its triangles are
   dropped from that chunk's index); a felled tree takes only its canopy (`vx` 2). The mesher (`opts.rs`) skips natural
   blocks the RS ground already draws. `height()` the RS ground, so bodies stand on bridges and slopes as drawn.
+  `world.keep` (set by render.js) stops MC's grass/dirt ticks on the map's own ground, which would otherwise turn every
+  tile under a tree or wall to blocks. Wall triangles on a tile edge go with the tile the bake put the wall block on.
+- Fights go by RS hitpoints for the weak (goblin 5, man 7: three or four punches), hunger drains at half MC's rate.
 - `bodies.js` the RS bodies: mobs are RS NPC models with their clips; the player (F5) is an RS character wearing the
   armour as an RS set and holding a pickaxe of the tool's tier / scimitar / shortbow. Pointer lock is on the GUI
   canvas (the one with the mouse listeners).

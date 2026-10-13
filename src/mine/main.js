@@ -94,9 +94,13 @@ function startWorld(entry, create) {
   game = new Game(world, { mode: entry ? entry.mode : 'creative', name: localStorage.getItem('minescape.name') || 'Steve' })
   panorama = !entry
   if (entry && !create) { try { const s = JSON.parse(localStorage.getItem('minescape.w.' + entry.file)); if (s) game.load(s) } catch (e) { console.warn('save unreadable', e) } }
-  if (create) { game.time = 1000; const P = game.player; P.inv[0] = null }
+  if (create) {
+    game.time = 1000; const P = game.player; P.inv[0] = null
+    if (game.mode === 'creative') [1, 4, 11, 10, 13, 38, 28, 290, 24].forEach((id, i) => { P.inv[i] = { id, n: 64, d: 0 } })   // (a hotbar to build with; E for everything)
+  }
   view = new View(renderer, atlas, world, game, { rd: gui.opts.rd, fancy: gui.opts.fancy, rsw })
   view.U.uBright.value = gui.opts.bright
+  gui.portrait = (w, h, look) => view.portrait(w, h, look)
   resize()
   curFile = entry ? entry.file : null
   if (panorama) { const P = game.player; P.x = 1170.5; P.z = -402.5; P.y = 50; game.time = 4000 }
@@ -360,7 +364,8 @@ function input() {
     if (a.solid && !b.solid && !c.solid) jump = true
   }
   const inp = { fw, st, jump, sneak: keys.has('sneak'), sprint: keys.has('sprint') || sprintTap || (TOUCH && fw > 0 && keys.has('sprint')), yaw: P.yaw, pitch: P.pitch,
-    attack: mouse.l, attackPress: mouse.lp, use: mouse.r || tapUse, usePress: mouse.rp, drop: queued.drop, dropAll: queued.dropAll, swapHands: queued.swap, flyToggle }
+    attack: mouse.l || mouse.lp, attackPress: mouse.lp, use: mouse.r || mouse.rp || tapUse,   // (a click quicker than a tick still lands)
+    usePress: mouse.rp, drop: queued.drop, dropAll: queued.dropAll, swapHands: queued.swap, flyToggle }
   if (tapUse) { inp.attack = false; inp.use = true; inp.attackPress = !!game.targetMob(); if (inp.attackPress) { inp.usePress = false; inp.use = false } }
   mouse.lp = mouse.rp = false; queued.drop = queued.swap = false; flyToggle = false; tapUse = false
   return inp

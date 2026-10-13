@@ -203,7 +203,7 @@ export const toolId = (tier, kind) => tier === 5 ? 350 + KINDS.indexOf(kind) : 3
 const SWORD = [4, 5, 6, 4, 7, 8], AXE_D = [7, 9, 9, 7, 9, 10], AXE_S = [0.8, 0.8, 0.9, 1, 1, 1]
 export function melee(id) {
   const it = I[id]
-  if (!it || !it.tool) return { dmg: 1, speed: 4 }
+  if (!it || !it.tool) return { dmg: 2, speed: 4 }                 // (a punch: RS's 1-2, so a goblin takes three)
   const t = it.tier
   if (it.tool === 'sword') return { dmg: SWORD[t], speed: 1.6 }
   if (it.tool === 'axe') return { dmg: AXE_D[t], speed: AXE_S[t] }

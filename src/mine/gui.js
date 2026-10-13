@@ -438,6 +438,7 @@ export class Gui {
     const P = this.G.player
     this.rect(x, y, 51, 72, '#000')
     const cx = x + 25, t = performance.now() / 1000, look = Math.max(-3, Math.min(3, (this.mx - cx) / 15))
+    if (this.portrait) { const c = this.portrait(51 * this.s, 72 * this.s, look * 0.25); if (c) { this.x.drawImage(c, x, y, 51, 72); return } }   // (the RS body, from the 3D view)
     // a little front-on Steve (MC draws the 3D model following the mouse)
     const r = (a, b, w, h, c) => this.rect(cx + a, y + b, w, h, c)
     const ar = P.armor.map(a => a && ITEMS[a.id] ? ['#a06540', '#d8d8d8', '#fcee4b', '#33ebcb', '#4fb0c6'][ITEMS[a.id].mat] : null)
@@ -528,7 +529,7 @@ export class Gui {
     if (type === 'down') {
       for (let i = this.hits.length - 1; i >= 0; i--) {
         const h = this.hits[i]
-        if (h.back) continue
+        if (h.back || h.wheel) continue                          // (a scroll area takes the wheel, not clicks)
         if (this.over(h.x, h.y, h.w, h.h)) { if (h.drag) this.drag = h; h.fn(btn, shift); return true }
       }
       const b = this.hits.find(h => h.back); if (b) { b.fn(btn, shift); return true }

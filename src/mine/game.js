@@ -83,11 +83,12 @@ export class Game {
   }
   targetMob() {
     const o = this.eyePos(), d = this.lookDir(), b = this.target(), lim = Math.min(b ? b.dist : 99, this.mode === 'creative' ? 5 : 3)
-    let best = null, bt = lim
+    let best = null, bt = lim + 0.4
     for (const m of this.ents) {
       if (m.e !== 'mob' || m.death) continue
       if (Math.abs(m.x - o[0]) > 6 || Math.abs(m.z - o[2]) > 6) continue
-      const a = aabb(m), h = rayBox(o, d, [a[0] - 0.1, a[1] - 0.1, a[2] - 0.1, a[3] + 0.1, a[4] + 0.1, a[5] + 0.1])
+      const a = aabb(m), dy = m.drawDy || 0      // (the client may draw it on the RS ground, a little off its box: hit what you see)
+      const h = rayBox(o, d, [a[0] - 0.1, Math.min(a[1], a[1] + dy) - 0.1, a[2] - 0.1, a[3] + 0.1, Math.max(a[4], a[4] + dy) + 0.1, a[5] + 0.1])
       if (h && h.t < bt) { bt = h.t; best = m }
     }
     return best
@@ -154,7 +155,7 @@ export class Game {
     if (P.hurtT > 0) P.hurtT--
     // hunger (MC: 4 exhaustion = 1 saturation or hunger), natural regeneration, starving
     if (!crea) {
-      while (P.exh >= 4) { P.exh -= 4; if (P.sat > 0) P.sat = Math.max(0, P.sat - 1); else P.food = Math.max(0, P.food - 1) }
+      while (P.exh >= 8) { P.exh -= 8; if (P.sat > 0) P.sat = Math.max(0, P.sat - 1); else P.food = Math.max(0, P.food - 1) }   // (twice MC's 4: a meal lasts)
       if (P.food >= 20 && P.sat > 0 && P.hp < 20) { if (++P.regen >= 10) { P.regen = 0; const k = Math.min(P.sat, 6); P.hp = Math.min(20, P.hp + k / 6); P.exh += k } }
       else if (P.food >= 18 && P.hp < 20) { if (++P.regen >= 80) { P.regen = 0; P.hp = Math.min(20, P.hp + 1); P.exh += 6 } }
       else if (P.food <= 0) { if (++P.starve >= 80) { P.starve = 0; if (P.hp > 1) this.hurtPlayer(1, null, 'starve') } }
@@ -684,6 +685,7 @@ export class Game {
         const id = W.get(x, y, z), d = BLOCKS[id]
         if (d.crop !== undefined && d.crop < 3) { const wet = this.nearWater(x, y - 1, z); if (R() < (wet ? 0.35 : 0.15)) W.set(x, y, z, id + 1) }
         else if (d.sapling && R() < 0.15) this.growTree(x, y, z, d.sapling)
+        else if (W.keep && (id === 1 || id === 2) && W.keep(x, y, z)) continue      // (the RS map's own ground stays as drawn)
         else if (id === 2 && !BLOCKS[W.get(x, y + 1, z)].opac) {
           for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, 1, 0], [0, -1, 1]]) if (W.get(x + dx, y + dy, z + dz) === 1) { W.set(x, y, z, 1); break }
         } else if (id === 1 && BLOCKS[W.get(x, y + 1, z)].op) W.set(x, y, z, 2)
