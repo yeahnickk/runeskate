@@ -76,7 +76,12 @@ export class View {
   vxEdit(x, y, z, was, nat) {
     const W = this.world, t = W.tile(x, z); if (t < 0) return
     const tx = x, tz = -z - 1, g = W.gy[t]
-    if (y < g) return
+    if (y < g) {   // (a cell dug just under a slope can reach over the RS ground at a corner: its terrain would cut into the hole, so the tile goes to blocks as a pit's does)
+      if (!was) return
+      let lo = Infinity; for (const [a, c] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { const h = this.rsw.height(x + a, z + c); if (h === null || h === undefined) return; lo = Math.min(lo, h) }
+      if (lo < y + 1) this.rsw.setVx(tx, tz, 1)
+      return
+    }
     if (y === g) return this.rsw.setVx(tx, tz, 1)
     if (nat && was) {
       this.rsw.setVx(tx, tz, 3)
