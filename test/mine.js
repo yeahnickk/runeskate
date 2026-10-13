@@ -7,7 +7,7 @@ import { Game } from '../src/mine/game.js';
 import { BLOCKS, ITEMS, craft, digInfo, toolId, RECIPES, placeOf, nameOf } from '../src/mine/blocks.js';
 import { meshChunk, lightRegion } from '../src/mine/mesh.js';
 import { tickMove } from '../src/mine/phys.js';
-import { screenFor, click, give, count } from '../src/mine/inv.js';
+import { screenFor, click, give, count, closeScreen } from '../src/mine/inv.js';
 import { makeMob, MOBS } from '../src/mine/mobs.js';
 let fails = 0; const check = (name, ok, info = '') => { console.log((ok ? 'PASS ' : 'FAIL ') + name + (info ? '  ' + info : '')); if (!ok) fails++; };
 const json = JSON.parse(readFileSync(new URL('../assets/mine_world.json', import.meta.url), 'utf8'));
@@ -556,6 +556,83 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   let flips = 0; w.listeners.push((x, y, z, id, was) => { if ((id === 1 || id === 2) && (was === 1 || was === 2)) flips++ })
   for (let i = 0; i < 3000; i++) g.tick({})
   check('no grass <-> dirt flips on the map\'s own ground', flips === 0, `${flips} flips`)
+}
+
+// ---------------------------------------------------------------- survival from a tree to diamonds, by playing it (dig, craft through the screens, place a furnace, smelt)
+{
+  const { w, g, P } = fresh(), sx = Math.floor(g.spawn[0]), sz = Math.floor(g.spawn[2])
+  const noon = () => { g.time = 6000 }
+  const calm = () => { g.ents = g.ents.filter(e => !(e.type && ['zombie', 'skeleton', 'spider', 'creeper'].includes(e.type))) }   // (fights have their own checks)
+  const air = (x, y, z) => !w.get(x, y, z)
+  // stand beside a block (feet + head clear, solid under) and dig it with what's held, then pick up the drop
+  const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+  const stand = (x, y, z) => { for (const dy of [0, -1, 1]) for (const [a, c] of SIDES) { const fx = x + a, fy = y + dy, fz = z + c; if (air(fx, fy, fz) && air(fx, fy + 1, fz) && !air(fx, fy - 1, fz)) return [fx, fy, fz] } return null }
+  const dig = (x, y, z) => {
+    let s = stand(x, y, z); if (!s) { const [a, c] = SIDES.find(([a, c]) => w.get(x + a, y, z + c) !== 8 && w.get(x + a, y, z + c) !== 9 && w.get(x + a, y, z + c) !== 10) || SIDES[0]; w.set(x + a, y, z + c, 0); w.set(x + a, y + 1, z + c, 0); if (air(x + a, y - 1, z + c)) w.set(x + a, y - 1, z + c, 3); s = [x + a, y, z + c] }
+    Object.assign(P, { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5, vx: 0, vy: 0, vz: 0 })
+    const look = () => { const dx = x + 0.5 - P.x, dy = y + 0.5 - (P.y + 1.62), dz = z + 0.5 - P.z; return { yaw: Math.atan2(-dx, -dz), pitch: Math.atan2(dy, Math.hypot(dx, dz)) } }
+    let n = 0; const id0 = w.get(x, y, z)
+    while (w.get(x, y, z) === id0 && n < 400) { noon(); calm(); g.tick({ ...look(), attack: true, attackPress: n === 0 }); n++ }
+    for (let i = 0; i < 60; i++) { noon(); calm(); const it = g.ents.find(e => e.e === 'item' && Math.hypot(e.x - P.x, e.z - P.z) < 4); if (it) Object.assign(P, { x: it.x, z: it.z }); g.tick(look()) }
+    return w.get(x, y, z) !== id0
+  }
+  const dry = (x, y, z) => { for (let a = -2; a <= 2; a++) for (let b = -2; b <= 3; b++) for (let c = -2; c <= 2; c++) { const id = w.get(x + a, y + b, z + c); if (id === 8 || id === 9) return false } return true }
+  const find = (id, r, pred = () => true) => { const out = []; for (let x = sx - r; x <= sx + r; x++) for (let z = sz - r; z <= sz + r; z++) for (let y = 2; y < 120; y++) if (w.get(x, y, z) === id && pred(x, y, z)) out.push([x, y, z]); out.sort((a, b) => Math.hypot(a[0] - sx, a[2] - sz) - Math.hypot(b[0] - sx, b[2] - sz)); return out }
+  // craft: lay ids into the grid (one each) from the inventory, take the result
+  const craftIt = (type, grid) => {
+    const scr = screenFor(type, g), si = (sec, i) => scr.slots.findIndex(s => s.sec === sec && (i === undefined || s.i === i))
+    for (const id of new Set(grid.filter(Boolean))) {
+      const from = scr.slots.findIndex(s => (s.sec === 'main' || s.sec === 'hot') && s.arr[s.i] && s.arr[s.i].id === id); if (from < 0) return null
+      click(g, scr, from, 0, false)
+      grid.forEach((v, i) => { if (v === id) click(g, scr, si('grid', i), 1, false) })
+      click(g, scr, from, 0, false)
+    }
+    const res = si('res'); const before = P.inv.map(s => s && s.id + 'x' + s.n).join(); click(g, scr, res, 0, true); closeScreen(g, scr)
+    return before !== P.inv.map(s => s && s.id + 'x' + s.n).join()
+  }
+  const hold = (id) => { const i = P.inv.findIndex(s => s && s.id === id); if (i < 0) return false; if (i > 8) { const t = P.inv[0]; P.inv[0] = P.inv[i]; P.inv[i] = t; P.sel = 0 } else P.sel = i; return true }
+  for (let i = 0; i < 20; i++) g.tick({})
+  // 1. punch a tree
+  const logs = find(79, 40, (x, y, z) => w.get(x, y - 1, z) !== 79)
+  let got = 0; for (const [x, y, z] of logs) { if (count(P.inv, 10) >= 5) break; if (dig(x, y, z)) got++ }
+  check('progression: punching a tree near spawn gives logs and "Getting Wood"', count(P.inv, 10) >= 5 && g.adv.wood, `${count(P.inv, 10)} logs from ${logs.length} found`)
+  // 2. planks, table, sticks, wooden pick
+  craftIt('inv', [10, 0, 0, 0]); craftIt('inv', [10, 0, 0, 0]); craftIt('inv', [10, 0, 0, 0]); craftIt('inv', [10, 0, 0, 0])
+  craftIt('inv', [11, 11, 11, 11]); craftIt('inv', [0, 11, 0, 11]); craftIt('inv', [0, 11, 0, 11])
+  const wp = craftIt('craft', [11, 11, 11, 0, 256, 0, 0, 256, 0])
+  check('progression: planks, a crafting table, sticks and a wooden pickaxe through the screens', count(P.inv, 24) === 1 && count(P.inv, toolId(0, 'pick')) === 1 && wp, `table ${count(P.inv, 24)} planks ${count(P.inv, 11)} sticks ${count(P.inv, 256)}`)
+  // 3. stone -> cobblestone, stone pick, furnace
+  hold(toolId(0, 'pick'))
+  const st = find(3, 30, (x, y, z) => y >= w.gy[w.tile(x, z)] - 6)
+  for (const [x, y, z] of st) { if (count(P.inv, 4) >= 11) break; dig(x, y, z) }
+  check('progression: a wooden pickaxe mines stone into cobblestone ("Stone Age")', count(P.inv, 4) >= 11 && g.adv.stone, `${count(P.inv, 4)} cobble`)
+  craftIt('craft', [4, 4, 4, 0, 256, 0, 0, 256, 0]); craftIt('craft', [4, 4, 4, 4, 0, 4, 4, 4, 4])
+  for (let i = 0; i < 12; i++) g.tick({})
+  check('progression: a stone pickaxe ("Getting an Upgrade") and a furnace', count(P.inv, toolId(1, 'pick')) === 1 && count(P.inv, 25) === 1 && g.adv.upgrade)
+  // 4. coal + iron
+  hold(toolId(1, 'pick'))
+  for (const [x, y, z] of find(14, 60, dry)) { if (count(P.inv, 257) >= 3) break; dig(x, y, z) }
+  for (const [x, y, z] of find(15, 60, dry)) { if (count(P.inv, 15) >= 3) break; dig(x, y, z) }
+  check('progression: a stone pickaxe mines coal and iron ore', count(P.inv, 257) >= 3 && count(P.inv, 15) >= 3, `coal ${count(P.inv, 257)} iron ore ${count(P.inv, 15)}`)
+  // 5. place the furnace and smelt
+  Object.assign(P, { x: g.spawn[0], y: g.spawn[1], z: g.spawn[2], vx: 0, vy: 0, vz: 0 }); for (let i = 0; i < 10; i++) g.tick({})
+  const fx = Math.floor(P.x) + 1, fz = Math.floor(P.z), fy = Math.floor(P.y); w.set(fx, fy, fz, 0); w.set(fx, fy + 1, fz, 0); w.set(fx, fy - 1, fz, 3)
+  hold(25); const look = { yaw: Math.atan2(-(fx + 0.5 - P.x), -(fz + 0.5 - P.z)), pitch: Math.atan2(fy - (P.y + 1.62), Math.hypot(fx + 0.5 - P.x, fz + 0.5 - P.z)) }
+  g.tick({ ...look, use: true, usePress: true }); for (let i = 0; i < 5; i++) g.tick(look)
+  const placed = w.get(fx, fy, fz) === 25
+  const fs = screenFor('furnace', g, fx + ',' + fy + ',' + fz), fsi = (sec) => fs.slots.findIndex(s => s.sec === sec)
+  click(g, fs, fs.slots.findIndex(s => (s.sec === 'main' || s.sec === 'hot') && s.arr[s.i] && s.arr[s.i].id === 15), 0, true)
+  click(g, fs, fs.slots.findIndex(s => (s.sec === 'main' || s.sec === 'hot') && s.arr[s.i] && s.arr[s.i].id === 257), 0, true)
+  for (let i = 0; i < 3 * 200 + 20; i++) { noon(); calm(); g.tick({}) }
+  click(g, fs, fsi('fout'), 0, true); closeScreen(g, fs); for (let i = 0; i < 12; i++) g.tick({})
+  check('progression: the placed furnace smelts the ore into iron ingots ("Acquire Hardware")', placed && count(P.inv, 258) >= 3 && g.adv.iron, `placed ${placed} ingots ${count(P.inv, 258)}`)
+  craftIt('craft', [258, 258, 258, 0, 256, 0, 0, 256, 0]); for (let i = 0; i < 12; i++) g.tick({})
+  check('progression: an iron pickaxe ("Isn\'t It Iron Pick")', count(P.inv, toolId(2, 'pick')) === 1 && g.adv.ironpick)
+  // 6. diamonds
+  hold(toolId(2, 'pick'))
+  let dn = 0; for (const [x, y, z] of find(17, 120, dry)) { if (count(P.inv, 260) >= 1 || dn++ > 20) break; dig(x, y, z) }
+  for (let i = 0; i < 12; i++) g.tick({})
+  check('progression: an iron pickaxe mines diamond ore ("Diamonds!")', count(P.inv, 260) >= 1 && g.adv.diamonds, `diamonds ${count(P.inv, 260)} hp ${P.hp}`)
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
