@@ -153,8 +153,9 @@ function humanoid(o) {
   return { g, head, legs, arms, eye: 26, armsOut: o.armsOut || o.bow }
 }
 // the first-person right arm (Steve's: skin, a cyan sleeve)
+// your RS character's arm (the default kit: tanned skin, the olive tunic's short sleeve, a dark wristband)
 export function armModel() {
-  const a = box(4, 12, 4, { all: (w, h) => face(w, h, '#c69a74', (x, W, H) => { px(x, '#2ea4a4', 0, 0, W, 4) }), top: '#2ea4a4', bottom: '#b88a64' })
+  const a = box(4, 12, 4, { all: (w, h) => face(w, h, '#a5683e', (x, W, H) => { px(x, '#a5683e', 0, 0, W, H); px(x, '#6e6a22', 0, 0, W, 4); px(x, '#3c3c46', 0, H - 3, W, 1) }), top: '#6e6a22', bottom: '#94603a' })
   return a
 }
 
