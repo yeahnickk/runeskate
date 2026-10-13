@@ -12,6 +12,7 @@ import { give, stack, same, count, take } from './inv.js'
 export const TPS = 20, DAY = 24000
 export const REACH = 4.5
 
+const EVADV = new Set(['killHostile', 'trade', 'arrowHit', 'plant', 'sleep'])
 export const ADV = [
   { id: 'root', n: 'MineScape', d: 'The heart and story of the game', icon: 24, has: [24] },
   { id: 'wood', n: 'Getting Wood', d: 'Punch a tree until a block of wood pops out', icon: 10, has: [10, 46] },
@@ -74,7 +75,7 @@ export class Game {
       craft2: Array(4).fill(null), cursor: null, sel: 0, dead: false, invul: 0, hurtT: 0, fire: 0, regen: 0, starve: 0, swing: 0, dig: null,
       digCd: 0, useCd: 0, eat: 0, bowT: 0, sneak: false, sprint: false, flying: false, atkT: 100, bed: null }
   }
-  emit(e) { this.events.push(e) }
+  emit(e) { this.events.push(e); if (EVADV.has(e.t)) this.onEvent(e.t) }   // (awarded as it happens, not when a client drains the queue)
   chat(msg, col) { this.emit({ t: 'chat', msg, col }) }
   get dayTime() { return this.time % DAY }
   isNight() { const t = this.dayTime; return t > 13000 && t < 23000 }
@@ -716,7 +717,7 @@ export class Game {
     const P = this.player, dt = this.dayTime
     if (Math.hypot(t.x + 0.5 - P.x, t.z + 0.5 - P.z) > 3) return this.chat('You may not rest now; the bed is too far away')
     P.bed = [t.x, t.y, t.z]
-    if (!(dt > 12541 && dt < 23458)) { this.chat('Respawn point set'); return this.emit({ t: 'adv', ev: 'sleep' }) }
+    if (!(dt > 12541 && dt < 23458)) { this.chat('Respawn point set'); return this.onEvent('sleep') }
     if (this.ents.some(m => m.e === 'mob' && MOBS[m.type].hostile && !m.death && Math.abs(m.x - P.x) < 8 && Math.abs(m.y - P.y) < 5 && Math.abs(m.z - P.z) < 8)) return this.chat('You may not rest now; there are monsters nearby')
     this.emit({ t: 'sleep' })
     this.time += DAY - dt
@@ -997,14 +998,7 @@ export class Game {
     this.emit({ t: 'toast', a })
     this.chat(this.name + ' has made the advancement §a[' + a.n + ']')
   }
-  drainEvents() {
-    const ev = this.events; this.events = []
-    for (const e of ev) {
-      if (e.t === 'killHostile' || e.t === 'trade' || e.t === 'arrowHit' || e.t === 'plant') this.onEvent(e.t)
-      if (e.t === 'adv' || e.t === 'sleep') this.onEvent('sleep')
-    }
-    return ev
-  }
+  drainEvents() { const ev = this.events; this.events = []; return ev }
 
   // chat commands (MC's)
   command(s) {

@@ -516,6 +516,31 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   }
   check('every hostile mob comes for you and hurts you; every mob dies and drops its loot', !bad.length, bad.join(', ') || out.join(', '))
 }
+{ // a fair fight, played: survival at night in iron armour with an iron sword, aiming and swinging on the cooldown like
+  // a player (walk in, hit when charged, back off a creeper), no healing; you win and live against each of these
+  const res = [], bad = []
+  for (const type of ['zombie', 'skeleton', 'spider', 'creeper', 'goblin', 'rat', 'imp', 'darkwizard', 'darkwarrior', 'scorpion', 'giant']) {
+    const { w, g, P } = fresh(), X = 8000, Z = -8000; pad(w, X, Z, 20)
+    Object.assign(P, { x: X + 0.5, y: 101, z: Z + 0.5, food: 20, sat: 5 }); g.time = 18000; g.ents = []
+    Object.values(ITEMS).filter(i => i && i.armor !== undefined && i.n.startsWith('Iron')).forEach(i => P.armor[i.armor] = { id: i.id, n: 1, d: 0 })
+    P.inv[0] = { id: toolId(2, 'sword'), n: 1, d: 0 }; P.sel = 0
+    const m = makeMob(type, X + 0.5, 101, Z - 9.5, seeded(3)); g.ents.push(m)
+    let t = 0, low = 20
+    for (; t < 2400 && !m.death && !P.dead; t++) {
+      const dx = m.x - P.x, dz = m.z - P.z, d = Math.hypot(dx, dz), dy = m.y + m.h * 0.5 - (P.y + 1.62)
+      const yaw = Math.atan2(-dx, -dz), pitch = Math.atan2(dy, d), reach = d - (m.w || 0.6) / 2 < 2.6
+      const fuse = m.type === 'creeper' && m.fuse > 0
+      g.time = 18000; g.tick({ yaw, pitch, fw: fuse ? -1 : reach ? 0 : 1, attack: reach && P.atkT >= 13, attackPress: reach && P.atkT >= 13 })
+      low = Math.min(low, P.hp)
+    }
+    for (let i = 0; i < 30; i++) g.tick({})
+    res.push(`${type} ${t}t hp ${low.toFixed(0)}`)
+    if (!m.death) bad.push(type + (P.dead ? ' killed you' : ' never died'))
+    else if (P.dead) bad.push(type + ' killed you too')
+    else if (MOBS[type].hostile && type !== 'goblin' && !g.adv.hunter) bad.push(type + ': no Monster Hunter')
+  }
+  check('fair fights, played: in iron gear you beat zombie, skeleton, spider, creeper, goblin, rat, imp, dark wizard, dark warrior, scorpion and hill giant and live', !bad.length, bad.join(', ') + ' | ' + res.join(', '))
+}
 { // more of MC: a bed skips the night and is where you wake after dying (your things drop where you fell); your own bow
   // shoots a cow dead; iron armour takes the edge off a zombie; bone meal grows a sapling to a tree; a chest keeps what
   // you put in it through a save and spills it when broken
