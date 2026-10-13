@@ -118,7 +118,7 @@ export function buildArena(lite) {
           S.quad(L2(a, b2, tm0), L2(a, b2, tm1), L2(d, c, tm1), L2(d, c, tm0), [mid, mid, mid, mid].map((v, i) => v.map(x => x * (i === 1 || i === 2 ? 0.94 : 1))), A);
           S.quad(L2(a, b2, tm1), L2(a, b2, t1), L2(d, c, t1), L2(d, c, tm1), [mid, seam, seam, mid].map((v, i) => v.map(x => x * (i === 0 || i === 3 ? 0.94 : 1))), A);
         }
-      } else if (part === 'trim') S.quad(a, b2, c, d, teamC(team));
+      } else if (part === 'trim') S.quad(a, b2, c, d, teamC(team).map(v => v * 1.5), [1, 1, 1, 1], false);   // (lit from inside: over 1, so it blooms, like RL's arena trims)
       else { const t = mix([0.75, 0.85, 0.9], teamC(team), 0.25); for (const v of [a, b2, c, a, c, d]) { G.P.push(v[0], v[1], v[2]); G.C.push(t[0], t[1], t[2]); } }
     }
   }
@@ -156,7 +156,7 @@ export function buildArena(lite) {
   // the goals: oak frames painted in the team's colour (posts, crossbar, the back frame), rope nets
   const nets = new Soup(), V = (x, y, z) => new THREE.Vector3(x, y, z);
   for (const [s, t] of [[-1, 0], [1, 1]]) {
-    const z0 = s * (L + 20), z1 = s * (L + GD), tc = teamC(t);
+    const z0 = s * (L + 20), z1 = s * (L + GD), tc = teamC(t).map(v => v * 1.45);   // (the frame glows a little)
     for (const sx of [-1, 1]) { beam(S, [sx * (GW + 30), 0, z0], [sx * (GW + 30), GH + 60, z0], 64, tc); beam(S, [sx * (GW + 20), 0, z1], [sx * (GW + 20), GH + 20, z1], 44, OAK); beam(S, [sx * (GW + 20), GH + 20, z0], [sx * (GW + 20), GH + 20, z1], 40, OAK); }
     beam(S, [-(GW + 62), GH + 30, z0], [GW + 62, GH + 30, z0], 64, tc); beam(S, [-(GW + 20), GH + 20, z1], [GW + 20, GH + 20, z1], 44, OAK);
     for (const sx of [-1, 1]) for (const y of [140, 380]) beam(S, [sx * (GW + 30), y, z0], [sx * (GW + 30), y + 40, z0], 68, CHALK);   // (white bands on the posts)

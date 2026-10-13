@@ -88,6 +88,7 @@ class Fx {
   }
   update(dt, cam) { this.add.update(dt, cam); this.smoke.update(dt, cam); }
 }
+const _bt = new THREE.Vector3();
 let SCALE = 1;                                                   // world units per "effect unit" (set from the site: effects are scaled to the toys)
 
 // ---------------------------------------------------------------- goal explosions, RS style
@@ -179,11 +180,20 @@ async function main() {
   // the crowd: Lumbridge's own, outside the walls (real size: they tower over the toys)
   const crowd = [];
   const spots = [['npc_cow', -5600, -2200], ['npc_cow', 5900, 1600], ['npc_chicken', -5000, 3600], ['npc_chicken', -4700, 3900], ['npc_chicken', 5200, -3500], ['npc_man', 0, -7200], ['npc_man', 2400, 6900], ['npc_guard', -2600, 6900], ['npc_dwarf', 5400, 3300], ['npc_cow', -1800, -7400], ['npc_chicken', 3300, -6900], ['npc_man', -5600, 900]];
+  // ...and a full house: rows of townsfolk round the patch (a fixed scatter: the same crowd every game), lighter on phones
+  { let sd = 7; const r = () => (sd = (sd * 16807) % 2147483647) / 2147483647, folk = ['npc_man', 'npc_man', 'npc_guard', 'npc_dwarf', 'npc_barbarian', 'npc_whiteknight', 'npc_darkwizard', 'npc_goblin', 'npc_imp', 'npc_man', 'npc_guard', 'npc_skeleton'];
+    for (let i = 0; i < (TOUCH ? 14 : 36); i++) { const side = i % 4, u = r() * 2 - 1, d = r();
+      const [x, z] = side < 2 ? [(side ? 1 : -1) * (5200 + d * 1300), u * 5200] : [u * 3600, (side === 2 ? 1 : -1) * (7000 + d * 900)];
+      if (spots.some(([, sx, sz]) => Math.hypot(sx - x, sz - z) < 500)) continue;
+      spots.push([folk[(r() * folk.length) | 0], x, z]); } }
   for (const [n, x, z] of spots) loadRSModel(n).then(md => {
-    const p = toWorld([x, 0, z]); md.group.position.copy(p); md.play('ready');
+    const p = toWorld([x, 0, z]); md.group.position.copy(p); md.play('ready'); md.clipT = Math.random() * 2;
     const c = toWorld([0, 0, 0]); md.group.rotation.y = Math.atan2(c.x - p.x, c.z - p.z) + Math.PI;   // (facing in at the pitch)
+    md.y0 = p.y; md.hop = 0; md.ph = Math.random() * 6.28;
+    md.group.traverse(o => { if (o.isMesh) o.castShadow = false; });
     scene.add(md.group); crowd.push(md);
   }).catch(() => {});
+  const cheer = () => { for (const md of crowd) md.hop = 1.6 + Math.random() * 0.8; };   // (a goal: everyone's up and jumping)
   const [b12, p12] = await pFonts;
   const hud = new LeagueHud($('hud'), { b12, p12 });
   const fx = new Fx(scene, TOUCH), booms = new Booms(scene, fx);
@@ -191,6 +201,7 @@ async function main() {
   const input = new LeagueInput(canvas); input.bindTouch($('touch'), $('stick'), $('knob'));
   // the finish (gfx.js): HDR + MSAA, bloom, FXAA, filmic grade; the resolution follows the frame rate
   const post = new Post(renderer, TOUCH), baseDpr = renderer.getPixelRatio(), scaler = new Scaler(baseDpr, TOUCH ? 0.72 : 0.6);
+  post.sun.copy(sunW);
   const draw = () => post.render(scene, camera);
   const resize = () => {
     renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); hud.resize();
@@ -199,7 +210,10 @@ async function main() {
   addEventListener('resize', resize); resize();
 
   // ---------------- the setup
-  const setup = Object.assign({ name: '', size: 2, diff: 'pro', team: 0, body: 'kart', theme: 'sara', hat: 'god', boom: 'party', ballcam: true }, load(SETUP_KEY, {}));
+  const setup = Object.assign({ name: '', size: 2, diff: 'pro', team: 0, body: 'kart', theme: 'sara', hat: 'god', boom: 'party', ballcam: true, gfx: TOUCH ? 'low' : 'high' }, load(SETUP_KEY, {}));
+  // the graphics level: HIGH has the sun's shadows, MSAA and light shafts; LOW drops them (bloom, grade and FXAA stay)
+  const applyGfx = q => { const hi = q === 'high'; sun.castShadow = hi; post.shafts = hi; const sm = hi && !TOUCH ? 4 : 0; if (post.rt.samples !== sm) { post.rt.samples = sm; post.rt.dispose(); } };
+  applyGfx(setup.gfx);
   if (!setup.name) setup.name = 'Player' + (100 + Math.floor(Math.random() * 900));
   let net = null, netMsg = '', netEv = [], m = null, vis = [], me = null, mode = 'menu', paused = false, endShown = false, preview = null, previewKey = '', ballcam = setup.ballcam;
   const cam = { p: null, yaw: 0, init: false };
@@ -226,10 +240,11 @@ async function main() {
       <div id="m-theme">${seg('GOD', Object.entries(THEMES).map(([k, t]) => [k, t.name, '#' + t.acc.toString(16).padStart(6, '0')]), setup.theme)}</div>
       <div id="m-hat">${seg('HAT', Object.entries(HATS).map(([k, h]) => [k, h[0]]), setup.hat)}</div>
       <div id="m-boom">${seg('GOAL FX', Object.entries(BOOMS).map(([k, n]) => [k, n]), setup.boom)}</div>
+      <div id="m-gfx">${seg('GRAPHICS', [['high', 'HIGH'], ['low', 'LOW']], setup.gfx)}</div>
       <div class="keys">${TOUCH ? 'The gas is on for you. <b>Stick</b> steers (and tips the nose in the air; pull it right back to reverse). <b>JUMP</b> twice to double jump, or with the stick pushed to flip. <b>BOOST</b>, <b>SLIDE</b> powerslides / air rolls, <b>CAM</b> ball cam.'
         : '<b>W S</b> drive (nose down / up in the air) &nbsp; <b>A D</b> steer &nbsp; <b>RIGHT MOUSE</b> jump (again to double jump, with a direction to flip) &nbsp; <b>LEFT MOUSE</b> boost &nbsp; <b>SHIFT</b> powerslide + air roll &nbsp; <b>Q E</b> air roll &nbsp; <b>SPACE</b> ball cam on / off &nbsp; (no mouse: <b>J</b> jump, <b>K</b> boost) &nbsp; <b>TAB</b> scores &nbsp; <b>1-4</b> quick chat &nbsp; <b>ESC</b> pause. A pad plays like RL.'}</div>`;
     const wire = (id, key, after, num) => { for (const b of $(id).querySelectorAll('button')) b.onclick = () => { setup[key] = num ? +b.dataset.v : b.dataset.v; save(SETUP_KEY, setup); for (const o of $(id).querySelectorAll('button')) o.classList.toggle('sel', o === b); after?.(); }; };
-    wire('m-size', 'size', null, true); wire('m-diff', 'diff'); wire('m-team', 'team', showPreview, true); wire('m-body', 'body', showPreview); wire('m-theme', 'theme', showPreview); wire('m-hat', 'hat', showPreview); wire('m-boom', 'boom');
+    wire('m-size', 'size', null, true); wire('m-diff', 'diff'); wire('m-team', 'team', showPreview, true); wire('m-body', 'body', showPreview); wire('m-theme', 'theme', showPreview); wire('m-hat', 'hat', showPreview); wire('m-boom', 'boom'); wire('m-gfx', 'gfx', () => applyGfx(setup.gfx));
     $('m-name').oninput = e => { setup.name = e.target.value.trim().slice(0, 12) || setup.name; save(SETUP_KEY, setup); };
     $('m-go').onclick = () => start(false); $('m-free').onclick = () => start(true); $('m-online').onclick = () => startOnline();
     $('menu').style.display = '';
@@ -321,7 +336,7 @@ async function main() {
           if (!m.freeplay) { hud.big('GOAL!', `${sc ? sc.name : TEAM[e.team].name}${as ? ' (assist ' + as.name + ')' : ''} · ${e.v.toFixed(0)} KM/H`, TEAM[e.team].css, 3); hud.feed(`${sc?.name || '?'} scored!`, TEAM[e.team].css); }
           else hud.big('GOAL!', `${e.v.toFixed(0)} KM/H`, '#ff981f', 1.5);
           if (e.id === 'me') hud.pop('GOAL +100', '#0f0'); if (e.assist === 'me') hud.pop('ASSIST +50', '#0f0');
-          sfx.fanfare(good || m.freeplay); sfx.crowd(); if (Math.random() < 0.6) sfx.moo(); else sfx.cluck();
+          cheer(); sfx.fanfare(good || m.freeplay); sfx.crowd(); if (Math.random() < 0.6) sfx.moo(); else sfx.cluck();
           if (!m.freeplay) {
             const mate = m.cars.find(o => o.bot && o.team === e.team && o.id !== e.id); if (mate && Math.random() < 0.7) setTimeout(() => botSay(mate, ['Gz!', 'Gz on the pass!', 'Woah!'][Math.random() * 3 | 0]), 700);
             const foe = m.cars.find(o => o.bot && o.team !== e.team); if (foe && Math.random() < 0.4) setTimeout(() => botSay(foe, ['Noooo!', 'Sry, lag...', 'Close one!'][Math.random() * 3 | 0]), 1300);
@@ -398,7 +413,7 @@ async function main() {
     requestAnimationFrame(frame);
     const rawDt = Math.min(0.25, (now - last) / 1000), dt = Math.min(0.05, rawDt); last = now; tt += dt;
     { const pr = scaler.tick(rawDt * 1000, rawDt); if (pr) { renderer.setPixelRatio(pr); resize(); } }
-    for (const md of crowd) md.update(dt);
+    for (const md of crowd) { md.update(dt); if (md.hop > 0) { md.hop -= dt; md.ph += dt * 9; md.group.position.y = md.y0 + Math.abs(Math.sin(md.ph)) * 0.35 * Math.min(1, md.hop); } }
     pads.update(m || { pads: [] }, tt, dt);
     if (input.take('pause') && mode === 'game' && !endShown) setPaused(!paused);
     if (mode === 'game' && net && !m) { orbit(tt); fx.update(dt, camera); hud.draw(dt, { score: [0, 0] }, null, { hidden: true }); hud.T(netMsg || 'connecting...', hud.c.width / 2, hud.c.height * 0.45, '#ff0', 'c', hud.k * 2); sky.position.copy(camera.position); draw(); return; }
@@ -440,6 +455,9 @@ async function main() {
         ballM.visible = m.state !== 'goal'; ballSh.visible = ballM.visible && m.ball.p[1] < 1500;
         const bp = net ? net.drawn('ball', m.ball.p) : m.ball.p;
         ballM.position.set(...bp); ballM.quaternion.copy(ballQ); ballSh.position.set(bp[0], 3, bp[2]); ballSh.material.opacity = 0.4 / (1 + Math.max(0, m.ball.p[1] - C.ballR) / 500);
+        // a hard-hit ball trails light in the colour of whoever hit it last (RL's ball trail), thicker the faster it goes
+        { const bs = Math.hypot(...m.ball.v); if (ballM.visible && bs > 1700 && !paused) { const last = m.touches[m.touches.length - 1], k = Math.min(1, (bs - 1700) / 1800), wp = toWorld(bp, _bt), tc = TEAM[last ? last.team : 0].col;
+          const col = [(tc >> 16 & 255) / 255, (tc >> 8 & 255) / 255, (tc & 255) / 255]; for (let i = 0; i < 2; i++) fx.add.emit(wp.x + (Math.random() - 0.5) * 0.25 * SCALE, wp.y + (Math.random() - 0.5) * 0.25 * SCALE, wp.z + (Math.random() - 0.5) * 0.25 * SCALE, 0, 0, 0, (0.18 + 0.3 * k) * SCALE, 0.3 + 0.25 * k, { c0: [1, 1, 1], c1: col, grow: 0.2, a: 0.35 + 0.45 * k }); } }
         for (const v of vis) { const c = v.c, b = basis(c.q); v.update(pdt, { p: net ? net.drawn(c.id, c.p) : c.p, q: c.q, boosting: c.boosting, demo: c.demoT > 0, sonic: c.sonic, steer: c.ground ? c.in.steer : 0, fwd: c.v[0] * b.f[0] + c.v[1] * b.f[1] + c.v[2] * b.f[2] }, paused ? null : fx, toWorld); }
         fovFor(110); chase(Math.max(pdt, 1e-3));
       }
@@ -455,12 +473,13 @@ async function main() {
       orbit(tt); fx.update(dt, camera);
       hud.draw(dt, { score: [0, 0] }, null, { hidden: true });
     }
+    { const fast = mode === 'game' && me && !me.demoT && !(replay && replay.wait <= 0) ? (me.sonic ? 0.55 : me.boosting ? 0.22 : 0) : 0; post.speed += (fast - post.speed) * Math.min(1, dt * 5); if (post.speed < 0.01) post.speed = 0; }   // (the speed smear)
     sky.position.copy(camera.position); sky.material.uniforms.time.value = tt;
     stadium.floorU.camL.value.copy(camera.position); arena.worldToLocal(stadium.floorU.camL.value);
     draw();
   }
   requestAnimationFrame(frame);
-  window.LEAGUE = { auto: false, botInput, get m() { return m; }, get me() { return me; }, start, menu, scene, camera, arena, get replay() { return replay; } };
+  window.LEAGUE = { auto: false, botInput, renderer, post, setGfx: q => { setup.gfx = q; applyGfx(q); }, get m() { return m; }, get me() { return me; }, start, menu, scene, camera, arena, get replay() { return replay; } };
 }
 
 main().catch(e => { console.error(e); status('failed to load: ' + e.message); });
