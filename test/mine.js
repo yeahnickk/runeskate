@@ -497,6 +497,40 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   }
   check('every hostile mob comes for you and hurts you; every mob dies and drops its loot', !bad.length, bad.join(', ') || out.join(', '))
 }
+{ // more of MC: a bed skips the night and is where you wake after dying (your things drop where you fell); your own bow
+  // shoots a cow dead; iron armour takes the edge off a zombie; bone meal grows a sapling to a tree; a chest keeps what
+  // you put in it through a save and spills it when broken
+  const X = 7000, Z = -7000
+  { const { w, g, P } = fresh(); pad(w, X, Z); Object.assign(P, { x: X + 0.5, y: 101, z: Z + 0.5 }); w.set(X + 1, 101, Z, 40)
+    g.time = 18000; const d0 = Math.floor(g.time / 24000); g.sleep({ x: X + 1, y: 101, z: Z })
+    const morning = g.dayTime < 1000 && Math.floor(g.time / 24000) === d0 + 1
+    P.inv[0] = { id: 3, n: 10, d: 0 }; Object.assign(P, { x: X + 6.5, z: Z - 5.5 }); g.die({ why: 'fall' })
+    const dropped = g.ents.filter(e => e.e === 'item').length; g.respawn()
+    check('a bed skips the night; you wake in it after dying and your things drop where you fell', morning && dropped >= 1 && Math.abs(P.x - (X + 1.5)) < 0.01 && Math.abs(P.z - (Z + 0.5)) < 0.01 && P.hp === 20, `morning ${morning}, dropped ${dropped}, woke at ${P.x},${P.z}`) }
+  { const { w, g, P } = fresh(); pad(w, X, Z); Object.assign(P, { x: X + 0.5, y: 101, z: Z + 0.5, yaw: 0, pitch: 0 }); g.ents = []
+    const cow = makeMob('cow', X + 0.5, 101, Z - 6.5, seeded(2)); cow.ai.t = 1e9; g.ents.push(cow)
+    P.inv[P.sel] = { id: 281, n: 1, d: 0 }; P.inv[5] = { id: 280, n: 16, d: 0 }; g.time = 6000
+    let shots = 0
+    for (let k = 0; k < 8 && !cow.death; k++) {
+      Object.assign(cow, { x: X + 0.5, z: Z - 6.5, vx: 0, vz: 0 }); const pitch = Math.atan2(cow.y + 0.7 - (P.y + 1.62), 6) + 0.06
+      for (let i = 0; i < 22; i++) g.tick({ use: true, usePress: i === 0, yaw: 0, pitch }); g.tick({ yaw: 0, pitch }); shots++
+      for (let i = 0; i < 30; i++) { cow.ai.t = 1e9; g.tick({ yaw: 0, pitch }) }
+    }
+    check('your own bow shoots a cow dead (arrows used up, bow worn)', cow.death && count(P.inv, 280) === 16 - shots && P.inv[P.sel].d >= shots, `${shots} arrows, cow hp ${cow.hp}`) }
+  { const { g, P } = fresh(); const z = makeMob('zombie', P.x, P.y, P.z), hit = () => { P.hp = 20; P.invul = 0; g.hurtPlayer(MOBS.zombie.dmg, z); return 20 - P.hp }
+    const bare = hit(); Object.values(ITEMS).filter(i => i && i.armor !== undefined && i.n.startsWith('Iron')).forEach(i => P.armor[i.armor] = { id: i.id, n: 1, d: 0 })
+    const iron = hit(); check('iron armour takes the edge off a zombie (MC armour points)', iron < bare * 0.5 && iron > 0, `${bare} -> ${iron.toFixed(2)}`) }
+  { const { w, g, P } = fresh('survival'); pad(w, X, Z); w.set(X, 100, Z - 2, 2); w.set(X, 101, Z - 2, 65); Object.assign(P, { x: X + 0.5, y: 101, z: Z + 0.5 })
+    P.inv[P.sel] = { id: 288, n: 2, d: 0 }; const pitch = -Math.atan2(1.62 - 0.4, 2)
+    g.tick({ use: true, usePress: true, yaw: 0, pitch })
+    let logs = 0, leaves = 0; for (let y = 101; y < 110; y++) for (let a = -2; a <= 2; a++) for (let c = -2; c <= 2; c++) { const id = w.get(X + a, y, Z - 2 + c); if (id === 10) logs++; if (id === 12) leaves++ }
+    check('bone meal on a sapling grows it into an oak', logs >= 4 && leaves > 10 && count(P.inv, 288) === 1, `logs ${logs}, leaves ${leaves}`) }
+  { const { w, g, P } = fresh('survival'); pad(w, X, Z); w.set(X, 101, Z - 2, 27); const c = g.chest(X + ',101,' + (Z - 2)); c[0] = { id: 264, n: 3, d: 0 }; c[26] = { id: 4, n: 64, d: 0 }
+    const s = JSON.parse(JSON.stringify(g.save())), r = fresh('survival'); r.g.load(s); const c2 = r.g.chest(X + ',101,' + (Z - 2))
+    const kept = c2[0] && c2[0].id === 264 && c2[0].n === 3 && c2[26].n === 64
+    r.g.breakBlock(X, 101, Z - 2, true); const spill = r.g.ents.filter(e => e.e === 'item').map(e => e.it ? e.it.id : e.id)
+    check('a chest keeps its things through a save, and spills them when broken', kept && r.g.ents.filter(e => e.e === 'item').length >= 3, `kept ${!!kept}, items out ${spill.length}`) }
+}
 { // the RS ground stays as the map has it: MC's grass/dirt ticks leave natural cells alone when the client says so
   const { w, g, P } = fresh(); P.x = 1170.5; P.z = -402.5
   w.keep = (x, y, z) => w.natural(x, y, z)
