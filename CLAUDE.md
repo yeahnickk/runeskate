@@ -20,6 +20,8 @@ node test/cod-e2e.cjs [base]      # CODScape in a real browser (needs playwright
 bun test/cart.js                  # CartScape: the road, CPU races per class + difficulty, every item, no lap from cutting/reversing, highscores (boots the server)
 bun test/league.js                # Rune League: RL numbers, rules, wire state, bot matches, aerials, online 3v3 (boots the server)
 bun tools/cart-track.ts            # CartScape: re-bake assets/cart_lumbridge.* after changing the route in src/cart/track.js
+bun test/mine.js                  # MineScape: the map as blocks, MC movement/digging/crafting/furnace/hunger, mobs, trades, saving
+python3 tools/mine-bake.py        # MineScape: re-bake assets/mine_world.* from tools/out (heights, surfaces, walls, roofs, colours)
 ```
 
 The owner doesn't want CI or npm-script plumbing; just run the scripts above directly.
@@ -101,6 +103,22 @@ z down the pitch, blue defends -z; a car's forward +x, up +y, right +z), 120 Hz.
   each), easing corrections out visually (`drawn`). Rule events (goals, demos...) only ever come from the server.
 - Dev page: `test/league-models.html` (every RS model it uses, `?tint=0x..`, `?ball=1`). `window.LEAGUE` exposes the
   match (`LEAGUE.auto = true` lets a bot drive your car).
+
+## MineScape (minescape.html, src/mine/)
+
+Minecraft survival on the RS map, one block a tile, single player (worlds in localStorage). Looks MC (16px textures,
+MC's GUI scale and font, AO + smooth light), dressed OSRS: RS ground colours, RS walls, brown stone UI, yellow counts.
+- `tools/mine-bake.py` -> `assets/mine_world.bin` (planes: ground y, surface id, roof height, roof colour, flags, wall
+  colour, ground R/G/B) + `.json` (spawn, trees, villagers, palettes). Block coords: X = tile x, Z = -(tile z) - 1.
+- `world.js` chunks (16x16x128) generated from the bake: layers, caves, ores, walls in their RS material (`WALLC`),
+  stepped roofs, trees; `tintAt` the grass/leaf tint from the RS ground colour. Edits are recorded for saving.
+- `blocks.js` blocks/items/recipes/smelting with MC's numbers (block ids 0-23 are baked: never renumber; `tint` blocks
+  take the ground colour over their green). `mesh.js` meshing + light (per-vertex tint `tc`), `phys.js` MC movement,
+  `game.js` the rules (pure, 20 TPS: player, digging, use, mobs, items, furnace, farming, advancements, commands),
+  `mobs.js` mob AI + RS villagers (`FOLK`), `inv.js` slots and clicks for every screen.
+- Client: `tex.js` the painted atlas + item sprites + icons, `font.js` MC's font, `gui.js` every screen + HUD (canvas,
+  `COL` = the OSRS palette), `render.js` the 3D view, `models.js` mob/held models, `audio.js` synth sfx, `main.js`.
+  `window.MINE` exposes the game.
 
 ## RuneRoyale (battle royale inside the skate game)
 

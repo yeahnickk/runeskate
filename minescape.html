@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<title>MineScape</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: #000; -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
+  body { position: fixed; inset: 0; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  #gui { z-index: 2; image-rendering: pixelated; cursor: default; }
+  #chat { position: fixed; left: 6px; right: 6px; bottom: 6px; height: 26px; z-index: 3; display: none; background: transparent; border: 0; outline: 0; color: #fff;
+    font: 16px monospace; text-shadow: 2px 2px 0 #3f3f3f; padding: 0 6px; caret-color: #fff; }
+  #name { position: fixed; z-index: 3; display: none; background: transparent; border: 0; outline: 0; color: #e0e0e0; font-family: monospace; padding: 0 6px; box-sizing: border-box; text-shadow: 2px 2px 0 #3f3f3f; }
+</style>
+<script type="importmap">
+  { "imports": { "three": "./vendor/three.module.js" } }
+</script>
+<link rel="modulepreload" href="./vendor/three.module.js">
+</head>
+<body>
+<canvas id="game"></canvas>
+<canvas id="gui"></canvas>
+<input id="chat" maxlength="256" autocomplete="off" spellcheck="false">
+<input id="name" maxlength="32" autocomplete="off" spellcheck="false">
+<script type="module" src="./src/mine/main.js"></script>
+</body>
+</html>

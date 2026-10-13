@@ -108,6 +108,15 @@ map data and running in the browser. Every door and gate stands open.
   server runs the match; your browser runs ahead on your own inputs, like RL's netcode). OSRS quick chat, god
   karts and party hats, goal explosions. RL's PC controls (right mouse jump, left mouse boost, SHIFT powerslide /
   air roll, SPACE ball cam, Q E air roll; J K jump / boost without a mouse), gamepad or touch.
+- **MineScape, Minecraft on the RS map.** Pick MINESCAPE on the home page (or open `minescape.html`). The 2004 map
+  one block a tile: the RS ground's heights, its own colours tinting the grass and trees (as MC's biomes), the River Lum,
+  walls in their RS stone, plaster, timber or brick, roofs stepping up to a ridge, the RS trees; dirt, stone, caves,
+  ores and bedrock under it (runite under the Wilderness). Minecraft's survival rules at 20 ticks a second: digging
+  times by tool and tier, crafting (2x2 and the table), smelting, chests, beds, doors, farming, hunger and
+  saturation, armour, XP, day and night, zombies, skeletons, creepers and spiders, cows, pigs, sheep and chickens, and
+  RS townsfolk (Hans, Doric, Bob...) as villagers trading for emeralds. Advancements, creative mode, /commands, worlds
+  saved in the browser. MC's screens and HUD dressed in OSRS's brown stone, RS colours, yellow stack counts and
+  outlined item icons. Keyboard + mouse or touch.
 
 ![The world map](assets/map.png)
 
@@ -186,6 +195,7 @@ with `.gz` siblings, whenever they are missing or stale (a few seconds, gitignor
   fishing, upgrade benches, rifts, ziplines and the locker (pass tiers, shop).
 - `bun test/net.js` starts the server on a spare port and plays it: S.K.A.T.E. turns, park limits, spot claims.
 - `bun test/league.js` checks Rune League: RL's car and ball numbers, goals, kickoffs, pads, demos, overtime, the state round-tripping for the wire, the bots (in order, aerials connect, nobody in the walls) and the online match end to end. `bun --preload ./tools/preload.ts tools/league-models.ts` re-exports the RS models it dresses the stadium with; `bun tools/league-arena.ts` re-cuts the patch around it.
+- `bun test/mine.js` checks MineScape: the map as blocks (spawn, walls, roofs, trees, ores, caves, the river), MC's movement numbers, dig times and drops, recipes, inventory clicks, the furnace, hunger, mobs, villager trades, water, sand, light, farming, advancements and saving. `python3 tools/mine-bake.py` re-bakes `assets/mine_world.*` from the exported map (needs `tools/out/`).
 - `bun test/cart.js` checks CartScape's baked road, whole CPU races in every class and difficulty, every item, that cutting or reversing earns no lap, and the highscores; `bun tools/cart-track.ts` re-bakes the track after a route change.
 - `bun tools/spot-check.ts` checks every challenge spot is reachable from spawn.
 - `bun tools/pocket-check.ts` (after split) checks spawn and every teleport drop land in a big connected area, never a pocket you cannot skate out of.
