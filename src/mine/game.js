@@ -1016,7 +1016,7 @@ export class Game {
     if (c === '/tp') { const x = +a[1], y = +a[2], z = +a[3]; if ([x, y, z].some(v => !isFinite(v))) return 'Usage: /tp <x> <y> <z>'; Object.assign(P, { x, y, z, vx: 0, vy: 0, vz: 0, fall: 0 }); return 'Teleported ' + this.name + ' to ' + x + ', ' + y + ', ' + z }
     if (c === '/kill') { this.hurtPlayer(1000, null, 'void'); return '' }
     if (c === '/spawnpoint') { this.spawn = [P.x, P.y, P.z]; return 'Set spawn point' }
-    if (c === '/summon') { if (!MOBS[a[1]]) return 'Unknown entity: ' + a[1]; this.ents.push(makeMob(a[1], P.x - Math.sin(P.yaw) * 3, P.y, P.z - Math.cos(P.yaw) * 3, this.rng, a[2] ? { kind: a[2] } : {})); return 'Summoned new ' + MOBS[a[1]].n }
+    if (c === '/summon') { const al = MOBS[a[1]] ? null : RS_SPAWN[a[1]], type = al ? al[0] : a[1]; if (!MOBS[type]) return 'Unknown entity: ' + a[1]; this.ents.push(makeMob(type, P.x - Math.sin(P.yaw) * 3, P.y, P.z - Math.cos(P.yaw) * 3, this.rng, a[2] ? { kind: a[2] } : al && al[1] ? { ...al[1] } : {})); return 'Summoned new ' + (al && al[1] ? a[1][0].toUpperCase() + a[1].slice(1) : MOBS[type].n) }   // RS names too: /summon man, guard, dwarf
     if (c === '/help') return 'Commands: /time set day|night, /gamemode survival|creative, /give <id> [n], /tp x y z, /summon <mob>, /kill, /spawnpoint'
     return 'Unknown command. Type "/help" for help.'
   }
