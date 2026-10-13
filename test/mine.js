@@ -4,7 +4,7 @@
 import { readFileSync } from 'fs';
 import { World, WH } from '../src/mine/world.js';
 import { Game } from '../src/mine/game.js';
-import { BLOCKS, ITEMS, craft, digInfo, toolId, RECIPES } from '../src/mine/blocks.js';
+import { BLOCKS, ITEMS, craft, digInfo, toolId, RECIPES, placeOf, nameOf } from '../src/mine/blocks.js';
 import { meshChunk, lightRegion } from '../src/mine/mesh.js';
 import { tickMove } from '../src/mine/phys.js';
 import { screenFor, click, give, count } from '../src/mine/inv.js';
@@ -95,6 +95,37 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
     let t = 0; for (; t < 200 && !(P.onGround && P.y >= 100 + d - 0.01); t++) g.tick({ fw: 1, jump: true })
     check(`swimming out onto a bank ${name}`, P.y >= 100 + d - 0.01 && P.onGround, `${(t / 20).toFixed(1)} s, y ${P.y.toFixed(2)}`)
   }
+}
+
+// ---------------------------------------------------------------- every block: breaks, drops, places
+{
+  const { w, g, P } = fresh('survival'), X = 9500, Z = -9500
+  for (let x = X - 3; x <= X + 3; x++) for (let z = Z - 3; z <= Z + 3; z++) { for (let y = 95; y < 110; y++) w.set(x, y, z, 0); w.set(x, 99, z, 3) }
+  Object.assign(P, { x: X + 2.5, y: 100, z: Z + 0.5 })
+  const NONE = new Set([12, 13, 29, 47, 52, 57]), bad = []   // (as MC: leaves, glass, grass need shears / silk touch; a dead bush 0-2 sticks; a door drops from its bottom)
+  for (const id of Object.keys(BLOCKS).map(Number)) {
+    if (!id || id === 5 || BLOCKS[id].liquid) continue
+    w.set(X, 100, Z, id)
+    const b = BLOCKS[id], tool = b.tool ? toolId(4, b.tool) : 0, info = digInfo(id, tool), n0 = g.ents.length
+    g.breakBlock(X, 100, Z, info.harvest)
+    const drops = g.ents.slice(n0).filter(e => e.e === 'item')
+    if (w.get(X, 100, Z) || !isFinite(info.ticks) || (!drops.length && !NONE.has(id))) bad.push(id + ' ' + b.n)
+    g.ents = g.ents.filter(e => e.e !== 'item'); for (let y = 100; y < 106; y++) w.set(X, y, Z, 0)
+  }
+  check('every block breaks with its tool and drops what MC drops', !bad.length, bad.join(', ') || 'all')
+  // and every block or item that places, places: held, looking down at the pad
+  const nop = []
+  for (const id of [...Object.keys(BLOCKS), ...Object.keys(ITEMS)].map(Number)) {
+    const pl = placeOf(id); if (!pl || id === 5) continue
+    for (let y = 100; y < 106; y++) { w.set(X, y, Z, 0); w.set(X, y, Z + 1, 0) } w.set(X, 99, Z, BLOCKS[pl].crop !== undefined || id === 267 ? 45 : BLOCKS[pl].sapling || [29, 30, 31, 52].includes(pl) ? 1 : BLOCKS[pl].cactus ? 6 : 3)
+    const wall = !!BLOCKS[pl].climb, pitch = wall ? 0 : -1.0          // (a ladder goes on a wall)
+    if (wall) { w.set(X, 100, Z - 1, 3); w.set(X, 101, Z - 1, 3) }
+    Object.assign(P, { x: X + 0.5, y: wall ? 99.6 : 101.6, z: Z + (wall ? 1.2 : 2.2), vx: 0, vy: 0, vz: 0, yaw: 0, pitch, flying: true, sneak: false }); P.inv[P.sel] = { id, n: 4, d: 0 }; P.useCd = 0
+    g.tick({ use: true, usePress: true, yaw: 0, pitch })
+    if (wall) { w.set(X, 100, Z - 1, 0); w.set(X, 101, Z - 1, 0) }
+    if (![100, 101].some(y => w.get(X, y, Z) || w.get(X, y, Z + 1))) nop.push(id + ' ' + nameOf(id))
+  }
+  check('every block and placeable item places', !nop.length, nop.join(', ') || 'all')
 }
 
 // ---------------------------------------------------------------- digging + tools
