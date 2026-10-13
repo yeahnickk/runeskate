@@ -82,7 +82,17 @@ export class Game {
   reach() { return this.mode === 'creative' ? 5 : REACH }
   target(liquids = false) {
     const o = this.eyePos(), d = this.lookDir(), W = this.world
-    const hide = this.hidden, b = raycast(W, o, d, this.reach(), (id, x, y, z, f) => (liquids || !BLOCKS[id].liquid) && !(hide && hide(x, y, z, f)))
+    // (a ray that goes on through the hidden ground into a block deeper down hits the ground block it went in at, not one
+    // that's out of sight under it: run = the hidden solid cells it has passed through in a row)
+    const hide = this.hidden; let run = null, last = null
+    let b = raycast(W, o, d, this.reach(), (id, x, y, z, f) => {
+      if (!liquids && BLOCKS[id].liquid) return false
+      const after = last && last[0] === x + f[0] && last[1] === y + f[1] && last[2] === z + f[2]
+      if (hide && hide(x, y, z, f)) { if (BLOCKS[id].solid) { if (!after) run = [x, y, z, f]; last = [x, y, z] } return false }
+      if (!after) run = null
+      return true
+    })
+    if (b && run) { const [x, y, z, f] = run, id = W.get(x, y, z), h = rayBox(o, d, [x, y, z, x + 1, y + 1, z + 1]); if (id && h) b = { x, y, z, face: f.some(v => v) ? f : h.n, id, dist: h.t, hit: [o[0] + d[0] * h.t, o[1] + d[1] * h.t, o[2] + d[2] * h.t] } }
     // the client draws the RS models over the blocks (this.see: the nearest one along the ray). Hit what you see: a
     // model in front of the block the ray reaches is the block standing for it on its tile (the fence under a gate,
     // the top of a wall under its gable); a model with no block on its tile (a canopy, a roof) lets the ray on
