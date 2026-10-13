@@ -16,6 +16,37 @@ export const SPLASHES = ['Buying gf!', 'Also try RuneSkate!', 'Sit rat!', 'Lumbr
 // OSRS's interface stone: dark brown panels with a lit top-left bevel, sunken slots, orange titles, yellow text
 const COL = { panel: '#3e3529', hi: '#6b5d48', lo: '#1e1912', slot: '#2b2419', slotHi: '#55493a', slotLo: '#14100b', title: '#ff981f' }
 
+// the keys you can rebind (Controls): [action, name, MC's default]
+export const BINDS = [['fw', 'Walk Forwards', 'KeyW'], ['bk', 'Walk Backwards', 'KeyS'], ['lf', 'Strafe Left', 'KeyA'], ['rt', 'Strafe Right', 'KeyD'],
+  ['jump', 'Jump', 'Space'], ['sneak', 'Sneak', 'ShiftLeft'], ['sprint', 'Sprint', 'ControlLeft'], ['inv', 'Inventory', 'KeyE'],
+  ['drop', 'Drop Item', 'KeyQ'], ['swap', 'Swap Hands', 'KeyF'], ['chat', 'Open Chat', 'KeyT'], ['cmd', 'Open Command', 'Slash'],
+  ['persp', 'Perspective', 'F5'], ['hud', 'Hide HUD', 'F1'], ['debug', 'Debug Screen', 'F3'], ['pick', 'Pick Block', 'Mouse1']]
+export const keyName = (c) => !c ? 'NONE' : c.startsWith('Key') ? c.slice(3) : c.startsWith('Digit') ? c.slice(5) : ({ Space: 'Space', ShiftLeft: 'L Shift', ShiftRight: 'R Shift', ControlLeft: 'L Ctrl', ControlRight: 'R Ctrl', AltLeft: 'L Alt', Slash: '/', Mouse0: 'Button 1', Mouse1: 'Button 3', Mouse2: 'Button 2', Tab: 'Tab', Enter: 'Enter', Backquote: '`' })[c] || c
+
+// the creative inventory's tabs (MC's: building, decoration, nature, ... and search), MineScape's RS blocks their own
+function creativeTabs() {
+  const RS = [71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 33, 34, 35, 36, 37]
+  const NAT = [1, 2, 3, 6, 7, 10, 46, 12, 47, 22, 70, 23, 69, 53, 51, 52, 29, 30, 31, 65, 66, 61, 14, 15, 16, 18, 19, 17, 67, 55, 5]
+  const DEC = [13, 24, 25, 27, 28, 32, 39, 40, 58, 59, 60]
+  const skip = new Set([0, 9, 26, 45, 20, 56, 57, 41, 42, 43, 44, 8])
+  const blocks = Object.keys(BLOCKS).map(Number).filter(i => !skip.has(i))
+  const items = Object.keys(ITEMS).map(Number), I = (id) => ITEMS[id]
+  const used = new Set([...RS, ...NAT, ...DEC])
+  const build = blocks.filter(i => !used.has(i))
+  const combat = items.filter(i => I(i).tool === 'sword' || I(i).armor !== undefined || I(i).bow || i === 280)
+  const tools = items.filter(i => (I(i).tool && I(i).tool !== 'sword') || I(i).bucket !== undefined || I(i).fire || i === 288)
+  const food = items.filter(i => I(i).food)
+  const deco = [...DEC, 290]
+  const got = new Set([...combat, ...tools, ...food, 290])
+  const mats = items.filter(i => !got.has(i))
+  const T = [
+    { n: 'Building Blocks', icon: 21, ids: build }, { n: 'Decoration Blocks', icon: 31, ids: deco }, { n: 'Natural Blocks', icon: 1, ids: NAT },
+    { n: 'RuneScape', icon: 34, ids: RS }, { n: 'Tools', icon: 322, ids: tools }, { n: 'Combat', icon: 320, ids: combat },
+    { n: 'Food', icon: 264, ids: food }, { n: 'Ingredients', icon: 258, ids: mats }, { n: 'Search Items', icon: 292, ids: [], search: true }]
+  T.all = [...blocks, 290, ...items.filter(i => i !== 290)]
+  return T
+}
+
 export class Gui {
   constructor(canvas, sfx) {
     this.c = canvas; this.x = canvas.getContext('2d'); this.sfx = sfx
@@ -123,6 +154,7 @@ export class Gui {
     if (st === 'worlds') return this.drawWorlds()
     if (st === 'create') return this.drawCreate()
     if (st === 'options') return this.drawOptions()
+    if (st === 'controls') return this.drawControls()
     if (!G) return
     if (!this.hideHud) this.drawHud(G, dt)
     if (st === 'pause') this.drawPause()
@@ -236,7 +268,26 @@ export class Gui {
     this.button(c2, 112, 150, 20, 'Music: ' + (o.music ? 'ON' : 'OFF'), () => { o.music = !o.music })
     this.button(c1, 136, 150, 20, 'Auto-Jump: ' + (o.autoJump ? 'ON' : 'OFF'), () => { o.autoJump = !o.autoJump })
     this.button(c2, 136, 150, 20, 'View Bobbing: ' + (o.bob ? 'ON' : 'OFF'), () => { o.bob = !o.bob })
+    this.button(W / 2 - 75, 160, 150, 20, 'Controls...', () => { this.state = 'controls'; this.binding = null })
     this.button(W / 2 - 100, this.H - 28, 200, 20, 'Done', () => { this.state = this.back || 'title'; this.onAction('opts') })
+  }
+  // MC's Controls screen: every key, click one then press its new key (ESC keeps it)
+  drawControls() {
+    if (this.back === 'title') this.dirtBg(); else { this.x.fillStyle = 'rgba(16,16,16,0.75)'; this.x.fillRect(0, 0, this.W, this.H) }
+    const W = this.W, X = this.x, o = this.opts, keys = o.keys || {}
+    textC(X, 'Controls', W / 2, 15, '#ff981f')
+    this.button(W / 2 - 155, 30, 150, 20, 'Invert Mouse: ' + (o.invertY ? 'ON' : 'OFF'), () => { o.invertY = !o.invertY })
+    this.slider(W / 2 + 5, 30, 150, 20, 'Sensitivity: ' + Math.round(o.sens * 200) + '%', o.sens, (v) => { o.sens = Math.max(0.05, v) })
+    const rows = Math.ceil(BINDS.length / 2), top = 58, gap = Math.min(22, (this.H - top - 34) / rows | 0)
+    BINDS.forEach(([a, n, def], i) => {
+      const x = i < rows ? W / 2 - 155 : W / 2 + 5, y = top + (i % rows) * gap, code = keys[a] || def
+      const clash = BINDS.some(([b, , d]) => b !== a && (keys[b] || d) === code)
+      text(X, n, x, y + 6, '#ffffff', true)
+      this.button(x + 90, y, 60, Math.min(20, gap - 2), this.binding === a ? '> ' + keyName(code) + ' <' : keyName(code), () => { this.binding = a })
+      if (clash && this.binding !== a) this.rect(x + 88, y + 2, 1, Math.min(16, gap - 6), '#ff4040')
+    })
+    this.button(W / 2 - 155, this.H - 28, 150, 20, 'Reset Keys', () => { o.keys = {}; this.binding = null })
+    this.button(W / 2 + 5, this.H - 28, 150, 20, 'Done', () => { this.state = 'options'; this.binding = null; this.onAction('opts') })
   }
   drawPause() {
     const W = this.W, X = this.x
@@ -474,19 +525,34 @@ export class Gui {
   }
   drawCreative() {
     const X = this.x, G = this.G, P = G.player, scr = this.scr, W = this.W, H = this.H
-    const all = this.allItems || (this.allItems = [...Object.keys(BLOCKS).map(Number).filter(i => i > 0 && i !== 26 && i !== 57 && i !== 9 && !(BLOCKS[i].crop > 0) && i !== 45 && i !== 20), ...Object.keys(ITEMS).map(Number)])
-    const pw = 195, ph = 136, ox = (W - pw) / 2 | 0, oy = (H - ph) / 2 | 0
+    const tabs = this.crTabs || (this.crTabs = creativeTabs())
+    scr.tab = scr.tab || 0; scr.q = scr.q || ''
+    const tab = tabs[scr.tab], q = scr.q.toLowerCase()
+    const all = tab.search ? tabs.all.filter(id => nameOf(id).toLowerCase().includes(q)) : tab.ids
+    const pw = 195, ph = 136, ox = (W - pw) / 2 | 0, oy = (H - ph) / 2 | 0 + 10
+    // MC's tabs along the top, each showing its icon
+    tabs.forEach((t, i) => {
+      const tx = ox + i * 21, ty = oy - 22, on = i === scr.tab
+      this.rect(tx, ty, 20, on ? 23 : 21, on ? COL.panel : COL.slot); this.rect(tx, ty, 20, 1, COL.hi); this.rect(tx, ty, 1, on ? 23 : 21, COL.hi); this.rect(tx + 19, ty, 1, 21, COL.lo)
+      X.drawImage(icon(t.icon), tx + 2, ty + 3, 16, 16)
+      if (this.over(tx, ty, 20, 21)) this.tipLater = [t.n]
+      this.hit(tx, ty, 20, 21, () => { scr.tab = i; scr.page = 0; this.sfx.play('click') })
+    })
     this.panel(ox, oy, pw, ph)
-    const per = 45, pages = Math.ceil(all.length / per); scr.page = Math.max(0, Math.min(pages - 1, scr.page))
-    text(X, 'Creative Inventory ' + (scr.page + 1) + '/' + pages, ox + 8, oy + 6, COL.title, false)
-    let hov = null
+    const per = 45, pages = Math.max(1, Math.ceil(all.length / per)); scr.page = Math.max(0, Math.min(pages - 1, scr.page || 0))
+    if (tab.search) {          // the search box: type to filter
+      this.rect(ox + 80, oy + 4, 88, 11, '#000000'); this.rect(ox + 80, oy + 4, 88, 1, '#a0a0a0')
+      text(X, (scr.q || '') + ((performance.now() / 500 | 0) % 2 ? '_' : ''), ox + 82, oy + 6, '#ffffff', false)
+    }
+    text(X, tab.n + (pages > 1 ? ' ' + (scr.page + 1) + '/' + pages : ''), ox + 8, oy + 6, COL.title, false)
+    let hov = null; this.crHov = null
     for (let i = 0; i < per; i++) {
       const id = all[scr.page * per + i], x = ox + 9 + (i % 9) * 18, y = oy + 18 + ((i / 9) | 0) * 18
       this.slotBox(x, y)
       if (!id) continue
       X.drawImage(icon(id), x, y, 16, 16)
-      if (this.over(x - 1, y - 1, 18, 18)) { hov = { id }; X.fillStyle = 'rgba(255,255,255,0.5)'; X.fillRect(x, y, 16, 16) }
-      this.hit(x - 1, y - 1, 18, 18, (btn, shift) => { if (P.cursor) { P.cursor = null; return } if (shift) { give(P.inv, { id, n: maxStack(id), d: 0 }); return } P.cursor = { id, n: btn === 2 || btn === 0 && false ? 1 : maxStack(id), d: 0 } })
+      if (this.over(x - 1, y - 1, 18, 18)) { hov = { id }; this.crHov = id; X.fillStyle = 'rgba(255,255,255,0.5)'; X.fillRect(x, y, 16, 16) }
+      this.hit(x - 1, y - 1, 18, 18, (btn, shift) => { if (P.cursor) { P.cursor = null; return } if (shift) { give(P.inv, { id, n: maxStack(id), d: 0 }); return } P.cursor = { id, n: btn === 1 ? 1 : maxStack(id), d: 0 } })
     }
     scr.slots.forEach((s, i) => {
       const x = ox + s.x, y = oy + s.y
@@ -497,12 +563,16 @@ export class Gui {
     // the bin
     const bx = ox + 173, by = oy + 112
     this.slotBox(bx, by); this.rect(bx + 3, by + 4, 10, 10, '#6a2a2a'); this.rect(bx + 2, by + 2, 12, 2, '#8a3a3a')
-    this.hit(bx - 1, by - 1, 18, 18, () => { P.cursor = null })
+    if (this.over(bx, by, 16, 16) && !P.cursor) this.tipLater = ['Destroy Item']
+    this.hit(bx - 1, by - 1, 18, 18, (btn, shift) => { if (shift) P.inv.fill(null, 0, 9); P.cursor = null })
     this.button(ox + 173, oy + 18, 16, 16, '<', () => { scr.page-- })
     this.button(ox + 173, oy + 38, 16, 16, '>', () => { scr.page++ })
     this.hit(ox, oy, pw, ph, () => {}, { wheel: (d) => { scr.page += d > 0 ? 1 : -1 } })
+    text(X, 'Hover + 1-9: to the hotbar', ox + 8, oy + ph + 3, '#a0a0a0', true)
     if (P.cursor) X.drawImage(icon(P.cursor.id), this.mx - 8, this.my - 8, 16, 16)
     else if (hov) this.tooltip([nameOf(hov.id)], this.mx, this.my)
+    else if (this.tipLater) this.tooltip(this.tipLater, this.mx, this.my)
+    this.tipLater = null
   }
 
   // ------------------------------------------------------------------------ touch (MC Bedrock's layout)

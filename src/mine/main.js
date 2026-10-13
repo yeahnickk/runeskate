@@ -8,10 +8,10 @@ import { World, CS, WH } from './world.js'
 import { Game, TPS, DAY } from './game.js'
 import { meshChunk } from './mesh.js'
 import { View } from './render.js'
-import { Gui } from './gui.js'
+import { Gui, BINDS } from './gui.js'
 import { Sfx } from './audio.js'
 import { buildAtlas, setTiles } from './tex.js'
-import { BLOCKS, ITEMS, nameOf } from './blocks.js'
+import { BLOCKS, ITEMS, nameOf, maxStack } from './blocks.js'
 import { give } from './inv.js'
 import { RSWorld } from './rsworld.js'
 
@@ -168,43 +168,60 @@ function placeName() {
 }
 
 // ---------------------------------------------------------------------------- input
-const KEYMAP = { KeyW: 'fw', KeyS: 'bk', KeyA: 'lf', KeyD: 'rt', Space: 'jump', ShiftLeft: 'sneak', ShiftRight: 'sneak', ControlLeft: 'sprint', ArrowUp: 'fw', ArrowDown: 'bk', ArrowLeft: 'lf', ArrowRight: 'rt' }
+// keys go through the Controls screen's binds (gui.opts.keys over MC's defaults); the arrows always walk
+const DEFKEY = Object.fromEntries(BINDS.map(b => [b[0], b[2]])), MOVES = ['fw', 'bk', 'lf', 'rt', 'jump', 'sneak', 'sprint']
+const ARROWS = { ArrowUp: 'fw', ArrowDown: 'bk', ArrowLeft: 'lf', ArrowRight: 'rt', ShiftRight: 'sneak' }
+const bindOf = (a) => (gui.opts.keys && gui.opts.keys[a]) || DEFKEY[a]
+const moveOf = (code) => MOVES.find(a => bindOf(a) === code) || ARROWS[code]
 const queued = { drop: false, dropAll: false, swap: false }
 addEventListener('keydown', (e) => {
   sfx.init()
+  if (gui.state === 'controls' && gui.binding) {          // (the Controls screen waiting for a key)
+    if (e.code !== 'Escape') gui.opts.keys = { ...gui.opts.keys, [gui.binding]: e.code }
+    gui.binding = null; applyOpts(); e.preventDefault(); return
+  }
   if (gui.state === 'chat') {
     if (e.code === 'Escape') { closeChat(); e.preventDefault() }
     else if (e.code === 'Enter') { sendChat(); e.preventDefault() }
     return
   }
   if (gui.state === 'create') { if (e.code === 'Enter') gui.onAction('create', { mode: gui.newMode }); return }
-  if (e.code === 'F3') { gui.debug = !gui.debug; e.preventDefault(); return }
-  if (e.code === 'F1') { gui.hideHud = !gui.hideHud; e.preventDefault(); return }
-  if (e.code === 'F5') { third = (third + 1) % 3; e.preventDefault(); return }
+  if (e.code === bindOf('debug')) { gui.debug = !gui.debug; e.preventDefault(); return }
+  if (e.code === bindOf('hud')) { gui.hideHud = !gui.hideHud; e.preventDefault(); return }
+  if (e.code === bindOf('persp')) { third = (third + 1) % 3; e.preventDefault(); return }
   if (gui.state === 'screen') {
-    if (e.code === 'Escape' || e.code === 'KeyE') { gui.close(); lock(); e.preventDefault(); return }
+    const scr = gui.scr, search = scr && scr.type === 'creative' && gui.crTabs && gui.crTabs[scr.tab || 0].search
+    if (search && e.code !== 'Escape') {                   // (typing in the creative search box)
+      if (e.code === 'Backspace') scr.q = (scr.q || '').slice(0, -1)
+      else if (e.key.length === 1 && (scr.q || '').length < 16) scr.q = (scr.q || '') + e.key
+      scr.page = 0; e.preventDefault(); return
+    }
+    if (e.code === 'Escape' || e.code === bindOf('inv') || e.code === 'KeyI') { gui.close(); lock(); e.preventDefault(); return }
+    if (/^Digit[1-9]$/.test(e.code) && scr && scr.type === 'creative' && gui.crHov) { game.player.inv[+e.code[5] - 1] = { id: gui.crHov, n: maxStack(gui.crHov), d: 0 }; selChanged(); return }
     if (/^Digit[1-9]$/.test(e.code) && gui.hovSlot) { import('./inv.js').then(m => m.click(game, gui.scr, gui.hovSlot.i, 0, false, +e.code[5] - 1)); return }
     if (e.code === 'KeyQ' && gui.hovSlot && gui.hovSlot.st && !gui.hovSlot.s.res) { const s = gui.hovSlot.s, st = s.arr[s.i]; if (st) { const n = e.ctrlKey ? st.n : 1; game.throwItem({ ...st, n }); st.n -= n; if (!st.n) s.arr[s.i] = null } return }
     return
   }
-  if (gui.state === 'pause' || gui.state === 'adv' || gui.state === 'options') {
-    if (e.code === 'Escape') { if (gui.state === 'pause') resume(); else if (gui.state === 'options' && gui.back !== 'title') { gui.state = 'pause'; applyOpts() } else if (gui.state === 'adv') gui.state = 'pause'; else if (gui.state === 'options') { gui.state = 'title'; applyOpts() } }
+  if (gui.state === 'pause' || gui.state === 'adv' || gui.state === 'options' || gui.state === 'controls') {
+    if (e.code === 'Escape') { if (gui.state === 'controls') { gui.state = 'options'; applyOpts() } else if (gui.state === 'pause') resume(); else if (gui.state === 'options' && gui.back !== 'title') { gui.state = 'pause'; applyOpts() } else if (gui.state === 'adv') gui.state = 'pause'; else if (gui.state === 'options') { gui.state = 'title'; applyOpts() } }
     return
   }
   if (gui.state !== 'play') return
-  if (KEYMAP[e.code]) {
-    if (e.code === 'KeyW' && !e.repeat) { const t = performance.now(); if (t - lastW < 300) sprintTap = true; lastW = t }
-    if (e.code === 'Space' && !e.repeat) { const t = performance.now(); if (t - lastSpace < 300) flyToggle = true; lastSpace = t }
-    keys.add(KEYMAP[e.code]); e.preventDefault()
+  const mv = moveOf(e.code)
+  if (mv) {
+    if (mv === 'fw' && !e.repeat) { const t = performance.now(); if (t - lastW < 300) sprintTap = true; lastW = t }
+    if (mv === 'jump' && !e.repeat) { const t = performance.now(); if (t - lastSpace < 300) flyToggle = true; lastSpace = t }
+    keys.add(mv); e.preventDefault()
   }
   if (/^Digit[1-9]$/.test(e.code)) { game.player.sel = +e.code[5] - 1; selChanged() }
-  if (e.code === 'KeyE') { gui.open(game.mode === 'creative' ? 'creative' : 'inv'); document.exitPointerLock && document.exitPointerLock() }
-  if (e.code === 'KeyQ') { queued.drop = true; queued.dropAll = e.ctrlKey }
-  if (e.code === 'KeyF') queued.swap = true
-  if (e.code === 'KeyT' || e.code === 'Enter' || e.code === 'Slash') { openChat(e.code === 'Slash' ? '/' : ''); e.preventDefault() }
+  if (e.code === bindOf('inv') || e.code === 'KeyI') { gui.open(game.mode === 'creative' ? 'creative' : 'inv'); document.exitPointerLock && document.exitPointerLock() }
+  if (e.code === bindOf('drop')) { queued.drop = true; queued.dropAll = e.ctrlKey }
+  if (e.code === bindOf('swap')) queued.swap = true
+  if (e.code === bindOf('pick')) pickBlock()
+  if (e.code === bindOf('chat') || e.code === 'Enter' || e.code === bindOf('cmd')) { openChat(e.code === bindOf('cmd') ? '/' : ''); e.preventDefault() }
   if (e.code === 'Escape') { gui.state = 'pause'; save() }
 })
-addEventListener('keyup', (e) => { if (KEYMAP[e.code]) keys.delete(KEYMAP[e.code]) })
+addEventListener('keyup', (e) => { const mv = moveOf(e.code); if (mv) keys.delete(mv) })
 addEventListener('blur', () => { keys.clear(); mouse.l = mouse.r = false })
 document.addEventListener('pointerlockchange', () => {
   if (!document.pointerLockElement && gui.state === 'play' && !TOUCH) { gui.state = 'pause'; save() }
@@ -218,16 +235,17 @@ guiC.addEventListener('mousedown', (e) => {
     if (!document.pointerLockElement) { lock(); return }
     if (e.button === 0) { mouse.l = true; mouse.lp = true }
     if (e.button === 2) { mouse.r = true; mouse.rp = true }
-    if (e.button === 1) pickBlock()
+    if ('Mouse' + e.button === bindOf('pick')) pickBlock()
     return
   }
+  if (gui.state === 'controls' && gui.binding && e.button !== 0) { gui.opts.keys = { ...gui.opts.keys, [gui.binding]: 'Mouse' + e.button }; gui.binding = null; applyOpts(); return }
   const [x, y] = gxy(e); gui.mouse('down', x, y, e.button === 2 ? 1 : 0, e.shiftKey)
 })
 addEventListener('mouseup', (e) => { if (e.button === 0) mouse.l = false; if (e.button === 2) mouse.r = false; const [x, y] = gxy(e); gui.mouse('up', x, y) })
 addEventListener('mousemove', (e) => {
   if (gui.state === 'play' && document.pointerLockElement) {
     const k = 0.0022 * (0.4 + gui.opts.sens * 1.6)
-    game.player.yaw -= e.movementX * k; game.player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, game.player.pitch - e.movementY * k))
+    game.player.yaw -= e.movementX * k; game.player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, game.player.pitch - e.movementY * k * (gui.opts.invertY ? -1 : 1)))
     return
   }
   const [x, y] = gxy(e); gui.mouse('move', x, y)
