@@ -351,8 +351,8 @@ function stream(budgetMs) {
   for (const set of [view.dirty, view.soon]) {
     for (const k of set) {
       set.delete(k); view.soon.delete(k)
-      if (!view.chunks.has(k)) continue
       const [cx, cz] = k.split(',').map(Number)
+      if (!view.chunks.has(k) && (set !== view.dirty || (cx - pcx) ** 2 + (cz - pcz) ** 2 > (rd + 0.5) ** 2)) continue   // (an edit in a chunk not built yet builds it now: the RS ground over a dug tile is already gone)
       view.setChunk(cx, cz, meshChunk(world, cx, cz, { fancy: view.fancy, rs: view.rs })); n++
       if (performance.now() - t0 > budgetMs * (set === view.dirty ? 3 : 1)) return n
     }
