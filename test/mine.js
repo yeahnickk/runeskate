@@ -609,81 +609,140 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   check('no grass <-> dirt flips on the map\'s own ground', flips === 0, `${flips} flips`)
 }
 
-// ---------------------------------------------------------------- survival from a tree to diamonds, by playing it (dig, craft through the screens, place a furnace, smelt)
+// ---------------------------------------------------------------- survival from spawn to diamonds, played with nothing but inputs and the screens:
+// walk to trees and fell them, craft, dig a staircase down, strip-mine (the cheapest pick that harvests each block, so
+// the iron one lasts for diamonds), place a furnace in the tunnel, fight what comes (seen and in reach), step out of lava
 {
-  const { w, g, P } = fresh(), sx = Math.floor(g.spawn[0]), sz = Math.floor(g.spawn[2])
-  const noon = () => { g.time = 6000 }
-  const calm = () => { g.ents = g.ents.filter(e => !(e.type && ['zombie', 'skeleton', 'spider', 'creeper'].includes(e.type))) }   // (fights have their own checks)
-  const air = (x, y, z) => !w.get(x, y, z)
-  // stand beside a block (feet + head clear, solid under) and dig it with what's held, then pick up the drop
-  const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]]
-  const stand = (x, y, z) => { for (const dy of [0, -1, 1]) for (const [a, c] of SIDES) { const fx = x + a, fy = y + dy, fz = z + c; if (air(fx, fy, fz) && air(fx, fy + 1, fz) && !air(fx, fy - 1, fz)) return [fx, fy, fz] } return null }
-  const dig = (x, y, z) => {
-    let s = stand(x, y, z); if (!s) { const [a, c] = SIDES.find(([a, c]) => w.get(x + a, y, z + c) !== 8 && w.get(x + a, y, z + c) !== 9 && w.get(x + a, y, z + c) !== 10) || SIDES[0]; w.set(x + a, y, z + c, 0); w.set(x + a, y + 1, z + c, 0); if (air(x + a, y - 1, z + c)) w.set(x + a, y - 1, z + c, 3); s = [x + a, y, z + c] }
-    Object.assign(P, { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5, vx: 0, vy: 0, vz: 0 })
-    const look = () => { const dx = x + 0.5 - P.x, dy = y + 0.5 - (P.y + 1.62), dz = z + 0.5 - P.z; return { yaw: Math.atan2(-dx, -dz), pitch: Math.atan2(dy, Math.hypot(dx, dz)) } }
-    let n = 0; const id0 = w.get(x, y, z)
-    while (w.get(x, y, z) === id0 && n < 400) { noon(); calm(); g.tick({ ...look(), attack: true, attackPress: n === 0 }); n++ }
-    for (let i = 0; i < 60; i++) { noon(); calm(); const it = g.ents.find(e => e.e === 'item' && Math.hypot(e.x - P.x, e.z - P.z) < 4); if (it) Object.assign(P, { x: it.x, z: it.z }); g.tick(look()) }
-    return w.get(x, y, z) !== id0
+  const { w, g, P } = fresh()
+  let fights = 0, kills = 0, T = 0
+  const fl = Math.floor, cell = () => [fl(P.x), fl(P.y + 0.01), fl(P.z)]
+  const solid = (x, y, z) => BLOCKS[w.get(x, y, z)].solid
+  const wet = (x, y, z) => { for (const [a, b, c] of [[0, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]) if (BLOCKS[w.get(x + a, y + b, z + c)].liquid) return true; return false }
+  const best = (kind) => { for (const t of [5, 4, 2, 1, 0]) { const i = P.inv.findIndex(s => s && s.id === toolId(t, kind)); if (i >= 0) return i } return -1 }
+  const toHot = (i) => { if (i < 0) return -1; if (i < 9) return i; const k = 8, t = P.inv[k]; P.inv[k] = P.inv[i]; P.inv[i] = t; return k }
+  const aimAt = (x, y, z) => { const dx = x - P.x, dy = y - (P.y + 1.62), dz = z - P.z; return { yaw: Math.atan2(-dx, -dz), pitch: Math.atan2(dy, Math.hypot(dx, dz)) } }
+  const bout = new Map()
+  const seen = (m) => { const ex = P.x, ey = P.y + 1.62, ez = P.z, tx = m.x, ty = m.y + m.h * 0.6, tz = m.z, L = Math.hypot(tx - ex, ty - ey, tz - ez), n = Math.ceil(L * 6); for (let i = 1; i < n; i++) { const k = i / n; if (solid(fl(ex + (tx - ex) * k), fl(ey + (ty - ey) * k), fl(ez + (tz - ez) * k))) return false } return true }
+  // every tick goes through here: a monster close by gets fought first (aim, swing on the cooldown), like a player would
+  function step(inp) {
+    T++
+    const foe = g.ents.filter(m => m.e === 'mob' && !m.death && MOBS[m.type].hostile && Math.hypot(m.x - P.x, m.z - P.z) < (MOBS[m.type].ranged ? 16 : 5) && Math.abs(m.y - P.y) < 3 && seen(m) && (bout.get(m) || 0) < 600).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0]
+    if (foe) { fights++; bout.set(foe, (bout.get(foe) || 0) + 1); const s = toHot(best('sword')), a = aimAt(foe.x, foe.y + foe.h * 0.5, foe.z), d = Math.hypot(foe.x - P.x, foe.z - P.z) - foe.w / 2
+      const fuse = foe.type === 'creeper' && foe.fuse > 0
+      g.tick({ ...a, sel: s >= 0 ? s : P.sel, fw: fuse ? -1 : d > 2.5 ? 1 : 0, attack: d < 2.8 && P.atkT >= 12, attackPress: d < 2.8 && P.atkT >= 12 }); if (foe.death) kills++; return }
+    const sniper = g.ents.find(m => m.e === 'mob' && !m.death && MOBS[m.type].ranged && Math.hypot(m.x - P.x, m.z - P.z) < 16 && Math.abs(m.y - P.y) >= 3 && seen(m))   // (a skeleton up on a ledge: out of its sight)
+  if (sniper && P.hurtT > 0 && typeof turns === 'number') { const a = Math.atan2(-(P.x - sniper.x), -(P.z - sniper.z)); for (let i = 0; i < 30; i++) g.tick({ yaw: a, pitch: 0, fw: 1, sprint: true, jump: i % 10 === 0 }); dir = DIRS[(DIRS.indexOf(dir) + 1) % 4]; return }
+  if (P.hp < 14 && P.food < 18) { const f = P.inv.findIndex((s, i) => i < 9 && s && [264, 265, 269, 271, 273].includes(s.id)); if (f >= 0) { g.tick({ sel: f, use: true, usePress: !P.eat }); return } }
+    if (P.inLava || P.fire > 0 && wet(...cell())) { const back = [-dir[0], -dir[1]]; g.tick({ yaw: Math.atan2(-back[0], -back[1]), pitch: 0, fw: 1, jump: true, sprint: true }); return }
+    g.tick(inp)
   }
-  const dry = (x, y, z) => { for (let a = -2; a <= 2; a++) for (let b = -2; b <= 3; b++) for (let c = -2; c <= 2; c++) { const id = w.get(x + a, y + b, z + c); if (id === 8 || id === 9) return false } return true }
-  const find = (id, r, pred = () => true) => { const out = []; for (let x = sx - r; x <= sx + r; x++) for (let z = sz - r; z <= sz + r; z++) for (let y = 2; y < 120; y++) if (w.get(x, y, z) === id && pred(x, y, z)) out.push([x, y, z]); out.sort((a, b) => Math.hypot(a[0] - sx, a[2] - sz) - Math.hypot(b[0] - sx, b[2] - sz)); return out }
-  // craft: lay ids into the grid (one each) from the inventory, take the result
-  const craftIt = (type, grid) => {
-    const scr = screenFor(type, g), si = (sec, i) => scr.slots.findIndex(s => s.sec === sec && (i === undefined || s.i === i))
-    for (const id of new Set(grid.filter(Boolean))) {
-      const from = scr.slots.findIndex(s => (s.sec === 'main' || s.sec === 'hot') && s.arr[s.i] && s.arr[s.i].id === id); if (from < 0) return null
-      click(g, scr, from, 0, false)
-      grid.forEach((v, i) => { if (v === id) click(g, scr, si('grid', i), 1, false) })
-      click(g, scr, from, 0, false)
+  // dig one block from where you stand (it must be in reach); whatever's in the way goes first
+  const pickFor = (id) => { for (const t of [0, 1, 2, 4, 5]) { const i = P.inv.findIndex(s => s && s.id === toolId(t, 'pick')); if (i >= 0 && digInfo(id, toolId(t, 'pick')).harvest) return i } return best('pick') }   // (the cheapest pick that harvests it: the iron one is for diamonds)
+  function dig(x, y, z, kind = 'pick') {
+    const s = toHot(kind === 'pick' ? pickFor(w.get(x, y, z)) : best(kind)); let n = 0
+    while (w.get(x, y, z) && !BLOCKS[w.get(x, y, z)].liquid && n++ < 900) {
+      const a = aimAt(x + 0.5, y + 0.5, z + 0.5); P.yaw = a.yaw; P.pitch = a.pitch
+      const t = g.target(); if (!t) { step({ ...a }); continue }
+      step({ ...a, sel: s >= 0 ? s : 0, attack: true, attackPress: !P.dig })
     }
-    const res = si('res'); const before = P.inv.map(s => s && s.id + 'x' + s.n).join(); click(g, scr, res, 0, true); closeScreen(g, scr)
-    return before !== P.inv.map(s => s && s.id + 'x' + s.n).join()
+    return !w.get(x, y, z)
   }
-  const hold = (id) => { const i = P.inv.findIndex(s => s && s.id === id); if (i < 0) return false; if (i > 8) { const t = P.inv[0]; P.inv[0] = P.inv[i]; P.inv[i] = t; P.sel = 0 } else P.sel = i; return true }
-  for (let i = 0; i < 20; i++) g.tick({})
-  // 1. punch a tree
-  const logs = find(79, 40, (x, y, z) => w.get(x, y - 1, z) !== 79)
-  let got = 0; for (const [x, y, z] of logs) { if (count(P.inv, 10) >= 5) break; if (dig(x, y, z)) got++ }
-  check('progression: punching a tree near spawn gives logs and "Getting Wood"', count(P.inv, 10) >= 5 && g.adv.wood, `${count(P.inv, 10)} logs from ${logs.length} found`)
-  // 2. planks, table, sticks, wooden pick
-  craftIt('inv', [10, 0, 0, 0]); craftIt('inv', [10, 0, 0, 0]); craftIt('inv', [10, 0, 0, 0]); craftIt('inv', [10, 0, 0, 0])
+  function walkTo(x, z, tol = 0.35, max = 400) {
+    let n = 0, stuck = 0, lx = P.x, lz = P.z
+    while (Math.hypot(x - P.x, z - P.z) > tol && n++ < max) {
+      const a = aimAt(x, P.y + 1.62, z), moved = Math.hypot(P.x - lx, P.z - lz); lx = P.x; lz = P.z
+      stuck = moved < 0.02 ? stuck + 1 : 0
+      step({ yaw: a.yaw, pitch: 0, fw: Math.min(1, Math.hypot(x - P.x, z - P.z) * 2), jump: stuck > 3 })
+    }
+    return Math.hypot(x - P.x, z - P.z) <= tol + 0.2
+  }
+  function collect(r = 7) { for (let k = 0; k < 6; k++) { const it = g.ents.filter(e => e.e === 'item' && Math.hypot(e.x - P.x, e.z - P.z) < r && Math.abs(e.y - P.y) < 3).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0]; if (!it) return; walkTo(it.x, it.z, 0.3, 150); for (let i = 0; i < 12; i++) step({}) } }
+  const sticks = (n) => { for (let k = 0; k < 6 && count(P.inv, 256) < n; k++) { if (count(P.inv, 11) < 2 && count(P.inv, 10)) craftIt('inv', [10, 0, 0, 0]); if (count(P.inv, 11) >= 2) craftIt('inv', [0, 11, 0, 11]); else return false } return count(P.inv, 256) >= n }
+  const craftIt = (type, grid) => {
+    const need = grid.filter(v => v === 256).length; if (need && type === 'craft' && count(P.inv, 256) < need && !sticks(need)) return false
+    const scr = screenFor(type, g), si = (sec, i) => scr.slots.findIndex(s => s.sec === sec && (i === undefined || s.i === i))
+    for (let i = 0; i < grid.length; i++) { const id = grid[i]; if (!id) continue
+      const from = scr.slots.findIndex(s => (s.sec === 'main' || s.sec === 'hot') && s.arr[s.i] && s.arr[s.i].id === id); if (from < 0) { closeScreen(g, scr); return false }
+      click(g, scr, from, 0, false); click(g, scr, si('grid', i), 1, false); click(g, scr, from, 0, false) }
+    const b = JSON.stringify(P.inv); click(g, scr, si('res'), 0, false); const got = !!P.cursor; if (P.cursor) { const e = P.inv.findIndex(s => !s); P.inv[e] = P.cursor; P.cursor = null } closeScreen(g, scr); return got && b !== JSON.stringify(P.inv)
+  }
+  for (let i = 0; i < 20; i++) step({})
+  const [sx, sy, sz] = cell()
+  // 1. walk to trees and fell them
+  const trees = []; for (let x = sx - 25; x <= sx + 25; x++) for (let z = sz - 25; z <= sz + 25; z++) { const y = w.gy[w.tile(x, z)] + 1; if (w.get(x, y, z) === 79) trees.push([x, y, z]) }
+  trees.sort((a, b) => Math.hypot(a[0] - sx, a[2] - sz) - Math.hypot(b[0] - sx, b[2] - sz))
+  for (const [x, y, z] of trees) { if (count(P.inv, 10) >= 6) break; if (w.get(x, y, z) !== 79) continue
+    const side = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([a, c]) => [x + a, z + c]).filter(([a, c]) => !solid(a, y, c) && !solid(a, y + 1, c)).sort((p, q) => Math.hypot(p[0] - P.x, p[1] - P.z) - Math.hypot(q[0] - P.x, q[1] - P.z))[0]
+    if (!side || !walkTo(side[0] + 0.5, side[1] + 0.5, 0.4, 500)) continue
+    dig(x, y, z, 'axe'); collect() }
+  check('played, no shortcuts: walked to trees from spawn and felled them by hand', count(P.inv, 10) >= 6 && g.adv.wood, `${count(P.inv, 10)} logs, ${T} ticks`)
+  for (let i = 0; i < 4; i++) craftIt('inv', [10, 0, 0, 0])
   craftIt('inv', [11, 11, 11, 11]); craftIt('inv', [0, 11, 0, 11]); craftIt('inv', [0, 11, 0, 11])
-  const wp = craftIt('craft', [11, 11, 11, 0, 256, 0, 0, 256, 0])
-  check('progression: planks, a crafting table, sticks and a wooden pickaxe through the screens', count(P.inv, 24) === 1 && count(P.inv, toolId(0, 'pick')) === 1 && wp, `table ${count(P.inv, 24)} planks ${count(P.inv, 11)} sticks ${count(P.inv, 256)}`)
-  // 3. stone -> cobblestone, stone pick, furnace
-  hold(toolId(0, 'pick'))
-  const st = find(3, 30, (x, y, z) => y >= w.gy[w.tile(x, z)] - 6)
-  for (const [x, y, z] of st) { if (count(P.inv, 4) >= 11) break; dig(x, y, z) }
-  check('progression: a wooden pickaxe mines stone into cobblestone ("Stone Age")', count(P.inv, 4) >= 11 && g.adv.stone, `${count(P.inv, 4)} cobble`)
-  craftIt('craft', [4, 4, 4, 0, 256, 0, 0, 256, 0]); craftIt('craft', [4, 4, 4, 4, 0, 4, 4, 4, 4])
-  for (let i = 0; i < 12; i++) g.tick({})
-  check('progression: a stone pickaxe ("Getting an Upgrade") and a furnace', count(P.inv, toolId(1, 'pick')) === 1 && count(P.inv, 25) === 1 && g.adv.upgrade)
-  // 4. coal + iron
-  hold(toolId(1, 'pick'))
-  for (const [x, y, z] of find(14, 60, dry)) { if (count(P.inv, 257) >= 3) break; dig(x, y, z) }
-  for (const [x, y, z] of find(15, 60, dry)) { if (count(P.inv, 15) >= 3) break; dig(x, y, z) }
-  check('progression: a stone pickaxe mines coal and iron ore', count(P.inv, 257) >= 3 && count(P.inv, 15) >= 3, `coal ${count(P.inv, 257)} iron ore ${count(P.inv, 15)}`)
-  // 5. place the furnace and smelt
-  Object.assign(P, { x: g.spawn[0], y: g.spawn[1], z: g.spawn[2], vx: 0, vy: 0, vz: 0 }); for (let i = 0; i < 10; i++) g.tick({})
-  const fx = Math.floor(P.x) + 1, fz = Math.floor(P.z), fy = Math.floor(P.y); w.set(fx, fy, fz, 0); w.set(fx, fy + 1, fz, 0); w.set(fx, fy - 1, fz, 3)
-  hold(25); const look = { yaw: Math.atan2(-(fx + 0.5 - P.x), -(fz + 0.5 - P.z)), pitch: Math.atan2(fy - (P.y + 1.62), Math.hypot(fx + 0.5 - P.x, fz + 0.5 - P.z)) }
-  g.tick({ ...look, use: true, usePress: true }); for (let i = 0; i < 5; i++) g.tick(look)
-  const placed = w.get(fx, fy, fz) === 25
-  const fs = screenFor('furnace', g, fx + ',' + fy + ',' + fz), fsi = (sec) => fs.slots.findIndex(s => s.sec === sec)
-  click(g, fs, fs.slots.findIndex(s => (s.sec === 'main' || s.sec === 'hot') && s.arr[s.i] && s.arr[s.i].id === 15), 0, true)
-  click(g, fs, fs.slots.findIndex(s => (s.sec === 'main' || s.sec === 'hot') && s.arr[s.i] && s.arr[s.i].id === 257), 0, true)
-  for (let i = 0; i < 3 * 200 + 20; i++) { noon(); calm(); g.tick({}) }
-  click(g, fs, fsi('fout'), 0, true); closeScreen(g, fs); for (let i = 0; i < 12; i++) g.tick({})
-  check('progression: the placed furnace smelts the ore into iron ingots ("Acquire Hardware")', placed && count(P.inv, 258) >= 3 && g.adv.iron, `placed ${placed} ingots ${count(P.inv, 258)}`)
-  craftIt('craft', [258, 258, 258, 0, 256, 0, 0, 256, 0]); for (let i = 0; i < 12; i++) g.tick({})
-  check('progression: an iron pickaxe ("Isn\'t It Iron Pick")', count(P.inv, toolId(2, 'pick')) === 1 && g.adv.ironpick)
-  // 6. diamonds
-  hold(toolId(2, 'pick'))
-  let dn = 0; for (const [x, y, z] of find(17, 120, dry)) { if (count(P.inv, 260) >= 1 || dn++ > 20) break; dig(x, y, z) }
-  for (let i = 0; i < 12; i++) g.tick({})
-  check('progression: an iron pickaxe mines diamond ore ("Diamonds!")', count(P.inv, 260) >= 1 && g.adv.diamonds, `diamonds ${count(P.inv, 260)} hp ${P.hp}`)
+  craftIt('craft', [11, 11, 11, 0, 256, 0, 0, 256, 0]); craftIt('craft', [0, 11, 0, 0, 11, 0, 0, 256, 0])
+  check('played, no shortcuts: crafted a table, sticks, a wooden pickaxe and sword', count(P.inv, toolId(0, 'pick')) === 1 && count(P.inv, toolId(0, 'sword')) === 1, `table ${count(P.inv, 24)} planks ${count(P.inv, 11)} sticks ${count(P.inv, 256)} logs ${count(P.inv, 10)}`)
+  // 2. a staircase down: dig the three cells ahead (head, feet, the step below), step down; turn away from water/lava
+  let dir = [1, 0], turns = 0
+  const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]]
+  function stairDown(toY) {
+    let n = 0
+    while (cell()[1] > toY && n++ < 400 && !P.dead) {
+      const [x, y, z] = cell(), fx = x + dir[0], fz = z + dir[1]
+      if (wet(fx, y + 1, fz) || wet(fx, y, fz) || wet(fx, y - 1, fz) || wet(fx, y - 2, fz) || w.get(fx, y - 2, fz) === 0) { dir = DIRS[(DIRS.indexOf(dir) + 1) % 4]; if (++turns > 40) return false; continue }
+      dig(fx, y + 1, fz); dig(fx, y, fz); dig(fx, y - 1, fz)
+      walkTo(fx + 0.5, fz + 0.5, 0.3, 120); for (let i = 0; i < 8; i++) step({}); collect(3)
+      if (count(P.inv, 4) >= 3 && !count(P.inv, toolId(1, 'pick'))) craftIt('craft', [4, 4, 4, 0, 256, 0, 0, 256, 0])
+      if (count(P.inv, 4) >= 2 && !count(P.inv, toolId(1, 'sword')) && count(P.inv, 256)) craftIt('craft', [0, 4, 0, 0, 4, 0, 0, 256, 0])
+    }
+    return cell()[1] <= toY
+  }
+  // a gap ahead (a cave): bridge it with cobblestone against the side of the block you stand on, as in MC
+  function bridge(x, y, z, fx, fz) {
+    const ci = toHot(P.inv.findIndex(s => s && s.id === 4)), a = aimAt(x + 0.5 + (fx - x) * 0.5, y - 0.5, z + 0.5 + (fz - z) * 0.5)
+    for (let i = 0; i < 6 && !solid(fx, y - 1, fz); i++) { P.yaw = a.yaw; P.pitch = a.pitch; step({ ...a, sel: ci, sneak: true, use: true, usePress: true }); step({ ...a, sneak: true }) }
+  }
+  // 3. strip mine: a 1x2 tunnel ahead; any ore beside, above or below it comes out too
+  const ORES = new Set([14, 15, 17])
+  function tunnel(len, want) {
+    let moved = 0, turned = 0
+    for (let k = 0; moved < len && turned < len && !P.dead && !want(); k++) {
+      const [x, y, z] = cell(), fx = x + dir[0], fz = z + dir[1]
+      if (!wet(fx, y - 1, fz) && !solid(fx, y - 1, fz) && solid(x, y - 1, z) && count(P.inv, 4)) bridge(x, y, z, fx, fz)
+      if (wet(fx, y, fz) || wet(fx, y + 1, fz) || !solid(fx, y - 1, fz) || w.get(fx, y - 1, fz) === 9) { dir = DIRS[(DIRS.indexOf(dir) + (turned % 7 === 3 ? 3 : 1)) % 4]; turned++; continue }
+      moved++
+      dig(fx, y + 1, fz); dig(fx, y, fz); walkTo(fx + 0.5, fz + 0.5, 0.3, 120); collect(3)
+      const [cx, cy, cz] = cell()
+      for (const [a, b, c] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [0, 2, 0]]) if (ORES.has(w.get(cx + a, cy + b, cz + c)) && !wet(cx + a, cy + b, cz + c)) { dig(cx + a, cy + b, cz + c); collect(3) }
+      if (count(P.inv, 4) >= 3 && !count(P.inv, toolId(1, 'pick'))) craftIt('craft', [4, 4, 4, 0, 256, 0, 0, 256, 0])
+    }
+  }
+  stairDown(sy - 8); for (let k = 0; k < 30 && count(P.inv, 4) < 3 && !count(P.inv, toolId(1, 'pick')); k++) { turns = 0; if (!stairDown(cell()[1] - 1)) tunnel(4, () => false) }
+  if (!count(P.inv, toolId(1, 'pick'))) craftIt('craft', [4, 4, 4, 0, 256, 0, 0, 256, 0])
+  for (let i = 0; i < 12; i++) step({})
+  check('played, no shortcuts: dug a staircase down: cobblestone, a stone pickaxe ("Stone Age", "Getting an Upgrade")', count(P.inv, toolId(1, 'pick')) >= 1 && g.adv.stone && g.adv.upgrade, `y ${cell()[1]}, cobble ${count(P.inv, 4)}, ${T} ticks`)
+  for (let k = 0; k < 20 && !stairDown(16); k++) { turns = 0; tunnel(6, () => false) }
+  tunnel(600, () => count(P.inv, 15) >= 3 && count(P.inv, 257) >= 2)
+  check('played, no shortcuts: strip-mined coal and iron ore', count(P.inv, 15) >= 3 && count(P.inv, 257) >= 2, `iron ${count(P.inv, 15)}, coal ${count(P.inv, 257)}, y ${cell()[1]}, ${T} ticks`)
+  // 4. a furnace in the tunnel: place it on the floor ahead, smelt the ore
+  for (let k = 0; count(P.inv, 4) < 8 && k < 40; k++) { const [x, y, z] = cell(); dig(x + dir[0], y + 1, z + dir[1]); dig(x + dir[0], y, z + dir[1]); walkTo(x + dir[0] + 0.5, z + dir[1] + 0.5, 0.3, 100); collect(3) }
+  craftIt('craft', [4, 4, 4, 4, 0, 4, 4, 4, 4])
+  { const [x, y, z] = cell(), [bx, bz] = DIRS.map(([a, c]) => [x + a, z + c]).find(([a, c]) => !w.get(a, y, c) && !w.get(a, y + 1, c) && solid(a, y - 1, c)) || [x - dir[0], z - dir[1]]; walkTo(x + 0.5 - (bx - x) * 0.2, z + 0.5 - (bz - z) * 0.2, 0.2, 60)
+    const fi = toHot(P.inv.findIndex(s => s && s.id === 25)), a = aimAt(bx + 0.5, y + 0.02, bz + 0.5)
+    for (let i = 0; i < 40 && w.get(bx, y, bz) !== 25; i++) { P.yaw = a.yaw; P.pitch = a.pitch; step({ ...a, sel: fi, use: true, usePress: true }); step(a) }
+    const ok = w.get(bx, y, bz) === 25
+    const fs = screenFor('furnace', g, bx + ',' + y + ',' + bz)
+    click(g, fs, fs.slots.findIndex(s => (s.sec === 'main' || s.sec === 'hot') && s.arr[s.i] && s.arr[s.i].id === 15), 0, true)
+    click(g, fs, fs.slots.findIndex(s => (s.sec === 'main' || s.sec === 'hot') && s.arr[s.i] && s.arr[s.i].id === 257), 0, true)
+    closeScreen(g, fs)
+    for (let i = 0; i < 700; i++) step({})
+    const fs2 = screenFor('furnace', g, bx + ',' + y + ',' + bz); click(g, fs2, fs2.slots.findIndex(s => s.sec === 'fout'), 0, true); closeScreen(g, fs2); for (let i = 0; i < 12; i++) step({})
+    check('played, no shortcuts: placed a furnace in the tunnel and smelted iron ("Acquire Hardware")', ok && count(P.inv, 258) >= 3 && g.adv.iron, `placed ${ok}, ingots ${count(P.inv, 258)}`) }
+  craftIt('craft', [258, 258, 258, 0, 256, 0, 0, 256, 0]); for (let i = 0; i < 12; i++) step({})
+  check('played, no shortcuts: an iron pickaxe ("Isn\'t It Iron Pick")', count(P.inv, toolId(2, 'pick')) >= 1 && g.adv.ironpick)
+  for (let k = 0; k < 60 && !stairDown(11); k++) { turns = 0; tunnel(6, () => false) }
+  tunnel(3000, () => count(P.inv, 260) >= 1)
+  for (let i = 0; i < 12; i++) step({})
+  check('played, no shortcuts: strip-mined for diamonds ("Diamonds!")', count(P.inv, 260) >= 1 && g.adv.diamonds, `diamonds ${count(P.inv, 260)}, y ${cell()[1]}`)
+  check('played, no shortcuts: lived through it, fighting what came', !P.dead, `${T} ticks (${(T / 20 / 60).toFixed(1)} min), ${fights} fight ticks, ${kills} kills, hp ${P.hp.toFixed(1)}, food ${P.food}, adv ${Object.keys(g.adv).join(',')}`)
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
