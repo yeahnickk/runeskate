@@ -65,6 +65,9 @@ export class Sfx {
       case 'click': this.tone(1000, 0.04, 0.15, 'square'); break
       case 'break_tool': this.noise(0.25, 2500, 4, 0.5); this.tone(1800, 0.2, 0.15, 'square', 0, 600); break
       case 'bucket': this.noise(0.3, 700, 0.7, 0.4, 'lowpass'); break
+      case 'ignite': this.noise(0.12, 3000, 2, 0.35 * a, 'highpass'); this.noise(0.4, 900, 0.6, 0.2 * a, 'bandpass', 0.05); break
+      case 'crackle': this.noise(0.05 + r() * 0.08, 1500 + r() * 2500, 2, 0.12 * a, 'bandpass'); break
+      case 'lava_pop': this.tone(180 + r() * 120, 0.08, 0.12 * a, 'sine', 0, 60); break
       case 'fizz': this.noise(0.5, 4000, 1, 0.3 * a, 'highpass'); break
       case 'till': this.noise(0.15, 900, 0.6, 0.5); break
       case 'splash': this.noise(0.5, 900, 0.4, 0.5 * a, 'lowpass', 0, 3000); break

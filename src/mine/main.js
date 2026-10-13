@@ -412,6 +412,7 @@ function handleEvents() {
       case 'toast': gui.toast(e.a); break
       case 'chat': gui.say(e.msg, e.col); break
       case 'boom': sfx.play('boom', d * 0.3); view.puff(e.x, e.y, e.z, 40, [0.9, 0.9, 0.9], 0.6, 1.5); view.puff(e.x, e.y, e.z, 20, [1, 0.7, 0.3], 0.4, 3); shake = Math.max(shake, Math.max(0, 1 - d / 20)); break
+      case 'smoke': view.puff(e.x, e.y, e.z, 8, [0.3, 0.3, 0.3], 0.25, 1.2); break
       case 'poof': view.puff(e.x, e.y, e.z, 12, [1, 1, 1], 0.2, 0.6); break
       case 'crit': view.puff(e.x, e.y, e.z, 10, [0.9, 0.9, 0.6], 0.12, 2); break
       case 'meal': view.puff(e.x + 0.5, e.y + 0.5, e.z + 0.5, 10, [0.4, 1, 0.4], 0.12, 1); break
@@ -427,6 +428,11 @@ function tick() {
   const wasSel = P.sel
   game.tick(input())
   if (P.sel !== wasSel) selChanged()
+  // fires near you flicker embers and smoke and crackle; lava pops
+  for (const k of game.fires.keys()) { if (Math.random() > 0.15) continue; const [x, y, z] = k.split(',').map(Number), d = Math.hypot(x - P.x, y - P.y, z - P.z); if (d > 24) continue
+    view.puff(x + 0.5, y + 0.6, z + 0.5, 1, Math.random() < 0.5 ? [1, 0.6, 0.15] : [0.25, 0.25, 0.25], 0.12, 1.5); if (Math.random() < 0.3) sfx.play('crackle', d) }
+  for (const k of game.lavas) { if (Math.random() > 0.01) continue; const [x, y, z] = k.split(',').map(Number), d = Math.hypot(x - P.x, y - P.y, z - P.z); if (d > 20) continue
+    view.puff(x + 0.5, y + 1, z + 0.5, 2, [1, 0.5, 0.1], 0.08, 2); sfx.play('lava_pop', d) }
   if (P.swing === 6) swing = 0.0001
   handleEvents()
 }

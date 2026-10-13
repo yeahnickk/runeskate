@@ -102,7 +102,7 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   const { w, g, P } = fresh('survival'), X = 9500, Z = -9500
   for (let x = X - 3; x <= X + 3; x++) for (let z = Z - 3; z <= Z + 3; z++) { for (let y = 95; y < 110; y++) w.set(x, y, z, 0); w.set(x, 99, z, 3) }
   Object.assign(P, { x: X + 2.5, y: 100, z: Z + 0.5 })
-  const NONE = new Set([12, 13, 29, 47, 52, 57]), bad = []   // (as MC: leaves, glass, grass need shears / silk touch; a dead bush 0-2 sticks; a door drops from its bottom)
+  const NONE = new Set([12, 13, 29, 47, 52, 57, 81]), bad = []   // (as MC: leaves, glass, grass need shears / silk touch; a dead bush 0-2 sticks; a door drops from its bottom)
   for (const id of Object.keys(BLOCKS).map(Number)) {
     if (!id || id === 5 || BLOCKS[id].liquid) continue
     w.set(X, 100, Z, id)
@@ -116,7 +116,7 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   // and every block or item that places, places: held, looking down at the pad
   const nop = []
   for (const id of [...Object.keys(BLOCKS), ...Object.keys(ITEMS)].map(Number)) {
-    const pl = placeOf(id); if (!pl || id === 5) continue
+    const pl = placeOf(id); if (!pl || id === 5 || id === 81) continue          // (fire is lit, not placed)
     for (let y = 100; y < 106; y++) { w.set(X, y, Z, 0); w.set(X, y, Z + 1, 0) } w.set(X, 99, Z, BLOCKS[pl].crop !== undefined || id === 267 ? 45 : BLOCKS[pl].sapling || [29, 30, 31, 52].includes(pl) ? 1 : BLOCKS[pl].cactus ? 6 : 3)
     const wall = !!BLOCKS[pl].climb, pitch = wall ? 0 : -1.0          // (a ladder goes on a wall)
     if (wall) { w.set(X, 100, Z - 1, 3); w.set(X, 101, Z - 1, 3) }
@@ -159,6 +159,94 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
     w.set(X, g, Z, 1); vx[X + tz * w.W] = 0
   }
   check('a pit beside a tree, wall or rock: its wall reaches the RS ground', n >= 30 && !bad.length, `${n} pits ${bad.slice(0, 4).join(', ')}`)
+}
+
+// ---------------------------------------------------------------- water + lava run as MC's, fire burns, TNT goes off every way
+{
+  const run = (g, n) => { for (let i = 0; i < n; i++) g.tick({}) }
+  const lvl = (w, x, y, z) => w.meta(x, y, z) & 15
+  // water from a bucket on a flat floor runs 7 out and stops; take the source and it all dries up
+  let { w, g, P } = fresh('creative'); const X = 7000, Z = -7000
+  pad(w, X, Z, 14); Object.assign(P, { x: X + 0.5, y: 112, z: Z + 12.5, flying: true })
+  w.set(X, 101, Z, 8); g.wake(X, 101, Z); run(g, 120)
+  const lv = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(k => w.get(X + k, 101, Z) === 8 ? lvl(w, X + k, 101, Z) : -1)
+  check('water runs 7 blocks across a floor, a level a block, and no further', lv.join() === '0,1,2,3,4,5,6,7,-1', lv.join())
+  w.set(X, 101, Z, 0); g.wake(X, 101, Z); run(g, 120)
+  let wet = 0; for (let a = -9; a <= 9; a++) for (let c = -9; c <= 9; c++) if (w.get(X + a, 101, Z + c) === 8) wet++
+  check('take the source and the flow dries up', wet === 0, `${wet} wet`)
+  // it falls off an edge, and two sources make a third (MC's infinite water)
+  w.set(X + 5, 100, Z, 0); w.set(X + 5, 99, Z, 0); w.set(X + 5, 98, Z, 3); w.set(X + 3, 101, Z, 8); g.wake(X + 3, 101, Z); run(g, 120)
+  check('water pours down a hole beside it', w.get(X + 5, 100, Z) === 8 && w.get(X + 5, 99, Z) === 8, `${w.get(X + 5, 100, Z)} ${w.get(X + 5, 99, Z)}`)
+  for (let a = -9; a <= 9; a++) for (let c = -9; c <= 9; c++) for (let y = 98; y <= 102; y++) if (BLOCKS[w.get(X + a, y, Z + c)].liquid) w.set(X + a, y, Z + c, 0)
+  w.set(X + 5, 100, Z, 3); w.set(X + 5, 99, Z, 3)
+  for (let a = -1; a <= 3; a++) for (let c = -1; c <= 1; c++) w.set(X + a, 101, Z + c, a < 0 || a > 2 || c ? 3 : 0)   // (a 3 long trench)
+  w.set(X, 101, Z, 8); w.set(X + 2, 101, Z, 8); g.wake(X, 101, Z); g.wake(X + 2, 101, Z); run(g, 40)
+  check('two water sources make the block between a source', w.get(X + 1, 101, Z) === 8 && lvl(w, X + 1, 101, Z) === 0)
+  pad(w, X, Z, 14)
+  // a torch in the way washes off and drops
+  w.set(X + 2, 101, Z, 28); const n0 = g.ents.length
+  w.set(X, 101, Z, 8); g.wake(X, 101, Z); run(g, 60)
+  check('running water washes a torch off (it drops)', w.get(X + 2, 101, Z) === 8 && g.ents.slice(n0).some(e => e.e === 'item' && e.st.id === 28))
+  // the current carries a dropped item along
+  const it = { e: 'item', st: { id: 3, n: 1, d: 0 }, x: X + 3.5, y: 101.1, z: Z + 0.5, vx: 0, vy: 0, vz: 0, w: 0.25, h: 0.25, age: 0, delay: 99 }; g.ents.push(it)
+  run(g, 40)
+  check('the current carries an item downstream', it.x > X + 4, `x ${(it.x - X).toFixed(2)}`)
+  w.set(X, 101, Z, 0); g.wake(X, 101, Z); run(g, 120); pad(w, X, Z, 14)
+  // lava runs 3 and slower; lava meets water: a source turns to obsidian, flowing lava to cobblestone
+  w.set(X, 101, Z, 9); g.wake(X, 101, Z); run(g, 100)
+  const ll = [0, 1, 2, 3, 4].map(k => w.get(X + k, 101, Z) === 9 ? lvl(w, X + k, 101, Z) : -1)
+  check('lava runs 3 blocks across a floor (2 a level), no further', ll.join() === '0,2,4,6,-1', ll.join())
+  w.set(X, 102, Z, 8); g.wake(X, 102, Z); run(g, 160)        // (water poured on the source)
+  const ob = []; for (let a = -4; a <= 4; a++) for (let c = -4; c <= 4; c++) { const b = w.get(X + a, 101, Z + c); if (b === 55 || b === 4) ob.push(b) }
+  check('water meeting lava makes obsidian (the source) and cobblestone (its flow)', w.get(X, 101, Z) === 55 && ob.includes(4), `source ${w.get(X, 101, Z)}, ${ob.length} turned`)
+  for (let a = -9; a <= 9; a++) for (let c = -9; c <= 9; c++) for (let y = 98; y <= 102; y++) if (BLOCKS[w.get(X + a, y, Z + c)].liquid) w.set(X + a, y, Z + c, 0)
+  run(g, 60); pad(w, X, Z, 14)
+  // fire: flint and steel lights it on stone, it goes out with nothing to burn; a wooden hut burns down
+  ;({ w, g, P } = fresh('survival')); pad(w, X, Z, 14); Object.assign(P, { x: X + 0.5, y: 101, z: Z + 2.5, yaw: 0, pitch: -0.6, flying: false })
+  P.inv[P.sel] = { id: 293, n: 1, d: 0 }; g.tick({ use: true, usePress: true, yaw: 0, pitch: -0.6 })
+  check('flint and steel lights a fire on the block you click', w.get(X, 101, Z + 1) === 81 || w.get(X, 101, Z) === 81, `${w.get(X, 101, Z + 1)} ${w.get(X, 101, Z)}`)
+  run(g, 1200)
+  let fires = 0; for (let a = -3; a <= 3; a++) for (let c = -3; c <= 3; c++) if (w.get(X + a, 101, Z + c) === 81) fires++
+  check('a fire on bare stone burns out', fires === 0)
+  Object.assign(P, { x: X + 12.5, z: Z + 12.5 })
+  for (let a = 0; a < 4; a++) for (let c = 0; c < 4; c++) for (let y = 101; y <= 103; y++) if (a === 0 || a === 3 || c === 0 || c === 3 || y === 103) w.set(X + a, y, Z + c, 11)
+  g.setFire(X + 1, 101, Z + 1)
+  run(g, 3000)
+  let planks = 0; for (let a = 0; a < 4; a++) for (let c = 0; c < 4; c++) for (let y = 101; y <= 103; y++) if (w.get(X + a, y, Z + c) === 11) planks++
+  check('a fire inside a plank hut burns most of it away', planks < 12, `${planks} of 40 planks left`)
+  pad(w, X, Z, 14)
+  // standing in fire burns you
+  P.hp = 20; P.fire = 0; Object.assign(P, { x: X + 5.5, y: 101, z: Z + 5.5, vx: 0, vz: 0 }); w.set(X + 5, 100, Z + 5, 3); g.setFire(X + 5, 101, Z + 5); run(g, 30)
+  check('standing in fire hurts and sets you alight', P.hp < 20 && P.fire > 0, `hp ${P.hp}, alight ${P.fire}`)
+  w.set(X + 5, 101, Z + 5, 0); P.fire = 0; P.hp = 20
+  // every way to light TNT: flint and steel, a redstone torch beside it, fire beside it, lava beside it
+  const lit = (how) => {
+    const r = fresh('creative'); pad(r.w, X, Z, 14); Object.assign(r.P, { x: X + 0.5, y: 101, z: Z + 3.5, yaw: 0, pitch: -0.35, flying: true })
+    r.w.set(X, 101, Z, 60); how(r); let n = 0
+    for (; n < 400 && !r.g.ents.some(e => e.e === 'tnt'); n++) r.g.tick({})
+    return n < 400
+  }
+  check('flint and steel lights TNT', lit(({ g, P }) => { P.inv[P.sel] = { id: 293, n: 1, d: 0 }; g.tick({ use: true, usePress: true, yaw: 0, pitch: -0.35 }) }))
+  check('a redstone torch placed beside TNT lights it', lit(({ g, P, w }) => { w.set(X, 100, Z + 1, 3); P.inv[P.sel] = { id: 82, n: 1, d: 0 }; Object.assign(P, { x: X + 0.5, y: 103.5, z: Z + 1.5, pitch: -1.55 }); g.tick({ use: true, usePress: true, yaw: 0, pitch: -1.55 }) }))
+  check('fire beside TNT lights it', lit(({ g }) => { g.setFire(X + 1, 101, Z) }))
+  check('lava beside TNT lights it', lit(({ g, w }) => { w.set(X + 1, 101, Z, 9); g.wake(X + 1, 101, Z) }))
+  // the blast: a crater in dirt, not in obsidian, nothing broken under water, a chain of TNT all goes, it throws and hurts
+  const boom = (setup) => { const r = fresh('survival'); pad(r.w, X, Z, 14, 100, 2); for (let y = 92; y < 99; y++) for (let a = -8; a <= 8; a++) for (let c = -8; c <= 8; c++) r.w.set(X + a, y, Z + c, 2)
+    Object.assign(r.P, { x: X + 0.5, y: 101, z: Z + 6.5, invul: 0 }); setup(r); r.g.prime(X, 101, Z, 40); r.low = 20; for (let i = 0; i < 300; i++) { r.g.tick({}); r.low = Math.min(r.low, r.P.hp) } return r }
+  let r = boom(() => {}), gone = 0; for (let a = -5; a <= 5; a++) for (let c = -5; c <= 5; c++) for (let y = 95; y <= 100; y++) if (!r.w.get(X + a, y, Z + c)) gone++
+  check('TNT blows a crater in the ground and hurts you 6 blocks off', gone > 20 && r.low < 16, `${gone} blocks, hp down to ${r.low.toFixed(1)}`)
+  r = boom(({ w }) => { for (let a = -3; a <= 3; a++) for (let c = -3; c <= 3; c++) for (let y = 98; y <= 102; y++) if (a || c || y !== 101) w.set(X + a, y, Z + c, 55) })
+  gone = 0; for (let a = -3; a <= 3; a++) for (let c = -3; c <= 3; c++) for (let y = 98; y <= 102; y++) if ((a || c || y !== 101) && r.w.get(X + a, y, Z + c) !== 55) gone++
+  check('obsidian stands up to a blast', gone === 0, `${gone} broken`)
+  r = boom(({ w }) => { for (let a = -1; a <= 1; a++) for (let c = -1; c <= 1; c++) for (let y = 101; y <= 102; y++) if (a || c || y !== 101) w.set(X + a, y, Z + c, 8); w.set(X, 102, Z, 8) })
+  gone = 0; for (let a = -5; a <= 5; a++) for (let c = -5; c <= 5; c++) for (let y = 95; y <= 100; y++) if (!r.w.get(X + a, y, Z + c)) gone++
+  check('TNT under water breaks nothing', gone === 0, `${gone} broken`)
+  r = boom(({ w }) => { for (let k = 2; k <= 10; k += 2) w.set(X + k, 101, Z, 60) })
+  let left = 0; for (let k = 2; k <= 10; k += 2) if (r.w.get(X + k, 101, Z) === 60) left++
+  check('a row of TNT goes off one after another', left === 0, `${left} left`)
+  r = boom(({ g }) => { g.ents.push({ e: 'tnt', x: X + 2.5, y: 101, z: Z + 0.5, vx: 0, vy: 0, vz: 0, w: 0.98, h: 0.98, fuse: 9999, tag: 1 }) })
+  const t2 = r.g.ents.find(e => e.tag)
+  check('a blast throws lit TNT beside it', t2 && Math.hypot(t2.x - X - 2.5, t2.z - Z - 0.5) > 1, t2 ? `moved ${Math.hypot(t2.x - X - 2.5, t2.z - Z - 0.5).toFixed(2)}` : 'gone')
 }
 
 // ---------------------------------------------------------------- digging + tools

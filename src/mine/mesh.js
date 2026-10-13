@@ -2,7 +2,7 @@
 // block light, flood-filled over the chunk padded by 15 so light from the neighbours reaches in), face shading (top
 // 1, N/S 0.8, E/W 0.6, bottom 0.5), cross plants, torches, fences, doors, ladders, liquids. Pure: returns typed arrays
 // of quads (4 verts each; the renderer shares one quad index buffer).
-import { BLOCKS, TI } from './blocks.js'
+import { BLOCKS, TI, liquidTop } from './blocks.js'
 import { CS, WH, ci } from './world.js'
 import { edgeBoxes } from './phys.js'
 
@@ -262,13 +262,17 @@ export function meshChunk(world, cx, cz, opts = {}) {
         cross(S, rx, y, rz, d.t.side)
       } else if (sh === 'liquid') {
         const buf = d.liquid === 'water' ? Wt : S
-        const above = at(rx, rz, y + 1), hTop = above === id ? 1 : 14 / 16
+        // the surface by the flow level (MC: a source or a fall 14/16 high, flowing 1..7 down to 1/9), full under its own kind
+        const lh = (rx, rz, y) => at(rx, rz, y + 1) === at(rx, rz, y) ? 1 : liquidTop(world.meta(ox + rx - P, y, oz + rz - P))
+        const hTop = lh(rx, rz, y)
         for (let f = 0; f < 6; f++) {
           const n = FACES[f].n, nb = at(rx + n[0], rz + n[2], y + n[1])
-          if (nb === id || OPQ[nb]) continue
+          let lo = 0
+          if (nb === id) { if (n[1] !== 0) continue; lo = lh(rx + n[0], rz + n[2], y); if (lo >= hTop - 0.01) continue }   // (a step down the flow shows its side)
+          if (OPQ[nb]) continue
           if (hid && !faceShows(rx + n[0], rz + n[2], y + n[1])) continue
-          if (f !== 2 && BLOCKS[nb] && BLOCKS[nb].liquid) continue
-          face(buf, f, rx, y, rz, [0, 0, 0, 1, f === 2 || n[1] === 0 ? hTop : 1, 1], d.t.side, d.liquid === 'water' ? 1 : 3, false)
+          if (f !== 2 && nb !== id && BLOCKS[nb] && BLOCKS[nb].liquid) continue
+          face(buf, f, rx, y, rz, [0, lo, 0, 1, f === 2 || n[1] === 0 ? hTop : 1, 1], d.t.side, d.liquid === 'water' ? 1 : 3, false)
           if (d.liquid === 'water' && f === 2) {        // (seen from under the surface too)
             const v = buf.n - 1, q = [0, 1, 2, 3].map(j => { const o = v * 4 + j; return [buf.pos[o * 3], buf.pos[o * 3 + 1], buf.pos[o * 3 + 2], buf.uv[o * 2], buf.uv[o * 2 + 1], buf.lt[o * 4], buf.lt[o * 4 + 1], buf.lt[o * 4 + 2], 1] })
             buf.quad([q[1], q[0], q[3], q[2]])
@@ -277,7 +281,7 @@ export function meshChunk(world, cx, cz, opts = {}) {
       } else if (sh === 'torch') {
         const w = meta & 7, o = [[0, 0], [0, 5], [-5, 0], [0, -5], [5, 0]][w] || [0, 0], dy = w ? 3 : 0
         const bx = [7 + o[0], dy, 7 + o[1], 9 + o[0], 10 + dy, 9 + o[1]]
-        const t = 'torch', tl = [t, t, t, t, t, t]
+        const t = d.t.side, tl = [t, t, t, t, t, t]
         const bb = bx.map(v => v / 16)
         for (let f = 0; f < 6; f++) {
           if (f === 3 && dy === 0) continue

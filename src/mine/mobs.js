@@ -154,6 +154,7 @@ export function tickMob(game, m) {
   // fall damage, drowning-free (mobs float), lava + daylight burn
   if (m.landed > 3 && m.type !== 'chicken') game.hurtMob(m, Math.ceil(m.landed - 3), null)
   if (m.inLava) { m.fire = 100; if (m.age % 10 === 0) game.hurtMob(m, 4, null) }
+  if (m.inFire && !m.inWater) { m.fire = Math.max(m.fire || 0, 160); if (m.age % 10 === 0) game.hurtMob(m, 1, null) }
   if (M.burns && !m.home && !night && m.age % 20 === 0 && skyAbove(W, m)) m.fire = Math.max(m.fire || 0, 60)
   if (m.fire > 0) { m.fire--; if (m.inWater) m.fire = 0; else if (m.age % 20 === 0) game.hurtMob(m, 1, null) }
 }

@@ -11,7 +11,7 @@ export const TILES = ['grass_top', 'grass_side', 'dirt', 'stone', 'cobble', 'bed
   'farmland', 'birch_side', 'birch_top', 'birch_leaves', 'iron_block', 'gold_block', 'diamond_block', 'cactus_side', 'cactus_top', 'dead_bush',
   'sandstone_side', 'sandstone_top', 'coal_block', 'obsidian', 'sapling', 'bricks', 'door_top', 'door_bot', 'ladder', 'bookshelf', 'tnt_side', 'tnt_top',
   'tnt_bot', 'pumpkin_side', 'pumpkin_top', 'pumpkin_face', 'jack_face', 'clay', 'mossy_cobble', 'flowing', 'dirt_dark', 'emerald_block', 'rune_ore',
-  'rune_block', 'plaster', 'destroy0', 'destroy1', 'destroy2', 'destroy3', 'destroy4', 'destroy5', 'destroy6', 'destroy7', 'destroy8', 'destroy9']
+  'rune_block', 'plaster', 'fire', 'redstone_torch', 'destroy0', 'destroy1', 'destroy2', 'destroy3', 'destroy4', 'destroy5', 'destroy6', 'destroy7', 'destroy8', 'destroy9']
 export const TI = Object.fromEntries(TILES.map((n, i) => [n, i]))
 
 // shapes: 'cube' (default), 'cross' (plants), 'torch', 'liquid', 'fence', 'door', 'ladder', or a box [x0,y0,z0,x1,y1,z1] in 16ths
@@ -110,9 +110,15 @@ blk(74, 'Timber Wall', { t: 'planks', shape: 'edge', op: false, opac: 0, h: 2, t
 blk(78, 'Fence', { t: 'planks', shape: 'edge', op: false, opac: 0, h: 2, tool: AXE, snd: 'wood', drop: 32, fence: true, fuel: 300, sup: true })
 blk(79, 'Tree', { t: { top: 'log_top', side: 'log_side' }, h: 2, tool: AXE, snd: 'wood', tree: true, drop: null, sup: true })
 blk(80, 'Scenery', { t: 'planks', h: 1.5, tool: AXE, snd: 'wood', drop: 11, scenery: true, sup: true })
+blk(81, 'Fire', { t: 'fire', shape: 'cross', tr: 'cut', solid: false, op: false, h: 0, light: 15, drop: null, rep: true, fire: true, snd: 'cloth' })
+blk(82, 'Redstone Torch', { t: 'redstone_torch', h: 0, solid: false, op: false, shape: 'torch', light: 7, snd: 'wood', sup: true, power: true })   // (lights TNT it touches)
+// MC's fire: [encouragement (how readily fire spreads to the air beside it), flammability (how readily it burns away)]
+for (const [ids, b] of [[[10, 46, 79], [5, 5]], [[11, 36, 32, 78, 74, 80], [5, 20]], [[12, 47, 39], [30, 60]], [[59], [30, 20]], [[60], [15, 100]], [[35], [60, 20]], [[29, 30, 31, 52], [60, 100]]]) for (const i of ids) B[i].burn = b
 // MC's biome colouring: these take the RS ground colour (world.tintAt) over their green
 for (const i of [1, 12, 29, 30, 31, 47, 65, 66]) B[i].tint = true
 export const BLOCKS = B
+// a liquid's surface in its block by its level (meta: 0 source, 1-7 flowing, 8 falling: MC's levels)
+export const liquidTop = (m) => { const l = m & 15; return l === 0 || l >= 8 ? 14 / 16 : (8 - l) / 9 }
 
 // ---------------------------------------------------------------------------- items
 // tiers: wood 0, stone 1, iron 2, diamond 3, gold (harvests as wood), runite 4 (MineScape: past diamond)
@@ -295,6 +301,7 @@ shapeless([291, 291, 291, 279], 292)
 shaped(['GSG', 'SGS', 'GSG'], { G: 277, S: [6] }, 60)
 shaped(['P', 'T'], { P: 61, T: 28 }, 62)
 shapeless([258, 284], 293)
+shaped(['R', 'S'], { R: 262, S: 256 }, 82)
 shapeless([275], 288, 3)
 shaped(['MMM', 'SES', 'WWW'], { M: 283, S: 289, E: 290 /* (no eggs: a door's hinge stands in) */, W: 266 }, 329)
 for (const [blkId, itemId] of [[48, 258], [49, 259], [50, 260], [64, 261], [54, 257], [68, 299]]) {

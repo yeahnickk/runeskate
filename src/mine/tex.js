@@ -129,6 +129,18 @@ const painters = {
     for (let y = 8; y < 16; y++) { p.set(7, y, [137, 103, 39]); p.set(8, y, [104, 78, 30]) }
     p.set(7, 6, [255, 255, 160]); p.set(8, 6, [255, 230, 80]); p.set(7, 7, [255, 200, 50]); p.set(8, 7, [240, 150, 30])
   },
+  redstone_torch(p) {
+    p.clear()
+    for (let y = 8; y < 16; y++) { p.set(7, y, [137, 103, 39]); p.set(8, y, [104, 78, 30]) }
+    p.set(7, 6, [255, 90, 70]); p.set(8, 6, [230, 30, 20]); p.set(7, 7, [200, 20, 10]); p.set(8, 7, [150, 10, 5])
+  },
+  fire(p) {     // (MC's fire: tongues of flame, yellow at the root, orange to red at the tips; the rest see-through)
+    p.clear()
+    for (let x = 0; x < 16; x++) {
+      const h = 6 + (p.R() * 9 | 0) + (x % 4 === 1 ? 2 : 0)
+      for (let y = 15; y > 15 - h; y--) { const k = (15 - y) / h; if (k > 0.85 && p.R() < 0.5) continue; p.set(x, y, k < 0.3 ? [255, 236, 120] : k < 0.6 ? [252, 170, 40] : k < 0.85 ? [236, 100, 20] : [190, 50, 10]) }
+    }
+  },
   tall_grass(p) {
     p.clear()
     for (let i = 0; i < 9; i++) { const x = 1 + (p.R() * 14 | 0), h = 6 + (p.R() * 9 | 0); let xx = x; for (let y = 15; y > 15 - h; y--) { p.set(xx, y, [70 + (p.R() * 40 | 0), 140 + (p.R() * 40 | 0), 50]); if (p.R() < 0.2) xx += p.R() < 0.5 ? -1 : 1 } }

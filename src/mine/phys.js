@@ -1,7 +1,7 @@
 // Minecraft's entity physics, per 20 Hz tick, in blocks: AABB moves clipped axis by axis (y, x, z) against block
 // boxes, step-up 0.6, sneaking can't walk off edges, gravity 0.08 with 0.98 drag, ground slip 0.6*0.91, water and lava
 // drag, ladders. Pure.
-import { BLOCKS } from './blocks.js'
+import { BLOCKS, liquidTop } from './blocks.js'
 import { doorBox } from './mesh.js'
 
 // a wall/fence on a block's edges (meta: 1 west -x, 2 south +z, 4 east +x, 8 north -z), 2/16 thick
@@ -100,26 +100,44 @@ export function move(world, e, dx, dy, dz) {
 }
 
 // what the entity is in: water / lava / ladder (feet or body)
+// the surface of the liquid in a cell (in its block, 0-1): full under more of it, else by its flow level
+export function liquidH(world, x, y, z) { const id = world.get(x, y, z); return world.get(x, y + 1, z) === id ? 1 : liquidTop(world.meta(x, y, z)) }
+// MC's current: a liquid runs from its higher cells to its lower (levels: a source or a fall 0, flowing 1-7)
+export function flowAt(world, x, y, z) {
+  const id = world.get(x, y, z), d = BLOCKS[id]; if (!d || !d.liquid) return null
+  const lv = (m) => { const l = m & 15; return l >= 8 ? 0 : l }, my = lv(world.meta(x, y, z))
+  let fx = 0, fz = 0
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const n = world.get(x + dx, y, z + dz)
+    if (n === id) { const k = lv(world.meta(x + dx, y, z + dz)) - my; fx += dx * k; fz += dz * k }
+    else if (!BLOCKS[n].solid && world.get(x + dx, y - 1, z + dz) === id) { const k = lv(world.meta(x + dx, y - 1, z + dz)) + 8 - my; fx += dx * k; fz += dz * k }   // (a drop beside: it runs over the edge)
+  }
+  const L = Math.hypot(fx, fz); return L ? [fx / L, fz / L] : null
+}
 export function medium(world, e) {
   const a = aabb(e)
-  let water = false, lava = false, climb = false, eyesWater = false
+  let water = false, lava = false, climb = false, eyesWater = false, fire = false, fx = 0, fz = 0
   for (let x = Math.floor(a[0] + 0.001); x <= Math.floor(a[3] - 0.001); x++) for (let z = Math.floor(a[2] + 0.001); z <= Math.floor(a[5] - 0.001); z++)
     for (let y = Math.floor(a[1] + 0.001); y <= Math.floor(a[4] - 0.001); y++) {
       const id = world.get(x, y, z), d = BLOCKS[id]
       if (!d) continue
-      if (d.liquid === 'water' && a[1] < y + 14 / 16) water = true
-      if (d.liquid === 'lava') lava = true
+      if (d.liquid && a[1] < y + liquidH(world, x, y, z)) {
+        if (d.liquid === 'water') water = true; else lava = true
+        const f = flowAt(world, x, y, z); if (f) { fx += f[0]; fz += f[1] }
+      }
       if (d.climb) climb = true
+      if (d.fire) fire = true
     }
-  const ey = e.y + (e.eye || e.h * 0.85), ed = BLOCKS[world.get(Math.floor(e.x), Math.floor(ey), Math.floor(e.z))]
-  if (ed && ed.liquid === 'water' && ey < Math.floor(ey) + 14 / 16) eyesWater = true
-  return { water, lava, climb, eyesWater }
+  const ey = e.y + (e.eye || e.h * 0.85), ex = Math.floor(e.x), eyy = Math.floor(ey), ez = Math.floor(e.z), ed = BLOCKS[world.get(ex, eyy, ez)]
+  if (ed && ed.liquid === 'water' && ey < eyy + liquidH(world, ex, eyy, ez)) eyesWater = true
+  const L = Math.hypot(fx, fz)
+  return { water, lava, climb, eyesWater, fire, flow: L ? [fx / L, fz / L] : null }
 }
 
 // one 20 Hz tick of MC movement. inp: { fw, st (-1..1), jump, sneak, sprint, yaw (radians, 0 = facing -Z), fly }
 export function tickMove(world, e, inp) {
   const m = medium(world, e)
-  e.inWater = m.water; e.inLava = m.lava; e.eyesWater = m.eyesWater; e.onLadder = m.climb
+  e.inWater = m.water; e.inLava = m.lava; e.eyesWater = m.eyesWater; e.onLadder = m.climb; e.inFire = m.fire
   let fw = inp.fw || 0, st = inp.st || 0
   if (e.sneak) { fw *= 0.3; st *= 0.3 }
   const len = Math.hypot(fw, st); if (len > 1) { fw /= len; st /= len }
@@ -139,9 +157,10 @@ export function tickMove(world, e, inp) {
   if (e.inWater || e.inLava) {
     const y0 = e.y
     mr(0.02)
+    if (m.flow) { const k = e.inWater ? 0.014 : 0.0023; e.vx += m.flow[0] * k; e.vz += m.flow[1] * k }   // (MC: the current carries you)
     // MC: only shallowly in (the water's top under 0.4 over your feet) a jump is a real jump; deeper, a stroke up
     let wy = Math.floor(e.y); while (BLOCKS[world.get(Math.floor(e.x), wy + 1, Math.floor(e.z))].liquid === 'water') wy++
-    const fh = BLOCKS[world.get(Math.floor(e.x), wy, Math.floor(e.z))].liquid === 'water' ? wy + 14 / 16 - e.y : 0
+    const fh = BLOCKS[world.get(Math.floor(e.x), wy, Math.floor(e.z))].liquid === 'water' ? wy + liquidH(world, Math.floor(e.x), wy, Math.floor(e.z)) - e.y : 0
     if (inp.jump && e.inWater && fh <= 0.4 && !(e.jumpCd > 0)) { e.vy = 0.42; e.jumpCd = 10 }
     else if (inp.jump) e.vy += 0.04
     if (e.jumpCd > 0) e.jumpCd--

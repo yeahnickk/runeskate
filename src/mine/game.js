@@ -5,7 +5,7 @@
 // villagers to trade with; the day/night cycle; advancements. Pure (no DOM/three): the client reads `events`.
 import { BLOCKS, ITEMS, def, digInfo, dropsOf, placeOf, melee, SMELT, SMELT_XP, COOK_TICKS, fuelOf, maxStack, nameOf, ARMOR_MATS } from './blocks.js'
 import { World, rngOf, hash, CS, WH } from './world.js'
-import { tickMove, raycast, aabb, rayBox, move } from './phys.js'
+import { tickMove, raycast, aabb, rayBox, move, flowAt } from './phys.js'
 import { MOBS, makeMob, tickMob, FOLK_KINDS, setNid, RS_SPAWN } from './mobs.js'
 import { give, stack, same, count, take } from './inv.js'
 
@@ -38,6 +38,12 @@ export const ADV = [
   { id: 'wildy', n: 'Ditch Jumper', d: 'Step into the Wilderness', icon: 5, place: 'Wilderness' },
 ]
 
+const N4 = [[1, 0], [-1, 0], [0, 1], [0, -1]], N6 = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]
+const LQ = { water: { id: 8, drop: 1, max: 7, delay: 5 }, lava: { id: 9, drop: 2, max: 6, delay: 30 } }    // (MC overworld: lava runs 3)
+// MC's blast resistance (explosionResistance / 5): its hardness, but stone-like blocks hold 6, planks 3, obsidian 1200
+const resist = (id) => { const b = BLOCKS[id]; return b.liquid ? 100 : b.h < 0 ? 3.6e6 : id === 55 ? 1200 : [3, 4, 21, 38, 63, 72, 75, 76].includes(id) ? 6 : [11, 36].includes(id) ? 3 : b.h }
+// what running water or lava goes into (and breaks): air and anything that doesn't block it, bar doors and ladders
+const washes = (b) => { const d = BLOCKS[b]; return !b || (!d.solid && !d.liquid && d.shape !== 'door' && !d.climb) }
 const xpNeed = (l) => l < 16 ? 2 * l + 7 : l < 31 ? 5 * l - 38 : 9 * l - 158
 
 // a normal's main axis as a block face
@@ -51,7 +57,7 @@ export class Game {
     this.time = 1000; this.ticks = 0
     this.ents = []; this.events = []
     this.furnaces = new Map(); this.chests = new Map()
-    this.adv = {}; this.populated = new Set(); this.torches = new Set(); this.flow = []; this.respawns = []
+    this.adv = {}; this.populated = new Set(); this.torches = new Set(); this.flow = new Map(); this.fires = new Map(); this.lavas = new Set(); this.respawns = []
     this.name = opts.name || 'Steve'
     const j = world.json, sx = j.spawn[0], sz = -j.spawn[1] - 1
     this.spawn = [sx + 0.5, this.standY(sx, sz), sz + 0.5]
@@ -157,6 +163,8 @@ export class Game {
     if (this.ticks % 10 === 0) this.checkAdv()
     this.randomTicks()
     this.flowTick()
+    this.fireTick()
+    this.lavaTicks()
   }
 
   tickPlayer(inp) {
@@ -186,6 +194,7 @@ export class Game {
     if (P.eyesWater && !crea) { P.air--; if (P.air <= -20) { P.air = 0; this.hurtPlayer(2, null, 'drown') } }
     else P.air = Math.min(300, P.air + 4)
     if (P.inLava && !crea) { P.fire = 300; if (this.ticks % 10 === 0) this.hurtPlayer(4, null, 'lava') }
+    if (P.inFire && !crea && !P.inWater) { P.fire = Math.max(P.fire, 160); if (this.ticks % 10 === 0) this.hurtPlayer(1, null, 'fire') }   // (MC: standing in fire, 1 a hit and alight 8 s)
     if (P.fire > 0) { P.fire--; if (P.inWater) P.fire = 0; else if (P.fire % 20 === 0 && !P.inLava && !crea) this.hurtPlayer(1, null, 'fire') }
     if (!crea && this.ticks % 10 === 0) {
       const a = aabb(P)
@@ -278,7 +287,7 @@ export class Game {
         W.set(t.x, y0, t.z, 56, mm); W.set(t.x, y0 + 1, t.z, 57, mm)
         return this.emit({ t: 'snd', s: mm & 4 ? 'door_open' : 'door_close', x: t.x, y: t.y, z: t.z })
       }
-      if (d.tnt && hid === 293) { W.set(t.x, t.y, t.z, 0); this.ents.push({ e: 'tnt', x: t.x + 0.5, y: t.y, z: t.z + 0.5, vx: 0, vy: 0.2, vz: 0, w: 0.98, h: 0.98, fuse: 80 }); this.wear(1); this.emit({ t: 'snd', s: 'fuse' }); return }
+      if (d.tnt && it && it.fire) { this.prime(t.x, t.y, t.z); this.wear(1); P.swing = 6; return }
     }
     if (!held) return
     if (it && it.food) { if (P.food < 20 || crea || hid === 329) { P.eat = 1 } return }
@@ -286,6 +295,11 @@ export class Game {
     if (it && it.bucket !== undefined) return this.useBucket(it)
     if (!t) return
     const tb = BLOCKS[t.id]
+    if (it && it.fire) {          // flint and steel: fire on the face you click (in a plant's own cell)
+      const [x, y, z] = tb.rep && !tb.liquid ? [t.x, t.y, t.z] : [t.x + t.face[0], t.y + t.face[1], t.z + t.face[2]]
+      if (inp.usePress && this.setFire(x, y, z)) { this.wear(1); P.swing = 6; this.emit({ t: 'snd', s: 'ignite', x: x + 0.5, y: y + 0.5, z: z + 0.5 }) }
+      return
+    }
     if (it && it.tool === 'hoe' && (t.id === 1 || t.id === 2 || t.id === 20) && t.face[1] >= 0 && !W.get(t.x, t.y + 1, t.z)) {
       W.set(t.x, t.y, t.z, 45); this.emit({ t: 'snd', s: 'till', x: t.x, y: t.y, z: t.z }); this.wear(1); P.swing = 6; return
     }
@@ -312,13 +326,13 @@ export class Game {
     if (ITEMS[hid] && ITEMS[hid].plant && below !== 45) return
     if ((d.shape === 'cross') && !d.crop && ![1, 2, 45, 23].includes(below) && !(pid === 52 && below === 6)) return
     if (d.cactus && below !== 6 && below !== 51) return
-    if (pid === 28 && t.face[1] < 0) return
-    if (pid === 28 && !BLOCKS[t.id].op && t.face[1] === 0) return
+    if (d.shape === 'torch' && t.face[1] < 0) return
+    if (d.shape === 'torch' && !BLOCKS[t.id].op && t.face[1] === 0) return
     if (pid === 58 && t.face[1] !== 0) return
     let meta = 0
     const k = ((Math.round(P.yaw / (Math.PI / 2)) % 4) + 4) % 4, look = [0, 3, 2, 1][k]   // the way the player faces: 0 N 1 E 2 S 3 W
     if (d.facing) meta = (look + 2) & 3
-    if (pid === 28 && t.face[1] === 0) meta = t.face[0] === -1 ? 4 : t.face[0] === 1 ? 2 : t.face[2] === -1 ? 1 : 3    // wall torch leans off its wall
+    if (d.shape === 'torch' && t.face[1] === 0) meta = t.face[0] === -1 ? 4 : t.face[0] === 1 ? 2 : t.face[2] === -1 ? 1 : 3    // wall torch leans off its wall
     if (pid === 58) meta = t.face[2] === -1 ? 0 : t.face[0] === 1 ? 1 : t.face[2] === 1 ? 2 : 3
     if (d.solid) {   // never place a block inside someone
       const bx = [x, y, z, x + 1, y + 1, z + 1]
@@ -338,6 +352,8 @@ export class Game {
     this.consume()
     if (d.fall) this.checkFall(x, y, z)
     this.wake(x, y, z)
+    // a redstone torch lights the TNT it touches (placed either way round), as MC's redstone power
+    if (d.tnt || d.power) for (const [dx, dy, dz] of N6) { const b = BLOCKS[W.get(x + dx, y + dy, z + dz)]; if (d.tnt && b.power) { this.prime(x, y, z); break } if (d.power && b.tnt) this.prime(x + dx, y + dy, z + dz) }
   }
   consume(n = 1) {
     if (this.mode === 'creative') return
@@ -359,7 +375,8 @@ export class Game {
     if (it.bucket === 0) {
       const d = BLOCKS[t.id]
       if (!d.liquid) return
-      W.set(t.x, t.y, t.z, 0)
+      if ((W.meta(t.x, t.y, t.z) & 15) !== 0) return          // (MC: only a source fills a bucket)
+      W.set(t.x, t.y, t.z, 0); this.wake(t.x, t.y, t.z)
       const full = { id: d.liquid === 'water' ? 283 : 287, n: 1, d: 0 }
       if (this.mode !== 'creative') { this.consume(); if (!P.inv[P.sel]) P.inv[P.sel] = full; else if (give(P.inv, full)) this.dropAtPlayer(full) }
       this.emit({ t: 'snd', s: 'bucket' })
@@ -368,7 +385,8 @@ export class Game {
     let x = t.x, y = t.y, z = t.z
     if (!BLOCKS[t.id].rep) { x += t.face[0]; y += t.face[1]; z += t.face[2] }
     if (!BLOCKS[W.get(x, y, z)].rep) return
-    W.set(x, y, z, it.bucket)
+    if (W.get(x, y, z)) this.breakBlock(x, y, z, true)
+    W.set(x, y, z, it.bucket); this.wake(x, y, z)
     if (this.mode !== 'creative') P.inv[P.sel] = { id: 282, n: 1, d: 0 }
     this.emit({ t: 'snd', s: 'bucket' })
   }
@@ -454,27 +472,146 @@ export class Game {
   afterRemove(x, y, z) {
     const W = this.world
     const up = W.get(x, y + 1, z), ud = BLOCKS[up]
-    if (ud.sup && (up !== 28 || (W.meta(x, y + 1, z) & 7) === 0)) { this.breakBlock(x, y + 1, z, true) }
-    for (const [dx, dz, w] of [[1, 0, 4], [-1, 0, 2], [0, 1, 1], [0, -1, 3]]) if (W.get(x + dx, y, z + dz) === 28 && (W.meta(x + dx, y, z + dz) & 7) === w) this.breakBlock(x + dx, y, z + dz, true)
+    if (ud.sup && (ud.shape !== 'torch' || (W.meta(x, y + 1, z) & 7) === 0)) { this.breakBlock(x, y + 1, z, true) }
+    for (const [dx, dz, w] of [[1, 0, 4], [-1, 0, 2], [0, 1, 1], [0, -1, 3]]) if (BLOCKS[W.get(x + dx, y, z + dz)].shape === 'torch' && (W.meta(x + dx, y, z + dz) & 7) === w) this.breakBlock(x + dx, y, z + dz, true)
     if (ud.fall) this.checkFall(x, y + 1, z)
     this.wake(x, y, z)
   }
-  wake(x, y, z) { this.flow.push([x, y, z, 0]) }
-  // water runs into a hole beside or under it (MC's flowing water, kept to a few blocks so caves don't flood whole)
+  // ------------------------------------------------------------------------ liquids (MC's levels: meta 0 a source, 1-7
+  // flowing, 8 falling). Water runs 7 blocks every 5 ticks, lava 3 every 30; a cell works out what runs into it from
+  // above and beside, so only cells something changed by are ever looked at (a whole lake never ticks)
+  wake(x, y, z) { this.sched(x, y, z, 2); for (const [dx, dy, dz] of N6) this.sched(x + dx, y + dy, z + dz, 2) }
+  sched(x, y, z, dt) { const k = x + ',' + y + ',' + z, t = this.ticks + dt, o = this.flow.get(k); if (o === undefined || o > t) this.flow.set(k, t) }
   flowTick() {
+    if (!this.flow.size) return
+    const due = []
+    for (const [k, t] of this.flow) { if (t <= this.ticks) { due.push(k); if (due.length >= 400) break } }
+    for (const k of due) { this.flow.delete(k); const [x, y, z] = k.split(',').map(Number); this.liquid(x, y, z) }
+  }
+  liquid(x, y, z) {
+    const W = this.world, id = W.get(x, y, z), d = BLOCKS[id]
+    if (y < 1 || y >= WH - 1 || !W.has(x >> 4, z >> 4)) return
+    const lvl = (x, y, z) => W.meta(x, y, z) & 15
+    const open = washes
+    if (d.liquid === 'lava') {
+      // lava meets water: a source sets to obsidian, flowing lava to cobblestone; lava running down onto water makes stone
+      for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) if (BLOCKS[W.get(x + dx, y + dy, z + dz)].liquid === 'water') {
+        W.set(x, y, z, lvl(x, y, z) === 0 ? 55 : 4); this.emit({ t: 'snd', s: 'fizz', x: x + 0.5, y: y + 0.5, z: z + 0.5 }); this.emit({ t: 'smoke', x: x + 0.5, y: y + 1, z: z + 0.5 }); this.wake(x, y, z); return
+      }
+      if (BLOCKS[W.get(x, y - 1, z)].liquid === 'water') { W.set(x, y - 1, z, 3); this.emit({ t: 'snd', s: 'fizz', x: x + 0.5, y, z: z + 0.5 }); this.wake(x, y - 1, z) }
+      this.lavas.add(x + ',' + y + ',' + z)
+      for (const [dx, dy, dz] of N6) if (BLOCKS[W.get(x + dx, y + dy, z + dz)].tnt) this.prime(x + dx, y + dy, z + dz)   // (TNT in lava's heat goes off)
+      if (this.rng() < 0.3) this.lavaTick(x, y, z)
+    }
+    if (d.liquid && lvl(x, y, z) === 0) { this.spreadFrom(x, y, z, d.liquid); return }    // (a source stays; it only feeds)
+    if (!d.liquid && !open(id)) return
+    // what runs in: from above (falling), else the lowest-level feeder beside it that can't run down instead
+    let L = null, lv = 99, srcs = 0, fall = false
+    const up = BLOCKS[W.get(x, y + 1, z)]
+    if (up.liquid) { L = up.liquid; lv = 8; fall = true }
+    else for (const [dx, dz] of N4) {
+      const nb = BLOCKS[W.get(x + dx, y, z + dz)]; if (!nb.liquid) continue
+      const nl = lvl(x + dx, y, z + dz), below = W.get(x + dx, y - 1, z + dz)
+      if (nl === 0 && nb.liquid === 'water') srcs++
+      if (open(below) || (BLOCKS[below].liquid === nb.liquid && lvl(x + dx, y - 1, z + dz) !== 0)) continue   // (it falls instead)
+      const e = (nl >= 8 ? 0 : nl) + LQ[nb.liquid].drop
+      if (e < lv || (e === lv && nb.liquid === 'water')) { L = nb.liquid; lv = e }
+    }
+    if (L === 'water' && srcs >= 2) { const b = W.get(x, y - 1, z); if (BLOCKS[b].solid || (b === 8 && lvl(x, y - 1, z) === 0)) lv = 0 }   // (MC's infinite water)
+    if (L && !fall && lv > LQ[L].max) L = null
+    if (!L) { if (d.liquid) { W.set(x, y, z, 0); this.nb6(x, y, z, LQ[d.liquid].delay) } return }   // (its feeder is gone: it dries up)
+    if (d.liquid && d.liquid !== L) {           // (the other kind runs into it)
+      W.set(x, y, z, d.liquid === 'lava' ? 4 : 3); this.emit({ t: 'snd', s: 'fizz', x: x + 0.5, y: y + 0.5, z: z + 0.5 }); this.wake(x, y, z); return
+    }
+    if (d.liquid === L && lvl(x, y, z) === lv) return
+    if (id && !d.liquid) { if (L === 'lava') { W.set(x, y, z, 0); this.emit({ t: 'snd', s: 'fizz', x: x + 0.5, y, z: z + 0.5 }) } else { W.set(x, y, z, 0); for (const [did, n] of dropsOf(id, this.rng, true)) this.dropItem({ id: did, n, d: 0 }, x + 0.5, y + 0.3, z + 0.5); this.afterRemove(x, y, z) } }   // (water washes a torch or a plant off, in any mode; lava burns it)
+    W.set(x, y, z, LQ[L].id, lv)
+    this.nb6(x, y, z, LQ[L].delay)
+  }
+  nb6(x, y, z, dt) { for (const [dx, dy, dz] of N6) this.sched(x + dx, y + dy, z + dz, dt) }
+  // a source wakes the cells it could run into (never the rest of its lake)
+  spreadFrom(x, y, z, L) {
+    const W = this.world
+    for (const [dx, dy, dz] of N6) { if (dy > 0) continue; const b = W.get(x + dx, y + dy, z + dz), bd = BLOCKS[b]; if (washes(b) || (bd.liquid && ((W.meta(x + dx, y + dy, z + dz) & 15) !== 0 || bd.liquid !== L))) this.sched(x + dx, y + dy, z + dz, LQ[L].delay) }
+  }
+
+  // ------------------------------------------------------------------------ fire (MC's BlockFire): it burns what's
+  // flammable beside it away (TNT it lights), creeps to air beside flammable blocks, and dies out with nothing to burn
+  flam(x, y, z) { const b = BLOCKS[this.world.get(x, y, z)].burn; return b ? b[1] : 0 }
+  enc(x, y, z) { let e = 0; for (const [dx, dy, dz] of N6) { const b = BLOCKS[this.world.get(x + dx, y + dy, z + dz)].burn; if (b && b[0] > e) e = b[0] } return e }
+  setFire(x, y, z, age = 0) {
+    const W = this.world, b = W.get(x, y, z)
+    if (b && !(BLOCKS[b].rep && !BLOCKS[b].liquid && !BLOCKS[b].fire)) return false
+    if (!BLOCKS[W.get(x, y - 1, z)].solid && !this.enc(x, y, z)) return false      // (fire needs a floor or something to burn)
+    W.set(x, y, z, 81, Math.min(15, age))
+    this.fires.set(x + ',' + y + ',' + z, this.ticks + 30 + (this.rng() * 10 | 0))
+    return true
+  }
+  prime(x, y, z, fuse = 80) {
+    this.world.set(x, y, z, 0)
+    this.ents.push({ e: 'tnt', x: x + 0.5, y, z: z + 0.5, vx: (this.rng() - 0.5) * 0.04, vy: 0.2, vz: (this.rng() - 0.5) * 0.04, w: 0.98, h: 0.98, fuse })
+    this.emit({ t: 'snd', s: 'fuse', x: x + 0.5, y, z: z + 0.5 })
+    this.afterRemove(x, y, z)
+  }
+  fireTick() {
+    if (!this.fires.size) return
+    const W = this.world, R = this.rng, due = []
+    for (const [k, t] of this.fires) if (t <= this.ticks) { due.push(k); if (due.length >= 64) break }
+    for (const k of due) {
+      const [x, y, z] = k.split(',').map(Number)
+      if (W.get(x, y, z) !== 81) { this.fires.delete(k); continue }
+      if (!W.has(x >> 4, z >> 4)) continue
+      const floor = BLOCKS[W.get(x, y - 1, z)].solid, fuel = this.enc(x, y, z) > 0
+      const out = () => { W.set(x, y, z, 0); this.fires.delete(k) }
+      let age = W.meta(x, y, z) & 15
+      if (!floor && !fuel) { out(); continue }
+      if (age < 15) { age = Math.min(15, age + (R() * 3 / 2 | 0)); W.set(x, y, z, 81, age) }
+      if (!fuel) { if (!floor || age > 3) out(); else this.fires.set(k, this.ticks + 30 + (R() * 10 | 0)); continue }
+      if (age === 15 && R() < 0.25 && !this.flam(x, y - 1, z)) { out(); continue }
+      // burn the blocks round it
+      for (const [dx, dy, dz] of N6) {
+        const bx = x + dx, by = y + dy, bz = z + dz, f = this.flam(bx, by, bz)
+        if (!f || R() * (dy ? 250 : 300) >= f) continue
+        if (BLOCKS[W.get(bx, by, bz)].tnt) { this.prime(bx, by, bz); continue }
+        W.set(bx, by, bz, 0); this.afterRemove(bx, by, bz)
+        if (R() * (age + 10) < 5) this.setFire(bx, by, bz, age + (R() * 5 / 4 | 0))
+      }
+      // creep to the air round it beside something flammable
+      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 4; dy++) {
+        if (!dx && !dy && !dz) continue
+        const bx = x + dx, by = y + dy, bz = z + dz; if (W.get(bx, by, bz)) continue
+        const e = this.enc(bx, by, bz); if (!e) continue
+        const range = 100 + (dy > 1 ? (dy - 1) * 100 : 0), ch = (e + 40) / (age + 30)
+        if (R() * range <= ch) this.setFire(bx, by, bz, age + (R() * 5 / 4 | 0))
+      }
+      if (W.get(x, y, z) === 81) this.fires.set(k, this.ticks + 30 + (R() * 10 | 0))
+    }
+  }
+  // lava sets the air round it alight where something flammable is (MC's lava random tick)
+  lavaTick(x, y, z) {
+    const W = this.world, R = this.rng, n = R() * 3 | 0
+    if (n > 0) {
+      let px = x, py = y, pz = z
+      for (let i = 0; i < n; i++) {
+        px += (R() * 3 | 0) - 1; py++; pz += (R() * 3 | 0) - 1
+        const b = W.get(px, py, pz)
+        if (!b) { if (this.enc(px, py, pz)) { this.setFire(px, py, pz); return } }
+        else if (BLOCKS[b].solid) return
+      }
+    } else for (let i = 0; i < 3; i++) {
+      const px = x + (R() * 3 | 0) - 1, pz = z + (R() * 3 | 0) - 1
+      if (!W.get(px, y + 1, pz) && this.flam(px, y, pz)) this.setFire(px, y + 1, pz)
+    }
+  }
+  lavaTicks() {
+    if (!this.lavas.size || this.ticks % 10) return
     const W = this.world
     let n = 0
-    while (this.flow.length && n++ < 24) {
-      const [x, y, z, gen] = this.flow.shift()
-      const id = W.get(x, y, z)
-      if (id !== 0 && !(BLOCKS[id].rep && !BLOCKS[id].liquid)) continue
-      const up = W.get(x, y + 1, z)
-      let src = BLOCKS[up].liquid ? up : 0
-      if (!src && gen < 6) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const s = W.get(x + dx, y, z + dz); if (BLOCKS[s].liquid === 'water' && BLOCKS[W.get(x + dx, y - 1, z + dz)].solid) { src = s; break } }
-      if (!src || gen > 7) continue
-      W.set(x, y, z, src)
-      if (src === 9) continue
-      for (const [dx, dy, dz] of [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) { const b = W.get(x + dx, y + dy, z + dz); if (!b || (BLOCKS[b].rep && !BLOCKS[b].liquid)) this.flow.push([x + dx, y + dy, z + dz, gen + 1]) }
+    for (const k of this.lavas) {
+      if (n++ > 300) break
+      const [x, y, z] = k.split(',').map(Number)
+      if (BLOCKS[W.get(x, y, z)].liquid !== 'lava') { this.lavas.delete(k); continue }
+      if (this.rng() < 1 / 30) this.lavaTick(x, y, z)
     }
   }
   checkFall(x, y, z) {
@@ -615,34 +752,47 @@ export class Game {
     a.vx *= 0.99; a.vy = a.vy * 0.99 - 0.05; a.vz *= 0.99
     if (a.age > 400) a.gone = true
   }
+  // MC's explosion: rays out from the middle, each worn down by the blast resistance of what it crosses (stone holds,
+  // obsidian and bedrock stop it, water swallows it: TNT in water breaks nothing); what a ray still has power for goes
   explode(x, y, z, r, src) {
     const W = this.world, R = this.rng, crea = this.mode === 'creative'
     this.emit({ t: 'boom', x, y, z, r })
-    for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) for (let dz = -r; dz <= r; dz++) {
-      const d = Math.hypot(dx, dy, dz)
-      if (d > r || R() > (1 - d / r) * 1.6) continue
-      const bx = Math.floor(x + dx), by = Math.floor(y + dy), bz = Math.floor(z + dz), id = W.get(bx, by, bz), b = BLOCKS[id]
-      if (!id || b.liquid || b.h < 0 || b.h >= 50) continue
-      if (b.tnt) { W.set(bx, by, bz, 0); this.ents.push({ e: 'tnt', x: bx + 0.5, y: by, z: bz + 0.5, vx: (R() - 0.5) * 0.1, vy: 0.2, vz: (R() - 0.5) * 0.1, w: 0.98, h: 0.98, fuse: 10 + (R() * 20 | 0) }); continue }
+    const hit = new Map()
+    if (!(src && src.inWater)) for (let i = 0; i < 16; i++) for (let j = 0; j < 16; j++) for (let k = 0; k < 16; k++) {   // (MC: TNT in water breaks nothing)
+      if (i && i < 15 && j && j < 15 && k && k < 15) continue
+      let dx = i / 7.5 - 1, dy = j / 7.5 - 1, dz = k / 7.5 - 1; const L = Math.hypot(dx, dy, dz); dx /= L; dy /= L; dz /= L
+      let f = r * (0.7 + R() * 0.6), px = x, py = y, pz = z
+      while (f > 0) {
+        const bx = Math.floor(px), by = Math.floor(py), bz = Math.floor(pz), id = W.get(bx, by, bz)
+        if (id) { f -= (resist(id) + 0.3) * 0.3; if (f > 0 && !BLOCKS[id].liquid) hit.set(bx + ',' + by + ',' + bz, id) }
+        px += dx * 0.3; py += dy * 0.3; pz += dz * 0.3; f -= 0.225
+      }
+    }
+    // MC's damage + knockback: impact = (1 - dist / 2r) * how much of the body the blast can see
+    const seen = (e) => { let n = 0, c = 0; for (let a = 0; a <= 1; a += 0.5) for (let b = 0; b <= 1; b += 0.5) for (let d = 0; d <= 1; d += 0.5) {
+      c++; const tx = e.x - e.w / 2 + e.w * a, ty = e.y + e.h * b, tz = e.z - e.w / 2 + e.w * d, o = [x, y, z], v = [tx - x, ty - y, tz - z], L = Math.hypot(...v) || 1
+      if (!raycast(W, o, v.map(q => q / L), L, (id) => BLOCKS[id].solid && BLOCKS[id].op)) n++ } return n / c }
+    const knock = (e, isP) => {
+      const d = Math.hypot(e.x - x, e.y + (e.h || 0.5) / 2 - y, e.z - z)
+      if (d > r * 2) return
+      const imp = (1 - d / (r * 2)) * seen(e), L = d || 1
+      e.vx += (e.x - x) / L * imp; e.vy += (e.y + (e.h || 0.5) / 2 - y) / L * imp + 0.1 * imp; e.vz += (e.z - z) / L * imp
+      const dmg = (imp * imp + imp) / 2 * 7 * r * 2 + 1
+      if (isP) { if (imp > 0) this.hurtPlayer(dmg, src && src.type ? src : null, 'boom') }
+      else if (e.e === 'mob') { if (imp > 0) this.hurtMob(e, dmg, null) }
+      else if (e.e === 'item' || e.e === 'xp') { if (imp > 0.3) e.gone = true }             // (MC: a blast destroys the items it catches)
+    }
+    knock(this.player, true)
+    for (const m of this.ents) if (m !== src && !m.death && m.e !== 'arrow') knock(m, false)
+    for (const [key, id] of hit) {
+      const [bx, by, bz] = key.split(',').map(Number)
+      if (W.get(bx, by, bz) !== id) continue
+      if (BLOCKS[id].tnt) { this.prime(bx, by, bz, 10 + (R() * 20 | 0)); continue }      // (MC: a short fuse from a blast)
+      if (this.chests.has(key)) { this.breakBlock(bx, by, bz, true); continue }
       W.set(bx, by, bz, 0)
       if (!crea && R() < 1 / r) for (const [did, n] of dropsOf(id, R, true)) this.dropItem({ id: did, n, d: 0 }, bx + 0.5, by + 0.5, bz + 0.5)
-      if (this.chests.has(bx + ',' + by + ',' + bz)) this.breakBlock(bx, by, bz, true)
     }
-    for (let dx = -r - 1; dx <= r + 1; dx++) for (let dz = -r - 1; dz <= r + 1; dz++) for (let dy = -r - 1; dy <= r + 1; dy++) {
-      const bx = Math.floor(x + dx), by = Math.floor(y + dy), bz = Math.floor(z + dz)
-      if (!W.get(bx, by, bz)) this.wake(bx, by, bz)
-    }
-    // MC's explosion damage: impact = (1 - dist / 2r), dmg = (impact^2 + impact) / 2 * 7 * 2r + 1
-    const hit = (e, isP) => {
-      const d = Math.hypot(e.x - x, e.y + e.h / 2 - y, e.z - z)
-      if (d > r * 2) return
-      const imp = 1 - d / (r * 2), dmg = (imp * imp + imp) / 2 * 7 * r * 2 + 1
-      const L = d || 1
-      e.vx += (e.x - x) / L * imp; e.vy += (e.y - y) / L * imp + 0.2; e.vz += (e.z - z) / L * imp
-      if (isP) this.hurtPlayer(dmg, src && src.type ? src : null, 'boom'); else this.hurtMob(e, dmg, null)
-    }
-    hit(this.player, true)
-    for (const m of this.ents) if (m.e === 'mob' && m !== src && !m.death) hit(m, false)
+    for (const key of hit.keys()) { const [bx, by, bz] = key.split(',').map(Number); if (!W.get(bx, by, bz)) this.afterRemove(bx, by, bz) }
   }
 
   tickItem(e) {
@@ -650,8 +800,8 @@ export class Game {
     e.age++
     if (e.age > 6000) { e.gone = true; return }
     const id = W.get(Math.floor(e.x), Math.floor(e.y + 0.1), Math.floor(e.z))
-    if (BLOCKS[id] && BLOCKS[id].liquid === 'lava') { e.gone = true; this.emit({ t: 'snd', s: 'fizz', x: e.x, y: e.y, z: e.z }); return }
-    if (BLOCKS[id] && BLOCKS[id].liquid === 'water') e.vy += 0.05
+    if (BLOCKS[id] && (BLOCKS[id].liquid === 'lava' || BLOCKS[id].fire)) { e.gone = true; this.emit({ t: 'snd', s: 'fizz', x: e.x, y: e.y, z: e.z }); return }
+    if (BLOCKS[id] && BLOCKS[id].liquid === 'water') { e.vy += 0.05; const f = flowAt(W, Math.floor(e.x), Math.floor(e.y + 0.1), Math.floor(e.z)); if (f) { e.vx += f[0] * 0.014; e.vz += f[1] * 0.014 } }   // (MC: items ride the current)
     // pushed out of a block it's stuck in
     if (BLOCKS[id] && BLOCKS[id].solid && BLOCKS[id].shape === 'cube') e.vy = 0.2
     e.vy -= 0.04
@@ -888,8 +1038,13 @@ export class Game {
     Object.assign(this.player, s.player, { dig: null, cursor: null, eat: 0, bowT: 0 })
     this.furnaces = new Map(s.furnaces || []); this.chests = new Map(s.chests || []); this.populated = new Set(s.populated || [])
     this.ents = (s.mobs || []).map(m => makeMob(m.type, m.x, m.y, m.z, this.rng, m))
-    this.torches.clear()
-    for (const k in s.edits || {}) { const a = s.edits[k]; const [cx, cz] = k.split(',').map(Number); for (let i = 0; i < a.length; i += 2) if ((a[i + 1] & 255) === 28) { const ci0 = a[i], y = ci0 % WH, col = (ci0 - y) / WH; this.torches.add((cx * 16 + (col & 15)) + ',' + y + ',' + (cz * 16 + (col >> 4))) } }
+    this.torches.clear(); this.fires.clear(); this.lavas.clear(); this.flow.clear()
+    for (const k in s.edits || {}) { const a = s.edits[k]; const [cx, cz] = k.split(',').map(Number); for (let i = 0; i < a.length; i += 2) {
+      const id = a[i + 1] & 255, ci0 = a[i], y = ci0 % WH, col = (ci0 - y) / WH, x = cx * 16 + (col & 15), z = cz * 16 + (col >> 4), key = x + ',' + y + ',' + z
+      if (id === 28) this.torches.add(key)
+      else if (id === 81) this.fires.set(key, 1)                                   // (fires burn on, liquids run on, after a load)
+      else if (id === 8 || id === 9) { if (id === 9) this.lavas.add(key); if (a[i + 1] >> 8) this.flow.set(key, 1) }
+    } }
   }
 }
 // MC's celestial angle (0 at noon... as MC: time 6000 = noon)

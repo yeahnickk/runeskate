@@ -125,6 +125,13 @@ Minecraft to play: the real 2004 map draws over the blocks, Minecraft's first pe
   (`game.hidden`). Generated roofs (`ROOFB`), `sup` blocks break when what holds them goes, big trees fell 2x2 (`trunk`).
 - Creative: tabbed inventory with search (E / I), Digit keys drop the hovered block on the hotbar. Options > Controls
   rebinds every key (`BINDS` in gui.js, saved in `opts.keys`).
+- Liquids are MC's levels in the block meta (0 source, 1-7 flowing, 8 falling; `liquidTop` the surface): game.js
+  `liquid()` works out what runs into a cell from above and beside, on a schedule (`flow`: water 5 ticks, lava 30), so
+  only cells an edit touched ever tick. Lava meeting water makes obsidian / cobblestone / stone; running liquid washes
+  off torches and plants (`washes`); the current pushes bodies and items (phys `flowAt`). Fire (81) is MC's BlockFire:
+  `burn` = [encouragement, flammability] per block, `fireTick` burns and creeps, `lavaTick` lights air by flammables.
+  TNT goes off from flint and steel, fire, lava, a redstone torch (82, `power`) beside it, or a blast (`prime`);
+  `explode` is MC's ray blast worn down by `resist` (water swallows it, obsidian holds), entities hit before blocks go.
 - Fights go by RS hitpoints for the weak (goblin 5, man 7: three or four punches), hunger drains at half MC's rate.
 - `bodies.js` the RS bodies: mobs are RS NPC models with their clips; the player (F5) is an RS character wearing the
   armour as an RS set and holding a pickaxe of the tool's tier / scimitar / shortbow. Pointer lock is on the GUI

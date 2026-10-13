@@ -27,8 +27,8 @@ export const keyName = (c) => !c ? 'NONE' : c.startsWith('Key') ? c.slice(3) : c
 function creativeTabs() {
   const RS = [71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 33, 34, 35, 36, 37]
   const NAT = [1, 2, 3, 6, 7, 10, 46, 12, 47, 22, 70, 23, 69, 53, 51, 52, 29, 30, 31, 65, 66, 61, 14, 15, 16, 18, 19, 17, 67, 55, 5]
-  const DEC = [13, 24, 25, 27, 28, 32, 39, 40, 58, 59, 60]
-  const skip = new Set([0, 9, 26, 45, 20, 56, 57, 41, 42, 43, 44, 8])
+  const DEC = [13, 24, 25, 27, 28, 82, 32, 39, 40, 58, 59, 60]
+  const skip = new Set([0, 9, 26, 45, 20, 56, 57, 41, 42, 43, 44, 8, 81])
   const blocks = Object.keys(BLOCKS).map(Number).filter(i => !skip.has(i))
   const items = Object.keys(ITEMS).map(Number), I = (id) => ITEMS[id]
   const used = new Set([...RS, ...NAT, ...DEC])
@@ -342,6 +342,10 @@ export class Gui {
     // crosshair (inverted, as MC)
     if (this.state === 'play' && !this.touch) { X.globalCompositeOperation = 'difference'; this.rect(cx - 4, (H / 2 | 0), 9, 1, '#fff'); this.rect(cx, (H / 2 | 0) - 4, 1, 4, '#fff'); this.rect(cx, (H / 2 | 0) + 1, 1, 4, '#fff'); X.globalCompositeOperation = 'source-over' }
     if (P.hurtT > 0 || G.mode === 'spectator') {}
+    if (P.fire > 0 && !crea && !P.inWater) {       // (MC: alight, flames lick up the bottom of the screen)
+      const t = performance.now() / 90
+      for (let x = 0; x < W; x += 4) { const h = H * (0.18 + 0.1 * Math.sin(x * 0.07 + t) + 0.06 * Math.sin(x * 0.19 - t * 1.7)); const g = X.createLinearGradient(0, H - h, 0, H); g.addColorStop(0, 'rgba(255,120,20,0)'); g.addColorStop(0.5, 'rgba(255,140,30,0.45)'); g.addColorStop(1, 'rgba(255,220,90,0.7)'); X.fillStyle = g; X.fillRect(x, H - h, 4, h) }
+    }
     // hotbar
     const hx = cx - 91, hy = H - 22
     this.rect(hx, hy, 182, 22, 'rgba(62,53,41,0.85)')                // (an OSRS stone strip)
