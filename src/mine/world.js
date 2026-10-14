@@ -31,6 +31,12 @@ function noise3(x, y, z, s) {
   return l(l(l(h(0, 0, 0), h(1, 0, 0), fx), l(h(0, 1, 0), h(1, 1, 0), fx), fy), l(l(h(0, 0, 1), h(1, 0, 1), fx), l(h(0, 1, 1), h(1, 1, 1), fx), fy), fz)
 }
 
+// the generated chunks; dropping any forgets World.chunk's last-asked cache
+class Chunks extends Map {
+  constructor(w) { super(); this.w = w }
+  delete(k) { this.w.lc = null; return super.delete(k) }
+  clear() { this.w.lc = null; super.clear() }
+}
 export class World {
   // map: { json, bin: Uint8Array } from assets/mine_world.*
   constructor(map, seed = 1) {
@@ -49,7 +55,7 @@ export class World {
       r = r * 0.8 + L * 0.2; g = g * 0.8 + L * 0.2; bb = Math.min(bb * 0.8 + L * 0.2, g * 0.5); r = Math.min(r, g * 1.15)   // (kept to grass hues: no teal, no red)
       T[i * 3] = Math.min(255, r * k / TREF[0] * 128); T[i * 3 + 1] = Math.min(255, g * k / TREF[1] * 128); T[i * 3 + 2] = Math.min(255, bb * k / TREF[2] * 128)
     } else T.fill(128)
-    this.chunks = new Map(); this.edits = new Map(); this.listeners = []
+    this.chunks = new Chunks(this); this.edits = new Map(); this.listeners = []
     // roofs step up toward the middle (distance to the roof's edge, 2-pass chamfer)
     const d = this.rd = new Uint8Array(n)
     for (let i = 0; i < n; i++) d[i] = this.ru[i] ? 99 : 0
@@ -67,9 +73,11 @@ export class World {
   }
   groundY(X, Z) { const i = this.tile(X, Z); return i < 0 ? this.base - 1 : this.gy[i] }
   chunk(cx, cz) {
+    if (cx === this.lcx && cz === this.lcz && this.lc) return this.lc       // (the last one asked for: get/set run in runs)
     const k = cx + ',' + cz
     let c = this.chunks.get(k)
     if (!c) { c = this.gen(cx, cz); this.chunks.set(k, c) }
+    this.lcx = cx; this.lcz = cz; this.lc = c
     return c
   }
   has(cx, cz) { return this.chunks.has(cx + ',' + cz) }

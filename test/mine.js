@@ -310,6 +310,20 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   check('lit TNT hops as MC\'s (peak ~0.38, back on the ground) and goes off on tick 80', peak > 0.36 && peak < 0.41 && Math.abs(ys[60] - 101) < 1e-6 && at === 80, `peak ${peak.toFixed(3)}, y at 60 ${ys[60].toFixed(3)}, went off on ${at}`)
 }
 
+// ---------------------------------------------------------------- the TNT Ball: a ball of TNT round where you use it, ground and all, never over you
+{
+  const { w, g, P } = fresh('creative'); pad(w, 8000, -8000, 14, 100, 2)
+  for (let x = 7986; x <= 8014; x++) for (let z = -8014; z <= -7986; z++) for (let y = 90; y < 99; y++) w.set(x, y, z, 2)
+  Object.assign(P, { x: 8000.5, y: 101, z: -7999.5, yaw: 0, pitch: -1.2, flying: false }); P.inv[P.sel] = { id: 360, n: 1, d: 0 }
+  g.tick({ use: true, usePress: true, yaw: 0, pitch: -1.2 })
+  let tnt = 0, below = 0, onMe = 0; for (let a = -9; a <= 9; a++) for (let b = -9; b <= 9; b++) for (let c = -9; c <= 9; c++) { const id = w.get(8000 + a, 101 + b, -8001 + c); if (id === 60) { tnt++; if (b < 0) below++ } }
+  for (let y = 101; y < 112; y++) if (w.get(8000, y, -8000) === 60) onMe++
+  check('a TNT Ball fills a ball round where you use it, into the ground too, with you and a way up left clear', tnt > 1800 && below > 600 && !onMe, `${tnt} TNT (${below} under the ground), ${onMe} in your column`)
+  g.prime(8000, 101, -8006); let t = 0; for (; t < 600 && (t < 5 || g.ents.some(e => e.e === 'tnt')); t++) g.tick({})
+  let left = 0; for (let a = -9; a <= 9; a++) for (let b = -9; b <= 9; b++) for (let c = -9; c <= 9; c++) if (w.get(8000 + a, 101 + b, -8001 + c) === 60) left++
+  check('lit, the whole ball goes up (a chain through it all)', left === 0 && t < 600, `${left} TNT left after ${t} ticks`)
+}
+
 // ---------------------------------------------------------------- creative flight at MC's speeds: ~10.9 blocks/s, double sprinting (Ctrl)
 {
   const sp = (sprint) => { const { w, g, P } = fresh('creative'); pad(w, 7000, -7000, 4); Object.assign(P, { x: 7000.5, y: 120, z: -6900.5, flying: true, yaw: 0 })

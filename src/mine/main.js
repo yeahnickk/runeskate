@@ -395,7 +395,7 @@ function input() {
   return inp
 }
 function handleEvents() {
-  const P = game.player
+  const P = game.player; let booms = 0
   for (const e of game.drainEvents()) {
     const d = e.x !== undefined ? Math.hypot(e.x - P.x, e.y - P.y, e.z - P.z) : 0
     switch (e.t) {
@@ -413,7 +413,9 @@ function handleEvents() {
       case 'toast': gui.toast(e.a); break
       case 'chat': gui.say(e.msg, e.col); break
       case 'boom': {   // MC's explosion: big pale grey clouds through the blast's reach, smoke rising off it
-        sfx.play('boom', d * 0.3); shake = Math.max(shake, Math.max(0, 1 - d / 20))
+        shake = Math.max(shake, Math.max(0, 1 - d / 20))
+        if (++booms > 2) { if (booms < 12) view.puff(e.x, e.y + 0.5, e.z, 3, [0.8, 0.8, 0.8], 1.6, 0.4); break }   // (a chain of hundreds: a couple in full a frame)
+        sfx.play('boom', d * 0.3)
         const R = Math.random, r = e.r || 4
         for (let i = 0; i < 24; i++) { const a = R() * 6.283, b = Math.acos(2 * R() - 1), q = Math.cbrt(R()) * r * 0.75, g = 0.75 + R() * 0.25
           view.puff(e.x + Math.sin(b) * Math.cos(a) * q, e.y + Math.cos(b) * q * 0.6 + 0.5, e.z + Math.sin(b) * Math.sin(a) * q, 1, [g, g, g], 1.4 + R() * 1.2, 0.4) }

@@ -308,7 +308,7 @@ export class View {
         let s = Math.min(1, Math.max(0, 1 - (f + 1) / 10)); s *= s; s *= s; o.m.scale.setScalar(1 + s * 0.3)
       }
     }
-    for (const [e, o] of this.ents) if (!seen.has(e)) { this.scene.remove(o.g); this.ents.delete(e) }
+    for (const [e, o] of this.ents) if (!seen.has(e)) { this.scene.remove(o.g); this.ents.delete(e); if (e.e === 'tnt') o.mat.dispose() }
   }
   tint(o, k, e) {
     const hurt = e && e.hurt > 0 || (e && e.death), white = e && e.fuse > 0 && (e.fuse >> 2) % 2
@@ -335,7 +335,8 @@ export class View {
       return { g, ph, light: 1 }
     }
     if (e.e === 'fall' || e.e === 'tnt') {
-      const m = blockMesh(e.e === 'tnt' ? 60 : e.id, this.atlas); m.position.y = 0.5; g.add(m)
+      const m = e.e === 'tnt' ? new THREE.Mesh((this.tntM ||= blockMesh(60, this.atlas)).geometry, this.tntM.material.clone()) : blockMesh(e.id, this.atlas)   // (a ball of TNT: one box shared)
+      m.position.y = 0.5; g.add(m)
       return { g, ph, m, mat: m.material, light: 1 }
     }
     if (e.e === 'mob') {

@@ -149,8 +149,8 @@ export class Game {
     if (!P.dead) this.tickPlayer(inp)
     // entities near the player
     for (const e of this.ents) {
-      if (Math.abs(e.x - P.x) > 96 || Math.abs(e.z - P.z) > 96) { if (e.e === 'mob' && MOBS[e.type].hostile && !e.home) e.gone = true; continue }
-      if (!W.has(Math.floor(e.x) >> 4, Math.floor(e.z) >> 4)) continue
+      if (Math.abs(e.x - P.x) > 96 || Math.abs(e.z - P.z) > 96) { if ((e.e === 'mob' && MOBS[e.type].hostile && !e.home) || e.e === 'tnt') e.gone = true; continue }   // (lit TNT thrown out of reach is gone, not frozen there for ever)
+      if (!W.has(Math.floor(e.x) >> 4, Math.floor(e.z) >> 4)) { if (e.e === 'tnt') e.gone = true; continue }
       if (e.e === 'mob') { tickMob(this, e); if (e.death > 20) { e.gone = true; this.emit({ t: 'poof', x: e.x, y: e.y + e.h / 2, z: e.z }) } }
       else if (e.e === 'item') this.tickItem(e)
       else if (e.e === 'xp') this.tickOrb(e)
@@ -294,6 +294,7 @@ export class Game {
     if (it && it.food) { if (P.food < 20 || crea || hid === 329) { P.eat = 1 } return }
     if (it && it.bow) { if (crea || count(P.inv, 280) > 0) P.bowT = 1; return }
     if (it && it.bucket !== undefined) return this.useBucket(it)
+    if (it && it.tntBall) { if (t && inp.usePress) { this.tntBall(t.x + t.face[0], t.y + t.face[1], t.z + t.face[2], it.tntBall); if (!crea && !--held.n) P.inv[P.sel] = null; P.swing = 6 } return }
     if (!t) return
     const tb = BLOCKS[t.id]
     if (it && it.fire) {          // flint and steel: fire on the face you click (in a plant's own cell)
@@ -368,6 +369,23 @@ export class Game {
     if (!it || !it.dur) return
     h.d = (h.d || 0) + n
     if (h.d >= it.dur) { P.inv[P.sel] = null; this.emit({ t: 'snd', s: 'break_tool' }) }
+  }
+  // a ball of TNT r across round (x, y, z): it takes the ground and whatever stands there (bar bedrock and what keeps
+  // things: chests, furnaces, beds, doors), but never your body: your cells and a shaft up out of the ball stay open
+  tntBall(x, y, z, r) {
+    const W = this.world, P = this.player, R2 = (r + 0.5) ** 2
+    const free = (bx, by, bz) => bx + 1 > P.x - P.w / 2 - 0.2 && bx < P.x + P.w / 2 + 0.2 && bz + 1 > P.z - P.w / 2 - 0.2 && bz < P.z + P.w / 2 + 0.2 && by + 1 > P.y - 0.01
+    let n = 0
+    for (let a = -r; a <= r; a++) for (let b = -r; b <= r; b++) for (let c = -r; c <= r; c++) {
+      if (a * a + b * b + c * c > R2) continue
+      const bx = x + a, by = y + b, bz = z + c; if (by < 1 || by >= WH) continue
+      const id = W.get(bx, by, bz), d = BLOCKS[id]
+      if (d.h < 0 || d.use) continue
+      if (free(bx, by, bz)) { if (id && !d.liquid) { W.set(bx, by, bz, 0); this.afterRemove(bx, by, bz) } continue }
+      if (id !== 60) { W.set(bx, by, bz, 60); n++ }
+    }
+    this.emit({ t: 'place', id: 60, x, y, z })
+    return n
   }
   useBucket(it) {
     const P = this.player, W = this.world
@@ -793,7 +811,7 @@ export class Game {
     const knock = (e, isP) => {
       const d = Math.hypot(e.x - x, e.y + (e.h || 0.5) / 2 - y, e.z - z)
       if (d > r * 2) return
-      const imp = (1 - d / (r * 2)) * seen(e), L = d || 1, kr = e.e === 'mob' && MOBS[e.type] ? 1 - (MOBS[e.type].kbr || 0) : 1
+      const imp = (1 - d / (r * 2)) * (e.e === 'tnt' ? 1 : seen(e)), L = d || 1, kr = e.e === 'mob' && MOBS[e.type] ? 1 - (MOBS[e.type].kbr || 0) : 1
       e.vx += (e.x - x) / L * imp * kr; e.vy += ((e.y + (e.h || 0.5) / 2 - y) / L * imp + 0.1 * imp) * kr; e.vz += (e.z - z) / L * imp * kr
       const dmg = (imp * imp + imp) / 2 * 7 * r * 2 + 1
       if (isP) { if (imp > 0) this.hurtPlayer(dmg, src && src.type ? src : null, 'boom') }

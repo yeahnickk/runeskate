@@ -36,8 +36,8 @@ function creativeTabs() {
   const combat = items.filter(i => I(i).tool === 'sword' || I(i).armor !== undefined || I(i).bow || i === 280)
   const tools = items.filter(i => (I(i).tool && I(i).tool !== 'sword') || I(i).bucket !== undefined || I(i).fire || i === 288)
   const food = items.filter(i => I(i).food)
-  const deco = [...DEC, 290]
-  const got = new Set([...combat, ...tools, ...food, 290])
+  const deco = [...DEC, 360, 290]
+  const got = new Set([...combat, ...tools, ...food, 290, 360])
   const mats = items.filter(i => !got.has(i))
   const T = [
     { n: 'Building Blocks', icon: 21, ids: build }, { n: 'Decoration Blocks', icon: 31, ids: deco }, { n: 'Natural Blocks', icon: 1, ids: NAT },

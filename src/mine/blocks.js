@@ -192,6 +192,7 @@ itm(326, 'Shrimps', { food: [3, 3.6] })
 itm(327, 'Brick')
 itm(328, 'Coins', {})                            // (what OSRS villagers pay in, alongside emeralds)
 itm(329, 'Cake', { food: [14, 2.8] })
+itm(360, 'TNT Ball', { tntBall: 8 })              // (creative fun: a ball of TNT this big where you use it, ground and all)
 TIERS.forEach((t, ti) => KINDS.forEach((k, ki) => {
   const id = 300 + ti * 5 + ki
   if (ti === 5) return                          // (runite tools live at 350+)

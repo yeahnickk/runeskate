@@ -359,6 +359,7 @@ const ITEM_ART = {
   297: [BALL, pal3(['#a0a6b3', '#c8ccd6', '#6a6e7a'])],
   298: [BALL, pal3(['#f4fafa', '#ffffff', '#b0c0c8'])],
   328: [['................', '................', '................', '................', '......hhhh......', '.....hLLHHh.....', '....hhLHHHhh....', '...hLLhhhhHHh...', '..hLLHHHHHHHHh..', '..hhLHHHHHHHhh..', '..hLhhhhhhhhHh..', '..hLLHHHHHHHHh..', '...hhhhhhhhhh...'], pal3(['#e8c430', '#fff2a0', '#8a6a08'])],
+  360: [['.........f......', '........f.......', '.......kk.......', '.....hhkkhh.....', '....hRRRRRRh....', '...hRrRRRRRRh...', '..hRrRRRRRRRRh..', '..hwwwwwwwwwwh..', '..hwkkkwkwkkkh..', '..hwwkwwkwwkwh..', '..hRRRRRRRRRRh..', '...hRRRRRRRRh...', '....hRRRRRRh....', '.....hhhhhh.....'], { h: hex('#4a0e0a'), R: hex('#d0362a'), r: hex('#ff8a70'), w: hex('#f0f0f0'), k: hex('#202020'), f: hex('#ffd040') }],
   329: [['................', '................', '................', '................', '...wwwwwwwwww...', '..wrwwwwwrwwww..', '..wwwwrwwwwwrw..', '..wwwwwwwwwwww..', '..hhhhhhhhhhhh..', '..hHHHHHHHHHHh..', '..hHHHHHHHHHHh..', '..hhhhhhhhhhhh..'], { w: hex('#f6f6f6'), r: hex('#d02020'), h: hex('#7a4a24'), H: hex('#b07840') }],
 }
 function STICK_ART() { const r = []; for (let y = 0; y < 16; y++) { let s = ''; for (let x = 0; x < 16; x++) s += (x === 14 - y && y > 1 && y < 14) ? 'S' : (x === 13 - y && y > 1 && y < 14) ? 's' : '.'; r.push(s) } return r }

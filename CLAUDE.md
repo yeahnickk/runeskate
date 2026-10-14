@@ -141,6 +141,10 @@ Minecraft to play: the real 2004 map draws over the blocks, Minecraft's first pe
   `explode` is MC's ray blast worn down by `resist` (water swallows it, obsidian holds), entities hit before blocks go.
   Lit TNT is MC's PrimedTnt (`tickTnt`: 0.2 hop, 0.04 gravity, 80-tick fuse, the blast from y + h/16; render.js flashes
   and swells it); creepers blow from their feet. Creative flight is MC's (0.05, doubled sprinting, air drag 0.91).
+  The TNT Ball (item 360, creative Decoration tab) fills a ball of TNT r 8 round where you use it (`tntBall`: ground and
+  all, bar bedrock and blocks with a `use`), leaving your cells and a shaft up out of it clear. TNT thrown out of reach
+  is dropped, and TNT skips the blast's exposure rays (a ball's chain is ~2500 blasts). `World.chunk` caches the last
+  chunk asked for (`Chunks` drops it on delete).
 - Fights go by RS hitpoints for the weak (goblin 5, man 7: three or four punches), hunger drains at half MC's rate.
   Townsfolk hit back when hit (`FOLK` `hit` = RS max hit, a swing every 48 ticks) and calm down once you're 16 away.
   Goblins, rats, scorpions and the animals are the same (`aggro: 0`); only the evil ones come for you on sight.
