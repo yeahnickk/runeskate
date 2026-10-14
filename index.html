@@ -38,7 +38,7 @@
   #xfollow { background: rgba(0,0,0,0.75); } #xfollow:hover { background: #000; }
   /* the game picker (shown first; a skate join link skips it) */
   #pick { position: fixed; inset: 0; z-index: 30; display: none; flex-direction: column; align-items: center; justify-content: safe center; gap: 18px; padding: 16px;
-    box-sizing: border-box; overflow-y: auto; background: radial-gradient(ellipse at center, rgba(40,30,15,.96), rgba(8,6,3,.99)); text-align: center; }
+    box-sizing: border-box; overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; overscroll-behavior: contain; background: radial-gradient(ellipse at center, rgba(40,30,15,.96), rgba(8,6,3,.99)); text-align: center; }
   #pick .games { display: flex; gap: 22px; flex-wrap: wrap; justify-content: center; width: 100%; }
   #pick a.game { display: flex; flex-direction: column; width: clamp(250px, 22vw, 400px); max-width: 100%; text-decoration: none; color: #fff; background: #2e2618; border: 3px solid #5a4a2a;
     outline: 2px solid #2b2117; box-shadow: 5px 5px 0 #000; transition: transform .12s, border-color .12s; }
@@ -47,7 +47,11 @@
   #pick a.game .name { font: 900 clamp(30px, 6vw, 46px) Impact, 'Arial Black', sans-serif; letter-spacing: 3px; color: #ff981f; text-shadow: 3px 3px 0 #000; padding: 10px 12px 0; }
   #pick a.game .what { font: 14px monospace; color: #ff0; padding: 4px 12px 14px; text-shadow: 1px 1px 0 #000; }
   #pick .pickt { font: 900 clamp(26px, 6vw, 44px) Impact, 'Arial Black', sans-serif; color: #fff; letter-spacing: 3px; text-shadow: 3px 3px 0 #000; }
-  @media (max-height: 520px) { #pick { gap: 8px; } #pick a.game { width: min(210px, 22vw); } #pick a.game .name { font-size: 26px; } #pick a.game .what { font-size: 11px; padding-bottom: 8px; } }
+  @media (max-height: 520px) { #pick { gap: 8px; } #pick a.game { width: min(210px, 22vw); } #pick a.game .name { font-size: min(26px, 2.5vw); letter-spacing: 1px; } #pick a.game .what { font-size: 11px; padding-bottom: 8px; } }
+  /* phones held upright: two small cards a row, so all six fit about one screen instead of six screens of scrolling */
+  @media (max-width: 600px) and (min-height: 521px) { #pick { gap: 12px; padding: 16px 16px max(16px, env(safe-area-inset-bottom)); } #pick .games { gap: 12px; }
+    #pick a.game { width: calc(50% - 6px); box-sizing: border-box; box-shadow: 3px 3px 0 #000; } #pick a.game .name { font-size: min(24px, 5.6vw); letter-spacing: 1px; padding: 6px 6px 0; text-shadow: 2px 2px 0 #000; }
+    #pick a.game .what { font-size: 11px; padding: 3px 6px 8px; } }
   .touchkeys { display: none; }
   #codscape { display: inline-block; font: bold 15px monospace; padding: 9px 18px; color: #fff; background: linear-gradient(180deg, #8a1a10, #4a0a06); border: 3px solid #2e0804;
     box-shadow: 3px 3px 0 #000; text-decoration: none; letter-spacing: 1px; } #codscape b { color: #ff981f; } #codscape:hover { background: #a02218; }

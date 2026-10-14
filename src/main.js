@@ -38,7 +38,7 @@ const T = (x, y, z) => new THREE.Vector3(x, y, -z);
 
 // iPhone Safari: no pinch zoom / double-tap zoom / rubber-banding over the game (text fields still work)
 for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, e => e.preventDefault());
-document.addEventListener('touchmove', e => { if (e.touches.length > 1 || !e.target.closest?.('.panel, #tpmenu, #designer, #replay')) e.preventDefault(); }, { passive: false });
+document.addEventListener('touchmove', e => { if (e.touches.length > 1 || !e.target.closest?.('.panel, #pick, #tpmenu, #designer, #replay')) e.preventDefault(); }, { passive: false });
 document.addEventListener('dblclick', e => e.preventDefault());
 
 async function main() {
