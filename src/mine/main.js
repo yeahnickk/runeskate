@@ -14,6 +14,7 @@ import { buildAtlas, setTiles } from './tex.js'
 import { BLOCKS, ITEMS, nameOf, maxStack } from './blocks.js'
 import { give } from './inv.js'
 import { RSWorld } from './rsworld.js'
+import { Net2b } from './net2b.js'
 
 THREE.ColorManagement.enabled = false
 const TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window
@@ -27,7 +28,7 @@ const OPT_KEY = 'minescape.opts', LIST_KEY = 'minescape.worlds'
 try { Object.assign(gui.opts, JSON.parse(localStorage.getItem(OPT_KEY) || '{}')) } catch (e) {}
 if (TOUCH && !localStorage.getItem(OPT_KEY)) Object.assign(gui.opts, { rd: 5, fancy: false, autoJump: true })
 let rsw = null, map = null, world = null, game = null, view = null, tiles = null, atlas = null
-let acc = 0, last = performance.now(), saveAt = 0, curFile = null
+let acc = 0, last = performance.now(), saveAt = 0, curFile = null, net = null     // (net: on 2b2t, the Net2b link)
 const keys = new Set(); let mouse = { l: false, r: false, lp: false, rp: false }, wheel = 0, lastW = 0, sprintTap = false, lastSpace = 0, flyToggle = false
 let third = 0, camYaw = 0, camPitch = 0, bobT = 0, bobAmt = 0, swing = 0, hurtTilt = 0, shake = 0, fovK = 1
 let panorama = true, panYaw = 0
@@ -93,7 +94,13 @@ function startWorld(entry, create) {
   rsw.world = world
   game = new Game(world, { mode: entry ? entry.mode : 'creative', name: localStorage.getItem('minescape.name') || 'Steve' })
   panorama = !entry
-  if (entry && !create) { try { const s = JSON.parse(localStorage.getItem('minescape.w.' + entry.file)); if (s) game.load(s) } catch (e) { console.warn('save unreadable', e) } }
+  if (entry && entry.net) {   // 2b2t: your own player from last time, the world as the server has it, survival whatever
+    let s = null; try { s = JSON.parse(localStorage.getItem('minescape.w.2b2t')) } catch (e) {}
+    game.load({ ...(s || {}), time: entry.net.time, mode: 'survival', name: entry.net.name, edits: entry.net.world.edits, mobs: [], populated: [], chests: Object.entries(entry.net.world.chests || {}) })
+    game.mode = 'survival'; game.name = entry.net.name; game.spawn = randomSpawn()
+    if (!s) Object.assign(game.player, { x: game.spawn[0], y: game.spawn[1], z: game.spawn[2] })
+  }
+  else if (entry && !create) { try { const s = JSON.parse(localStorage.getItem('minescape.w.' + entry.file)); if (s) game.load(s) } catch (e) { console.warn('save unreadable', e) } }
   if (create) {
     game.time = 1000; const P = game.player; P.inv[0] = null
     if (game.mode === 'creative') [1, 4, 11, 10, 13, 38, 28, 290, 24].forEach((id, i) => { P.inv[i] = { id, n: 64, d: 0 } })   // (a hotbar to build with; E for everything)
@@ -108,11 +115,27 @@ function startWorld(entry, create) {
   gui.portrait = (w, h, look) => view.portrait(w, h, look)
   resize()
   curFile = entry ? entry.file : null
+  if (net && entry && entry.net) net.attach(game, world, view, sfx)
+  gui.net = !!(entry && entry.net)
   if (panorama) { const P = game.player; P.x = 1170.5; P.z = -402.5; P.y = 50; game.time = 4000 }
   gui.G = game
 }
+// 2b2t spawns you somewhere round Lumbridge, never in the river
+function randomSpawn() {
+  const j = world.json, sx = j.spawn[0], sz = -j.spawn[1] - 1
+  for (let i = 0; i < 30; i++) {
+    const X = sx + Math.round((Math.random() - 0.5) * 60), Z = sz + Math.round((Math.random() - 0.5) * 60), t = world.tile(X, Z)
+    if (t < 0 || world.fl[t] & 8) continue
+    return [X + 0.5, game.standY(X, Z), Z + 0.5]
+  }
+  return game.spawn
+}
 function save() {
   if (!game || !curFile) return
+  if (net && curFile === '2b2t') {   // (only you: the world is the server's)
+    try { const s = game.save(); delete s.edits; delete s.mobs; delete s.populated; delete s.chests; localStorage.setItem('minescape.w.2b2t', JSON.stringify(s)) } catch (e) {}
+    return
+  }
   try {
     localStorage.setItem('minescape.w.' + curFile, JSON.stringify(game.save()))
     const list = JSON.parse(localStorage.getItem(LIST_KEY) || '[]'), e = list.find(w => w.file === curFile)
@@ -135,8 +158,11 @@ gui.onAction = (a, arg) => {
   else if (a === 'play') play(arg)
   else if (a === 'delete') { const list = JSON.parse(localStorage.getItem(LIST_KEY) || '[]').filter(w => w.file !== arg.file); localStorage.setItem(LIST_KEY, JSON.stringify(list)); localStorage.removeItem('minescape.w.' + arg.file); refreshWorlds() }
   else if (a === 'resume') resume()
-  else if (a === 'saveQuit') { save(); startWorld(null); gui.state = 'title'; document.exitPointerLock && document.exitPointerLock() }
-  else if (a === 'respawn') { game.respawn(); gui.state = 'play'; lock() }
+  else if (a === 'saveQuit') { save(); if (net) { net.close(); net = null } startWorld(null); gui.state = 'title'; document.exitPointerLock && document.exitPointerLock() }
+  else if (a === 'respawn') { if (net) game.spawn = randomSpawn(); game.respawn(); gui.state = 'play'; lock() }
+  else if (a === 'mp') { gui.state = 'mp'; gui.mpErr = ''; gui.mpInfo = null; showName(true, localStorage.getItem('minescape.name') || 'Steve'); fetch('api/2b2t').then(r => r.json()).then(j => { gui.mpInfo = j }).catch(() => { gui.mpInfo = { off: 1 } }) }
+  else if (a === 'mpBack') { showName(false); gui.state = 'title' }
+  else if (a === 'join2b') join2b()
   else if (a === 'opts') applyOpts()
   else if (a === 'sel') { game.player.sel = arg; selChanged() }
 }
@@ -144,6 +170,20 @@ function applyOpts() {
   localStorage.setItem(OPT_KEY, JSON.stringify(gui.opts))
   sfx.setVol(gui.opts.vol); sfx.music = gui.opts.music
   if (view) { view.rd = gui.opts.rd; view.U.uBright.value = gui.opts.bright; if (view.fancy !== gui.opts.fancy) { view.fancy = gui.opts.fancy; for (const k of view.chunks.keys()) view.dirty.add(k) } }
+}
+async function join2b() {
+  const name = (nameIn.value || 'Steve').replace(/[^\w \-]/g, '').trim().slice(0, 16) || 'Steve'
+  localStorage.setItem('minescape.name', name)
+  showName(false); gui.state = 'loading'; gui.loadMsg = 'Connecting to 2b2t...'; gui.progress = 0
+  const n = new Net2b()
+  try {
+    const hi = await n.connect(name)
+    net = n
+    net.onChat = (m) => gui.say(m)
+    net.onLost = (m) => { if (net !== n) return; save(); net = null; startWorld(null); gui.state = 'mp'; gui.mpErr = m; showName(true, name); document.exitPointerLock && document.exitPointerLock() }
+    gui.loadMsg = 'Loading terrain...'
+    play({ file: '2b2t', name: '2b2t', mode: 'survival', net: hi })
+  } catch (e) { n.close(); gui.state = 'mp'; gui.mpErr = e.message; showName(true, name) }
 }
 function play(e, create) {
   gui.state = 'loading'; gui.loadMsg = 'Loading terrain...'; gui.progress = 0
@@ -158,9 +198,9 @@ function play(e, create) {
 let loadingUntil = 0
 function resume() { gui.state = 'play'; lock() }
 function lock() { if (!TOUCH && guiC.requestPointerLock) { try { const p = guiC.requestPointerLock(); if (p && p.catch) p.catch(() => {}) } catch (e) {} } }
-function showName(on) {
+function showName(on, val = 'New World') {
   nameIn.style.display = on ? 'block' : 'none'
-  if (on) { nameIn.value = 'New World'; placeName(); setTimeout(() => nameIn.focus(), 30) }
+  if (on) { nameIn.value = val; placeName(); setTimeout(() => nameIn.focus(), 30) }
 }
 function placeName() {
   if (!gui.nameBox) return
@@ -187,6 +227,7 @@ addEventListener('keydown', (e) => {
     return
   }
   if (gui.state === 'create') { if (e.code === 'Enter') gui.onAction('create', { mode: gui.newMode }); return }
+  if (gui.state === 'mp') { if (e.code === 'Enter') gui.onAction('join2b'); else if (e.code === 'Escape') gui.onAction('mpBack'); return }
   if (e.code === bindOf('debug')) { gui.debug = !gui.debug; e.preventDefault(); return }
   if (e.code === bindOf('hud')) { gui.hideHud = !gui.hideHud; e.preventDefault(); return }
   if (e.code === bindOf('persp')) { third = (third + 1) % 3; e.preventDefault(); return }
@@ -275,7 +316,14 @@ function closeChat() { chatIn.style.display = 'none'; chatIn.blur(); gui.state =
 function sendChat() {
   const s = chatIn.value.trim()
   if (s) {
-    if (s[0] === '/') { const r = game.command(s); if (r) gui.say(r, '#aaaaaa') }
+    if (net) {   // (2b2t: no cheats; chat goes to everyone)
+      const c = s.split(/\s+/)[0].toLowerCase()
+      if (c === '/kill') game.command('/kill')
+      else if (c === '/list') gui.say('There are ' + net.list().length + ' players online: ' + net.list().join(', '), '#aaaaaa')
+      else if (s[0] === '/') gui.say(c === '/help' ? 'Commands: /kill, /list. Anarchy has no others.' : 'Unknown command. This is 2b2t: no cheats, no admins. /help', '#aaaaaa')
+      else net.send({ t: 'c', m: s })
+    }
+    else if (s[0] === '/') { const r = game.command(s); if (r) gui.say(r, '#aaaaaa') }
     else gui.say('<' + game.name + '> ' + s)
   }
   closeChat()
@@ -397,6 +445,7 @@ function input() {
 function handleEvents() {
   const P = game.player; let booms = 0
   for (const e of game.drainEvents()) {
+    if (net) net.event(e)
     const d = e.x !== undefined ? Math.hypot(e.x - P.x, e.y - P.y, e.z - P.z) : 0
     switch (e.t) {
       case 'snd': sfx.play(e.s, d); break
@@ -436,7 +485,8 @@ function tick() {
   const P = game.player
   P.px = P.x; P.py = P.y; P.pz = P.z
   const wasSel = P.sel
-  game.tick(input())
+  game.tick(net && gui.state !== 'play' && gui.state !== 'screen' && gui.state !== 'chat' ? { yaw: P.yaw, pitch: P.pitch } : input())   // (online the world goes on while you're in a menu)
+  if (net) net.tick()
   if (P.sel !== wasSel) selChanged()
   // fires near you flicker embers and smoke and crackle; lava pops
   for (const k of game.fires.keys()) { if (Math.random() > 0.15) continue; const [x, y, z] = k.split(',').map(Number), d = Math.hypot(x - P.x, y - P.y, z - P.z); if (d > 24) continue
@@ -497,7 +547,7 @@ function loop() {
   requestAnimationFrame(loop)
   const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000); last = now
   fN++; if (now - fT > 1000) { fps = fN; fN = 0; fT = now }
-  if (gui.state === 'create') placeName()
+  if (gui.state === 'create' || gui.state === 'mp') placeName()
   if (!game || !view) { gui.draw(null, dt); return }
   if (gui.state === 'loading') {
     // stream the spawn area before play (MC's "Loading terrain")
@@ -505,7 +555,7 @@ function loop() {
     const total = (2 * view.rd + 1) ** 2 * 0.78
     gui.progress = Math.min(1, view.chunks.size / Math.min(total, 9 * 9))
     if (view.chunks.size >= Math.min(total, 81) || now > loadingUntil) {
-      if (!panorama) { gui.state = 'play'; lock(); gui.say('§eWelcome to MineScape: Gielinor, one block a tile. ' + (TOUCH ? 'Tap ... for your inventory.' : 'Press E for your inventory.')); selChanged() }
+      if (!panorama) { gui.state = 'play'; lock(); gui.say(net ? '§eWelcome to 2b2t, ' + game.name + '. ' + net.list().length + ' online. Good luck.' : '§eWelcome to MineScape: Gielinor, one block a tile. ' + (TOUCH ? 'Tap ... for your inventory.' : 'Press E for your inventory.')); selChanged() }
     }
     view.frame(dt, 1, { pos: new THREE.Vector3(game.player.x, game.player.y + 1.6, game.player.z), yaw: panYaw, pitch: -0.1, fov: 70, target: null })
     gui.draw(game, dt)
@@ -520,7 +570,7 @@ function loop() {
     gui.draw(null, dt)
     return
   }
-  const running = gui.state !== 'pause' && gui.state !== 'adv' && !(gui.state === 'options' && gui.back === 'pause')
+  const running = !!net || (gui.state !== 'pause' && gui.state !== 'adv' && !(gui.state === 'options' && gui.back === 'pause'))
   if (running) {
     if (TOUCH) touchHolds()
     acc += dt
@@ -532,6 +582,7 @@ function loop() {
   const alpha = running ? Math.min(1, acc * TPS) : 1
   const cam = camera(alpha, dt)
   view.syncPlayer(alpha, dt, !!third && !game.player.dead)
+  if (net) net.frame(dt)
   view.frame(dt, alpha, cam)
   // the hand
   const P = game.player, held = P.inv[P.sel]
@@ -550,5 +601,5 @@ function loop() {
 }
 addEventListener('beforeunload', () => save())
 document.addEventListener('visibilitychange', () => { if (document.hidden) save() })
-window.MINE = { get game() { return game }, get world() { return world }, get view() { return view }, gui, renderer, give: (id, n = 1) => give(game.player.inv, { id, n, d: 0 }) }
+window.MINE = { get game() { return game }, get world() { return world }, get view() { return view }, get net() { return net }, gui, renderer, give: (id, n = 1) => give(game.player.inv, { id, n, d: 0 }) }
 boot().catch((e) => { console.error(e); gui.loadMsg = 'Failed to load: ' + e.message })

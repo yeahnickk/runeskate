@@ -119,6 +119,7 @@ const pubPark = ({ id, by, kind, x, z, dir, len }: ParkObj) => ({ id, by, kind, 
 const saveParks = () => { if (parksDirty) { parksDirty = false; writeJson(PARKS, parks); } if (spotsDirty) { spotsDirty = false; writeJson(SPOTS_F, spotBest); } };
 setInterval(saveParks, 3000);
 for (const sig of ['SIGTERM', 'SIGINT'] as const) process.prependListener(sig, () => { try { saveParks(); } catch {} });
+for (const sig of ['SIGTERM', 'SIGINT'] as const) process.prependListener(sig, () => { try { mine?.save(); } catch {} });
 const STATS_HTML = readFileSync(join(ROOT, 'stats.html'), 'utf8');
 const MAP_HTML = readFileSync(join(ROOT, 'map.html'), 'utf8');
 // the /map page: everything that never moves, sent once (world tiles)
@@ -321,6 +322,10 @@ import('./src/cod/netserver.js').then(m => { cod = new m.CodServer(ROOT, cleanCh
 let league: any = null;
 import('./src/league/netserver.js').then(m => { league = new m.LeagueServer(cleanChat); console.log('Rune League online match up'); }).catch(e => console.warn('Rune League online off:', e?.message || e));
 
+// MineScape 2b2t: the anarchy world everyone shares (src/mine/netserver.js). Off, not fatal, if it can't load.
+let mine: any = null;
+import('./src/mine/netserver.js').then(m => { mine = new m.MineServer(DATA, cleanChat); console.log('MineScape 2b2t up'); }).catch(e => console.warn('MineScape 2b2t off:', e?.message || e));
+
 Bun.serve({
   port,
   idleTimeout: 255,          // (seconds, Bun's max) the default 10 cut big map downloads off for anyone slow to read them
@@ -328,6 +333,8 @@ Bun.serve({
     const url = new URL(req.url);
     let p = decodeURIComponent(url.pathname);
     if (p === '/ws') return server.upgrade(req, { data: { sess: null } }) ? undefined : new Response('upgrade failed', { status: 400 });
+    if (p === '/mine-ws') return mine && server.upgrade(req, { data: { mine: true } }) ? undefined : new Response('2b2t is off', { status: 503 });
+    if (p === '/api/2b2t') return Response.json(mine ? mine.info() : { off: 1 });
     if (p === '/league-ws') return league && server.upgrade(req, { data: { league: true } }) ? undefined : new Response('Rune League online is off', { status: 503 });
     if (p === '/league' || p === '/league/' || p === '/runeleague') return Response.redirect('/league.html', 302);
     if (p === '/cod-ws') return cod && server.upgrade(req, { data: { cod: true } }) ? undefined : new Response('CODScape online is off', { status: 503 });
@@ -382,10 +389,11 @@ Bun.serve({
     return sendFile(req, full);
   },
   websocket: {
-    open(ws: any) { if (ws.data.cod) cod?.open(ws); if (ws.data.league) league?.open(ws); },
+    open(ws: any) { if (ws.data.cod) cod?.open(ws); if (ws.data.league) league?.open(ws); if (ws.data.mine) mine?.open(ws); },
     async message(ws: any, raw) {
       if (ws.data.cod) return cod?.message(ws, raw);
       if (ws.data.league) return league?.message(ws, raw);
+      if (ws.data.mine) return mine?.message(ws, raw);
       let m: any; try { m = JSON.parse(String(raw)); } catch { return; }
       const s: Sess | null = ws.data.sess;
       if (!s) {
@@ -474,6 +482,7 @@ Bun.serve({
     close(ws: any) {
       if (ws.data.cod) return cod?.close(ws);
       if (ws.data.league) return league?.close(ws);
+      if (ws.data.mine) return mine?.close(ws);
       const s: Sess | null = ws.data.sess;
       if (s && sessions.get(s.id) === s) {
         sessions.delete(s.id); broadcast({ t: 'leave', id: s.id });

@@ -133,7 +133,7 @@ export class Game {
     const o = this.eyePos(), d = this.lookDir(), b = this.target(), lim = Math.min(b ? b.dist : 99, this.mode === 'creative' ? 5 : 3)
     let best = null, bt = lim + 0.4
     for (const m of this.ents) {
-      if (m.e !== 'mob' || m.death) continue
+      if ((m.e !== 'mob' && m.e !== 'peer') || m.death) continue
       if (Math.abs(m.x - o[0]) > 6 || Math.abs(m.z - o[2]) > 6) continue
       const a = aabb(m), dy = m.drawDy || 0      // (the client may draw it on the RS ground, a little off its box: hit what you see)
       const h = rayBox(o, d, [a[0] - 0.1, Math.min(a[1], a[1] + dy) - 0.1, a[2] - 0.1, a[3] + 0.1, Math.max(a[4], a[4] + dy) + 0.1, a[5] + 0.1])
@@ -275,7 +275,7 @@ export class Game {
     const held = P.inv[P.sel], hid = held ? held.id : 0, it = ITEMS[hid]
     // villagers
     const m = this.targetMob()
-    if (m && m.type === 'villager' && !m.angry && inp.usePress) { this.emit({ t: 'screen', type: 'trade', key: m }); this.emit({ t: 'snd', s: 'villager', x: m.x, y: m.y, z: m.z }); return }
+    if (m && m.e === 'mob' && m.type === 'villager' && !m.angry && inp.usePress) { this.emit({ t: 'screen', type: 'trade', key: m }); this.emit({ t: 'snd', s: 'villager', x: m.x, y: m.y, z: m.z }); return }
     const t = this.target()
     if (t && !P.sneak && inp.usePress) {
       const d = BLOCKS[t.id]
@@ -575,6 +575,7 @@ export class Game {
     const a = this.rng() * Math.PI * 2     // (MC: a little hop, 0.02 sideways in a random direction)
     this.ents.push({ e: 'tnt', x: x + 0.5, y, z: z + 0.5, vx: -Math.sin(a) * 0.02, vy: 0.2, vz: -Math.cos(a) * 0.02, w: 0.98, h: 0.98, fuse })
     this.emit({ t: 'snd', s: 'fuse', x: x + 0.5, y, z: z + 0.5 })
+    this.emit({ t: 'prime', x: x + 0.5, y, z: z + 0.5, fuse })
     this.afterRemove(x, y, z)
   }
   fireTick() {
@@ -659,8 +660,29 @@ export class Game {
     move(W, e, e.vx, e.vy, e.vz)
     e.vx *= 0.98; e.vy *= 0.98; e.vz *= 0.98
     if (e.onGround) { e.vx *= 0.7; e.vz *= 0.7; e.vy *= -0.5 }
-    if (--e.fuse <= 0) { e.gone = true; this.explode(e.x, e.y + e.h / 16, e.z, 4, e) }
+    if (--e.fuse <= 0) { e.gone = true; if (!e.ghost) this.explode(e.x, e.y + e.h / 16, e.z, 4, e) }   // (a ghost: someone else's, their blast comes over the wire)
   }
+  // MC's damage + knockback: impact = (1 - dist / 2r) * how much of the body the blast can see
+  knock(e, isP, x, y, z, r, src) {
+    const W = this.world
+    const seen = (e) => { let n = 0, c = 0; for (let a = 0; a <= 1; a += 0.5) for (let b = 0; b <= 1; b += 0.5) for (let d = 0; d <= 1; d += 0.5) {
+      c++; const tx = e.x - e.w / 2 + e.w * a, ty = e.y + e.h * b, tz = e.z - e.w / 2 + e.w * d, o = [x, y, z], v = [tx - x, ty - y, tz - z], L = Math.hypot(...v) || 1
+      if (!raycast(W, o, v.map(q => q / L), L, (id) => BLOCKS[id].solid && BLOCKS[id].op)) n++ } return n / c }
+    const d = Math.hypot(e.x - x, e.y + (e.h || 0.5) / 2 - y, e.z - z)
+    if (d > r * 2 || e.e === 'peer') return
+    const imp = (1 - d / (r * 2)) * (e.e === 'tnt' ? 1 : seen(e)), L = d || 1, kr = e.e === 'mob' && MOBS[e.type] ? 1 - (MOBS[e.type].kbr || 0) : 1
+    e.vx += (e.x - x) / L * imp * kr; e.vy += ((e.y + (e.h || 0.5) / 2 - y) / L * imp + 0.1 * imp) * kr; e.vz += (e.z - z) / L * imp * kr
+    const dmg = (imp * imp + imp) / 2 * 7 * r * 2 + 1
+    if (isP) { if (imp > 0) this.hurtPlayer(dmg, src && src.type ? src : null, 'boom') }
+    else if (e.e === 'mob') { if (imp > 0) this.hurtMob(e, dmg, null) }
+    else if (e.e === 'item' || e.e === 'xp') { if (imp > 0.3) e.gone = true }             // (MC: a blast destroys the items it catches)
+  }
+  knockAll(x, y, z, r, src) {
+    this.knock(this.player, true, x, y, z, r, src)
+    for (const m of this.ents) if (m !== src && !m.death && m.e !== 'arrow') this.knock(m, false, x, y, z, r, src)
+  }
+  // someone else's blast (2b2t): the shockwave here; the blocks it broke come as their edits
+  remoteBoom(x, y, z, r) { this.emit({ t: 'boom', x, y, z, r, remote: true }); this.knockAll(x, y, z, r, null) }
   tickFalling(e) {
     e.age++
     e.vy = (e.vy - 0.04) * 0.98
@@ -680,7 +702,8 @@ export class Game {
     P.atkT = 0
     P.exh += 0.1
     const kb = (P.sprint && cd > 0.9 ? 1 : 0) + 0.5
-    this.hurtMob(m, dmg, P, kb)
+    if (m.e === 'peer') { this.emit({ t: 'pvp', id: m.id, dmg, kb }); m.hurt = 6 }   // (2b2t: another player; their own game takes the hit)
+    else this.hurtMob(m, dmg, P, kb)
     if (crit) this.emit({ t: 'crit', x: m.x, y: m.y + m.h * 0.7, z: m.z })
     if (h && ITEMS[h.id] && ITEMS[h.id].tool) this.wear(ITEMS[h.id].tool === 'sword' ? 1 : 2)
     if (P.sprint) P.sprint = false
@@ -717,13 +740,13 @@ export class Game {
     if (this.mode === 'creative' && why !== 'void') return
     if (P.dead || (P.invul > 0 && why !== 'void')) return
     let pts = 0, tough = 0
-    if (why === 'mob' || why === 'arrow' || why === 'boom') for (const a of P.armor) if (a && ITEMS[a.id] && ITEMS[a.id].armor !== undefined) { pts += ITEMS[a.id].pts; tough += ITEMS[a.id].tough }
+    if (why === 'mob' || why === 'arrow' || why === 'boom' || why === 'pvp') for (const a of P.armor) if (a && ITEMS[a.id] && ITEMS[a.id].armor !== undefined) { pts += ITEMS[a.id].pts; tough += ITEMS[a.id].tough }
     if (pts) {
       dmg *= 1 - Math.min(20, Math.max(pts / 5, pts - dmg / (2 + tough / 4))) / 25
       for (let i = 0; i < 4; i++) { const a = P.armor[i]; if (!a) continue; a.d = (a.d || 0) + Math.max(1, Math.floor(dmg / 4)); if (a.d >= ITEMS[a.id].dur) { P.armor[i] = null; this.emit({ t: 'snd', s: 'break_tool' }) } }
     }
     P.hp -= dmg; P.invul = 10; P.hurtT = 10; P.exh += 0.1
-    P.lastHurt = { why, by: src && src.type }
+    P.lastHurt = { why, by: src && src.type, pn: src && src.pn, pid: src && src.pid }
     this.emit({ t: 'hurt', why })
     if (src) { const dx = P.x - src.x, dz = P.z - src.z, L = Math.hypot(dx, dz) || 1; P.vx = dx / L * 0.4; P.vz = dz / L * 0.4; P.vy = 0.36 }
     if (P.hp <= 0) this.die()
@@ -735,11 +758,14 @@ export class Game {
     const msg = {
       fall: 'fell from a high place', drown: 'drowned', lava: 'tried to swim in lava', fire: 'burned to death', starve: 'starved to death',
       cactus: 'was pricked to death', void: 'fell out of the world', boom: mob ? 'was blown up by ' + mob : 'blew up',
-      arrow: 'was shot by ' + (mob || 'Skeleton'), mob: 'was slain by ' + (mob || 'something'),
+      arrow: 'was shot by ' + (mob || 'Skeleton'), mob: 'was slain by ' + (mob || 'something'), pvp: 'was slain by ' + by.pn,
     }[by.why] || 'died'
-    for (const arr of [P.inv, P.armor, P.craft2]) for (let i = 0; i < arr.length; i++) if (arr[i]) { this.dropItem(arr[i], P.x, P.y + 1, P.z); arr[i] = null }
-    if (P.off) { this.dropItem(P.off, P.x, P.y + 1, P.z); P.off = null }
-    this.dropXp(Math.min(100, P.lvl * 7), P.x, P.y + 0.5, P.z)
+    const loot = by.why === 'pvp' ? [] : null      // (2b2t: killed by a player, what you had drops in their world)
+    const drop = (s) => { if (loot) loot.push(s); else this.dropItem(s, P.x, P.y + 1, P.z) }
+    for (const arr of [P.inv, P.armor, P.craft2]) for (let i = 0; i < arr.length; i++) if (arr[i]) { drop(arr[i]); arr[i] = null }
+    if (P.off) { drop(P.off); P.off = null }
+    if (loot) this.emit({ t: 'loot', to: by.pid, s: loot, x: P.x, y: P.y + 1, z: P.z })
+    else this.dropXp(Math.min(100, P.lvl * 7), P.x, P.y + 0.5, P.z)
     this.emit({ t: 'death', msg: this.name + ' ' + msg, score: P.score })
     this.chat(this.name + ' ' + msg)
   }
@@ -771,13 +797,14 @@ export class Game {
     // hit a body?
     const o = [a.x, a.y, a.z], d = [a.vx / sp, a.vy / sp, a.vz / sp]
     const P = this.player
-    const targets = a.by === 'player' ? this.ents.filter(m => m.e === 'mob' && !m.death) : [P]
+    const targets = a.by === 'player' ? this.ents.filter(m => (m.e === 'mob' || m.e === 'peer') && !m.death) : [P]
     for (const m of targets) {
       if (m === P && (P.dead || a.age < 2)) continue
       const bb = aabb(m), h = rayBox(o, d, [bb[0] - 0.15, bb[1] - 0.15, bb[2] - 0.15, bb[3] + 0.15, bb[4] + 0.15, bb[5] + 0.15])
       if (h && h.t <= sp) {
         const dmg = Math.ceil(sp * 2 * (a.crit ? 1.5 : 1))
         if (m === P) this.hurtPlayer(a.by === 'mob' ? Math.min(dmg, 4) : dmg, a.src || null, 'arrow')
+        else if (m.e === 'peer') { this.emit({ t: 'pvp', id: m.id, dmg: Math.min(20, dmg), kb: 0.3 }); m.hurt = 6; this.emit({ t: 'arrowHit' }) }
         else { this.hurtMob(m, dmg, { x: a.x, z: a.z, by: 'player' }, 0.3); this.emit({ t: 'arrowHit' }) }
         a.gone = true; return
       }
@@ -804,22 +831,7 @@ export class Game {
         px += dx * 0.3; py += dy * 0.3; pz += dz * 0.3; f -= 0.225
       }
     }
-    // MC's damage + knockback: impact = (1 - dist / 2r) * how much of the body the blast can see
-    const seen = (e) => { let n = 0, c = 0; for (let a = 0; a <= 1; a += 0.5) for (let b = 0; b <= 1; b += 0.5) for (let d = 0; d <= 1; d += 0.5) {
-      c++; const tx = e.x - e.w / 2 + e.w * a, ty = e.y + e.h * b, tz = e.z - e.w / 2 + e.w * d, o = [x, y, z], v = [tx - x, ty - y, tz - z], L = Math.hypot(...v) || 1
-      if (!raycast(W, o, v.map(q => q / L), L, (id) => BLOCKS[id].solid && BLOCKS[id].op)) n++ } return n / c }
-    const knock = (e, isP) => {
-      const d = Math.hypot(e.x - x, e.y + (e.h || 0.5) / 2 - y, e.z - z)
-      if (d > r * 2) return
-      const imp = (1 - d / (r * 2)) * (e.e === 'tnt' ? 1 : seen(e)), L = d || 1, kr = e.e === 'mob' && MOBS[e.type] ? 1 - (MOBS[e.type].kbr || 0) : 1
-      e.vx += (e.x - x) / L * imp * kr; e.vy += ((e.y + (e.h || 0.5) / 2 - y) / L * imp + 0.1 * imp) * kr; e.vz += (e.z - z) / L * imp * kr
-      const dmg = (imp * imp + imp) / 2 * 7 * r * 2 + 1
-      if (isP) { if (imp > 0) this.hurtPlayer(dmg, src && src.type ? src : null, 'boom') }
-      else if (e.e === 'mob') { if (imp > 0) this.hurtMob(e, dmg, null) }
-      else if (e.e === 'item' || e.e === 'xp') { if (imp > 0.3) e.gone = true }             // (MC: a blast destroys the items it catches)
-    }
-    knock(this.player, true)
-    for (const m of this.ents) if (m !== src && !m.death && m.e !== 'arrow') knock(m, false)
+    this.knockAll(x, y, z, r, src)
     for (const [key, id] of hit) {
       const [bx, by, bz] = key.split(',').map(Number)
       if (W.get(bx, by, bz) !== id) continue

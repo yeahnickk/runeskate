@@ -21,6 +21,7 @@ bun test/cart.js                  # CartScape: the road, CPU races per class + d
 bun test/league.js                # Rune League: RL numbers, rules, wire state, bot matches, aerials, online 3v3 (boots the server)
 bun tools/cart-track.ts            # CartScape: re-bake assets/cart_lumbridge.* after changing the route in src/cart/track.js
 bun test/mine.js                  # MineScape: the map as blocks, MC movement/digging/crafting/furnace/hunger, mobs, trades, saving
+bun test/mine2b.js                # MineScape 2b2t online: edits, chests, chat, PvP hits + loot, TNT fx, floods cut off, the world kept over a restart (boots the server)
 python3 tools/mine-bake.py        # MineScape: re-bake assets/mine_world.* from tools/out (heights, surfaces, walls, roofs, colours)
 ```
 
@@ -145,6 +146,14 @@ Minecraft to play: the real 2004 map draws over the blocks, Minecraft's first pe
   all, bar bedrock and blocks with a `use`), leaving your cells and a shaft up out of it clear. TNT thrown out of reach
   is dropped, and TNT skips the blast's exposure rays (a ball's chain is ~2500 blasts). `World.chunk` caches the last
   chunk asked for (`Chunks` drops it on delete).
+- 2b2t (title > Multiplayer: 2b2t, a warning popup first): one shared anarchy world, survival only, commands only /kill
+  and /list. `netserver.js` in serve.ts (`/mine-ws`, `/api/2b2t` for the popup's count) keeps the edits (chunk-map format)
+  and chests in `data/2b2t.json` (gzipped to whoever joins), the day from its own clock, and relays the rest; trust is
+  the client's, it only guards against junk and floods. `net2b.js`: our world listener sends the cells we changed;
+  theirs come in through `world.set` with nothing woken (whoever made an edit runs what follows from it: flows, falls).
+  Others are `e: 'peer'` ents (RS bodies + name tags), hit like mobs (`pvp` event -> their `hurtPlayer(.., 'pvp')`); a
+  pvp death sends what you had to the killer (`loot`). Lit TNT is a `ghost` fuse elsewhere, its blast `remoteBoom`
+  (shockwave only, the holes come as edits). Only the player is saved locally (`minescape.w.2b2t`); mobs are each your own.
 - Fights go by RS hitpoints for the weak (goblin 5, man 7: three or four punches), hunger drains at half MC's rate.
   Townsfolk hit back when hit (`FOLK` `hit` = RS max hit, a swing every 48 ticks) and calm down once you're 16 away.
   Goblins, rats, scorpions and the animals are the same (`aggro: 0`); only the evil ones come for you on sight.

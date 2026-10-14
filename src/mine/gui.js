@@ -153,6 +153,7 @@ export class Gui {
     if (st === 'title') return this.drawTitle()
     if (st === 'worlds') return this.drawWorlds()
     if (st === 'create') return this.drawCreate()
+    if (st === 'mp') return this.drawMp()
     if (st === 'options') return this.drawOptions()
     if (st === 'controls') return this.drawControls()
     if (!G) return
@@ -208,7 +209,7 @@ export class Gui {
     textC(X, this.splash, 0, -4, '#ffff00'); X.restore()
     const bx = W / 2 - 100, by = Math.max(lh + 20, H / 4 + 48)
     this.button(bx, by, 200, 20, 'Singleplayer', () => this.onAction('worlds'))
-    this.button(bx, by + 24, 200, 20, 'Multiplayer', () => {}, false)
+    this.button(bx, by + 24, 200, 20, 'Multiplayer: 2b2t', () => this.onAction('mp'))
     this.button(bx, by + 48, 200, 20, 'Back to RuneSkate', () => this.onAction('quit'))
     this.button(bx, by + 84, 98, 20, 'Options...', () => { this.back = 'title'; this.state = 'options' })
     this.button(bx + 102, by + 84, 98, 20, 'Quit Game', () => this.onAction('quit'))
@@ -252,6 +253,33 @@ export class Gui {
     textC(X, 'The world is the 2004 RuneScape map, block for tile.', W / 2, 152, '#a0a0a0')
     this.button(W / 2 - 154, H - 28, 150, 20, 'Create New World', () => this.onAction('create', { name: this.newName, mode: this.newMode }))
     this.button(W / 2 + 4, H - 28, 150, 20, 'Cancel', () => { this.state = 'worlds'; this.onAction('nameInput', false) })
+  }
+  // what you're about to walk into (2b2t: anarchy, the world shared and never reset)
+  drawMp() {
+    this.dirtBg()
+    const W = this.W, H = this.H, X = this.x, i = this.mpInfo
+    const top = Math.max(6, Math.min(24, (H - 250) / 2 | 0))
+    X.save(); X.scale(2, 2); textC(X, '2b2t', W / 4, top / 2, '#ff5555'); X.restore()
+    textC(X, 'The oldest anarchy server in Gielinor', W / 2, top + 22, '#a0a0a0')
+    const L = [
+      ['§cWARNING: you are about to enter an anarchy server.', '#ffffff'],
+      ['No rules. No admins. No bans. The world never resets.', '#ffffff'],
+      ['Anyone can break, burn or blow up anything, your house too.', '#ffffff'],
+      ['Other players can kill you on sight and take everything', '#ffffff'],
+      ['you carry. Spawn is a wasteland. Nothing you build is safe.', '#ffffff'],
+      ['Survival only, no cheats. Chat is (mostly) unfiltered.', '#ffffff'],
+      ['You will die. Probably a lot. Have fun lol', '#ffff55'],
+    ]
+    L.forEach(([l, c], k) => textC(X, l, W / 2, top + 40 + k * 11, c))
+    const y0 = top + 40 + L.length * 11 + 6
+    textC(X, !i ? 'Pinging the server...' : i.off ? '§cThe 2b2t server is offline right now' : i.n + '/' + i.max + ' players online, day ' + i.days + ', ' + i.cells + ' blocks changed', W / 2, y0, '#a0a0a0')
+    text(X, 'Your name', W / 2 - 100, y0 + 14, '#a0a0a0')
+    this.nameBox = [W / 2 - 100, y0 + 24, 200, 20]
+    this.rect(W / 2 - 101, y0 + 23, 202, 22, '#a0a0a0'); this.rect(W / 2 - 100, y0 + 24, 200, 20, '#000')
+    if (this.mpErr) textC(X, '§c' + this.mpErr, W / 2, y0 + 48, '#ffffff')
+    const by = Math.min(H - 24, y0 + 64)
+    this.button(W / 2 - 154, by, 150, 20, 'I understand, join', () => this.onAction('join2b'), !(i && i.off))
+    this.button(W / 2 + 4, by, 150, 20, 'Take me back', () => this.onAction('mpBack'))
   }
   drawOptions() {
     if (this.back === 'title') this.dirtBg(); else { this.x.fillStyle = 'rgba(16,16,16,0.75)'; this.x.fillRect(0, 0, this.W, this.H) }
@@ -298,7 +326,7 @@ export class Gui {
     this.button(W / 2 - 102, y + 24, 98, 20, 'Advancements', () => { this.state = 'adv'; this.scroll = 0 })
     this.button(W / 2 + 4, y + 24, 98, 20, 'Statistics', () => {}, false)
     this.button(W / 2 - 102, y + 48, 204, 20, 'Options...', () => { this.back = 'pause'; this.state = 'options' })
-    this.button(W / 2 - 102, y + 84, 204, 20, 'Save and Quit to Title', () => this.onAction('saveQuit'))
+    this.button(W / 2 - 102, y + 84, 204, 20, this.net ? 'Disconnect' : 'Save and Quit to Title', () => this.onAction('saveQuit'))
   }
   drawDead() {
     const W = this.W, X = this.x, H = this.H
