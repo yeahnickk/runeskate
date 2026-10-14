@@ -459,7 +459,7 @@ export class View {
     this.clouds.position.set(cam.pos.x, 112, cam.pos.z)
     this.clouds.material.map.offset.set(((G.time + alpha) * 0.0006 + cam.pos.x / 1536 * 2) % 1, (-cam.pos.z / 1536 * 2) % 1)
     this.clouds.material.color.setScalar(0.12 + 0.88 * Math.max(0, (uSky - 0.2) / 0.8))
-    this.clouds.visible = this.fancy || true
+    this.clouds.visible = !under && !cam.lava   // (no fog on them: under water they'd draw over the surface, the sky showing through it)
     if (this.rsw) { this.rsw.update(); this.rsw.cull(cam.pos.x, cam.pos.z, ff + 20); this.rsw.setLight(0.3 + 0.7 * uSky) }
     this.syncEnts(alpha, dt)
     this.tickParticles(dt)

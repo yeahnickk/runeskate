@@ -10,7 +10,9 @@ Writes assets/mine_world.bin (gzip'd by compress.ts like the rest) + assets/mine
   bin: W*H bytes each of: ground y (block), surface id, roof height over ground (0 = none), roof colour index,
        flags (1 wall, 2 fence, 4 tree, 8 water, 16 indoors), wall colour index (0 none, else 1 + json.walls),
        then the RS ground colour as three planes R, G, B, then edges (1 wall on the tile's west edge, 2 wall south,
-       4 fence west, 8 fence south) and the water level (block y) under a bridge.
+       4 fence west, 8 fence south) and the water level (block y) under a bridge, then what fills under a bridge deck
+       (bit k < 7: block water level + 1 + k is solid: the RS bridge's piers and spandrels, its arches left open;
+       bit 7: it's wood, a hull or a jetty).
   v2 flags: 4 tree, 8 water, 16 indoors, 32 rock, 64 scenery (an RS object blocks the tile), 128 bridge deck
   json: { W, H, x0, z0 (world coords of tile 0,0), sea, spawn, trees: [[x,z]...], villagers: [[x,z,kind]...], roofs: [rgb...] }
 """
@@ -195,6 +197,48 @@ flags_hw = fl2
 wl_y = np.where(bridge, np.minimum(wl_y, gy - 1), gy).astype(np.int32)
 print('bridge tiles', int(bridge.sum()), 'edge walls', int(((edges & 3) > 0).sum()), 'fences', int(((edges & 12) > 0).sum()))
 
+# what fills under a bridge deck: the RS bridge seen side on (across its span), cell by cell between the water and the
+# deck. A cell its model covers (a pier, the spandrel over an arch) is solid; one you see through (an arch) stays open.
+# bit k of bs (k < 7) = block wl + 1 + k is solid; bit 7: it's wood (a ship's hull, a jetty), not stone
+bs = np.zeros((H, W), np.uint8)
+near_b = bridge.copy()
+for dz in (-1, 0, 1):
+    for dx in (-1, 0, 1): near_b |= np.roll(np.roll(bridge, dz, 0), dx, 1)
+bt, btc = [], []
+for a in range(0, len(lpos), 3_000_000):
+    p = np.asarray(lpos[a:a + 3_000_000]); i = np.floor(p[:, :, 0].mean(1) / 128).astype(np.int64); k = np.floor(p[:, :, 2].mean(1) / 128).astype(np.int64)
+    inb = (i >= 0) & (i < W) & (k >= 0) & (k < H); m = np.zeros(len(p), bool); m[inb] = near_b[k[inb], i[inb]]
+    if m.any(): bt.append(p[m].copy()); btc.append(np.asarray(lcol[a:a + 3_000_000])[m].astype(np.float32).mean(1))
+bt = np.concatenate(bt) if bt else np.zeros((0, 3, 3), np.float32); btc = np.concatenate(btc) if btc else np.zeros((0, 3), np.float32)
+seen = np.zeros_like(bridge)
+for z0, x0 in zip(*np.nonzero(bridge)):
+    if seen[z0, x0]: continue
+    comp, st = [], [(z0, x0)]; seen[z0, x0] = True          # (one bridge: its connected deck tiles)
+    while st:
+        z, x = st.pop(); comp.append((z, x))
+        for dz, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            q, r = z + dz, x + dx
+            if 0 <= q < H and 0 <= r < W and bridge[q, r] and not seen[q, r]: seen[q, r] = True; st.append((q, r))
+    zs_, xs_ = [c[0] for c in comp], [c[1] for c in comp]
+    along_x = max(xs_) - min(xs_) >= max(zs_) - min(zs_)    # (the span runs east-west: look at it from the north)
+    lo, hi = (min(zs_) - 0.5, max(zs_) + 1.5) if along_x else (min(xs_) - 0.5, max(xs_) + 1.5)
+    tc = bt[:, :, 2 if along_x else 0].mean(1) / 128; sel = (tc >= lo) & (tc <= hi) & (np.abs(bt[:, :, 0].mean(1) / 128 - (min(xs_) + max(xs_) + 1) / 2) < (max(xs_) - min(xs_)) / 2 + 2) & (np.abs(bt[:, :, 2].mean(1) / 128 - (min(zs_) + max(zs_) + 1) / 2) < (max(zs_) - min(zs_)) / 2 + 2); T = bt[sel]
+    U = T[:, :, 0 if along_x else 2] / 128; V = -T[:, :, 1] / 128   # (the side view: along the span, and up)
+    A = np.stack([U[:, 0], V[:, 0]], 1); Bv = np.stack([U[:, 1], V[:, 1]], 1); C = np.stack([U[:, 2], V[:, 2]], 1)
+    big = np.abs((Bv[:, 0] - A[:, 0]) * (C[:, 1] - A[:, 1]) - (Bv[:, 1] - A[:, 1]) * (C[:, 0] - A[:, 0])) > 1e-4
+    A, Bv, C = A[big], Bv[big], C[big]
+    cm = btc[sel][big].mean(0) if big.any() else np.zeros(3)
+    wood = 128 if cm[0] > cm[2] + 25 and cm[0] >= cm[1] else 0     # (brown: a hull or a jetty's planks)
+    def covered(u, v):
+        e = lambda P, Q: (Q[:, 0] - P[:, 0]) * (v - P[:, 1]) - (Q[:, 1] - P[:, 1]) * (u - P[:, 0])
+        d1, d2, d3 = e(A, Bv), e(Bv, C), e(C, A)
+        return bool((((d1 >= 0) & (d2 >= 0) & (d3 >= 0)) | ((d1 <= 0) & (d2 <= 0) & (d3 <= 0))).any())
+    for z, x in comp:
+        for yb in range(int(wl_y[z, x]) + 1, int(gy[z, x])):
+            if yb - wl_y[z, x] - 1 < 7 and covered((x if along_x else z) + 0.5, yb - BASE - 0.5): bs[z, x] |= 1 << (yb - wl_y[z, x] - 1)
+        if bs[z, x]: bs[z, x] |= wood
+print('bridges', int(seen.sum()), 'deck tiles,', int((bs > 0).sum()), 'with something under them,', int((bs >= 128).sum()), 'of it wood')
+
 # npcs: every RS spawn the skate game knows (mapdata.CORE_SPAWNS + npc-spawns.EXTRA_SPAWNS), local tiles
 npcs = []
 for f in (os.path.join(ROOT, 'src', 'mapdata.js'), os.path.join(ROOT, 'src', 'npc-spawns.js')):
@@ -222,7 +266,7 @@ num = sum(np.roll(np.roll(gc * hv[..., None], dz, 0), dx, 1) for dz in (-1, 0, 1
 den = sum(np.roll(np.roll(hv, dz, 0), dx, 1) for dz in (-1, 0, 1) for dx in (-1, 0, 1))
 gc = np.where(den[..., None] > 0, num / np.maximum(den, 1)[..., None], [90, 120, 40]).clip(0, 255).astype(np.uint8)
 blob = np.concatenate([gy.astype(np.uint8).ravel(), sf.ravel(), roof_up.ravel(), rci.ravel(), flags_hw.ravel(), wci.ravel(),
-                       gc[..., 0].ravel(), gc[..., 1].ravel(), gc[..., 2].ravel(), edges.ravel(), wl_y.astype(np.uint8).ravel()])
+                       gc[..., 0].ravel(), gc[..., 1].ravel(), gc[..., 2].ravel(), edges.ravel(), wl_y.astype(np.uint8).ravel(), bs.ravel()])
 blob.tofile(os.path.join(ROOT, 'assets', 'mine_world.bin'))
 # the spawn: Lumbridge castle's courtyard (as the skate game)
 spawn = [3222 - BX, 3218 - BZ]

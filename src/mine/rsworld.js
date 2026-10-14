@@ -65,7 +65,10 @@ export class RSWorld {
       opaque: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }),
       alpha: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.4, depthWrite: false }),
       water: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.62, depthWrite: false }),
+      ground: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     }
+    // the ground seen from under it (a bank over the water, from below the surface) is earth, not a sheet you see past
+    this.mats.ground.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <fog_fragment>', 'if (!gl_FrontFacing) gl_FragColor.rgb = vec3(0.30, 0.22, 0.15) * diffuse;\n#include <fog_fragment>') }
     this.meshes = []; this.byChunk = new Map()            // 'cx,cz' -> [meshes]
     this.cover = new Uint8Array(world.W * world.H)          // 1 where an RS pack draws the tile
     this.drawn = new Uint8Array(world.W * world.H)          // 1 where a pack has ground triangles (some packs have empty map squares)
@@ -122,7 +125,7 @@ export class RSWorld {
           const g = new THREE.BufferGeometry()
           g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
           g.setAttribute('color', new THREE.BufferAttribute(col, 3, true))
-          const m = new THREE.Mesh(g, kind === 'locs_alpha' ? this.mats.alpha : kind === 'water' ? this.mats.water : this.mats.opaque)
+          const m = new THREE.Mesh(g, kind === 'locs_alpha' ? this.mats.alpha : kind === 'water' ? this.mats.water : kind === 'terrain' ? this.mats.ground : this.mats.opaque)
           m.position.set(ch.cx * CH, this.base, -ch.cz * CH); m.scale.set(1 / 128, -1 / 128, -1 / 128)
           m.updateMatrix(); m.matrixAutoUpdate = false
           m.userData = { cx: ch.cx, cz: ch.cz, kind, c: [(ch.cx + 0.5) * CH, -(ch.cz + 0.5) * CH], tri: null }
@@ -176,15 +179,15 @@ export class RSWorld {
     for (let i = 0; i < n; i++) {
       const o = i * 9, x = (p[o] + p[o + 3] + p[o + 6]) / 384, y = -(p[o + 1] + p[o + 4] + p[o + 7]) / 384, z = (p[o + 2] + p[o + 5] + p[o + 8]) / 384
       let lx = Math.min(CH - 1, Math.max(0, Math.floor(x))), lz = Math.min(CH - 1, Math.max(0, Math.floor(z)))
-      // a wall standing on a tile edge goes with the tile whose block it is (the bake keeps walls on west/south edges),
-      // so knocking the block out takes the wall, not the floor beside it
+      // a wall or fence standing on a tile edge goes with the tile whose block it is (the bake keeps them on west/south
+      // edges), so knocking the block out takes the wall or fence, not the floor beside it
       const ax = p[o + 3] - p[o], az = p[o + 5] - p[o + 2], bx = p[o + 6] - p[o], bz = p[o + 8] - p[o + 2], ay = p[o + 4] - p[o + 1], by = p[o + 7] - p[o + 1]
       const ny = Math.abs(az * bx - ax * bz), nl = Math.hypot(ay * bz - az * by, ny, ax * by - ay * bx) || 1
       if (ny / nl < 0.3 && W.ed) {
         const rx = Math.round(x), rz = Math.round(z), gx = cx * CH, gz = cz * CH
         const e = (tx, tz) => tx >= 0 && tz >= 0 && tx < W.W && tz < W.H ? W.ed[tz * W.W + tx] : 0
-        if (Math.abs(x - rx) < 0.25 && (e(gx + rx, gz + lz) & 1) && rx >= 0 && rx < CH) lx = rx
-        else if (Math.abs(z - rz) < 0.25 && (e(gx + lx, gz + rz) & 2) && rz >= 0 && rz < CH) lz = rz
+        if (Math.abs(x - rx) < 0.25 && (e(gx + rx, gz + lz) & 5) && rx >= 0 && rx < CH) lx = rx            // (1 a wall, 4 a fence on the west edge)
+        else if (Math.abs(z - rz) < 0.25 && (e(gx + lx, gz + rz) & 10) && rz >= 0 && rz < CH) lz = rz     // (2, 8: the south edge)
       }
       t[i] = lz * CH + lx
       const ti = (cz * CH + lz) * W.W + cx * CH + lx

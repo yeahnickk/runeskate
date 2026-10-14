@@ -114,8 +114,12 @@ Minecraft to play: the real 2004 map draws over the blocks, Minecraft's first pe
   tree's canopy over the tiles round it (`RANK`: 1 beats 3 beats 2). Tunnels under the ground leave the tile alone.
   A felled tree comes down whole (`trunk`: big trees stand on 2x2). The mesher (`opts.rs`) skips natural blocks the
   RS ground already draws (never their tops); a pit wall's top edge follows the RS ground's corners (`rsTops`). `height()` the RS ground, so bodies stand on bridges and slopes as drawn.
-  `world.keep` (set by render.js) stops MC's grass/dirt ticks on the map's own ground, which would otherwise turn every
-  tile under a tree or wall to blocks. Wall triangles on a tile edge go with the tile the bake put the wall block on.
+  Under a bridge deck (the bake's `bs` plane, from the RS model seen side on) the piers, spandrels and hulls are blocks
+  (stone, or planks where RS draws wood) down to the bed and its arches stay open, so nobody walks under a bridge; the
+  mesher leaves them to RS above the water. `world.keep` (set by render.js) stops MC's grass/dirt ticks on the map's own ground, which would otherwise turn every
+  tile under a tree or wall to blocks. Wall and fence triangles on a tile edge go with the tile the bake put the block on.
+  An RS object (scenery 80, two blocks) breaks whole. The RS ground's underside draws as earth (`mats.ground`) and the eye
+  counts as under water below the RS water surface (half a block over the blocks' water), so banks never show through.
 - Edits hide RS triangles by `vx` kind: 1 dug (whole tile), 3 an above-ground block gone (locs only, terrain stays),
   2 a felled canopy; terrain + `water` never go for 2/3. Water triangles are their own translucent mesh (`waterOut`).
   `capWalls` paints black wall caps from their neighbours, `splitBig` cuts wide loc triangles so a broken block leaves
@@ -134,6 +138,7 @@ Minecraft to play: the real 2004 map draws over the blocks, Minecraft's first pe
   `explode` is MC's ray blast worn down by `resist` (water swallows it, obsidian holds), entities hit before blocks go.
 - Fights go by RS hitpoints for the weak (goblin 5, man 7: three or four punches), hunger drains at half MC's rate.
   Townsfolk hit back when hit (`FOLK` `hit` = RS max hit, a swing every 48 ticks) and calm down once you're 16 away.
+  Goblins, rats, scorpions and the animals are the same (`aggro: 0`); only the evil ones come for you on sight.
   `/summon` takes the RS names too (`RS_SPAWN`: man, guard, dwarf...).
   The heavy RS monsters resist knockback (`kbr`, MC's attribute: giants, demons, dragons; the KBD fully), sword hits and
   blasts alike. Event advancements (Monster Hunter...) are awarded in `emit`, as they happen. The KBD beats melee in rune and food but

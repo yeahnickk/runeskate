@@ -17,17 +17,18 @@ export const MOBS = {
   spider: { n: 'Spider', w: 1.4, h: 0.9, hp: 16, sp: 0.75, dmg: 2, xp: [5, 5], drops: [[276, 0, 2]], hostile: true, climbs: true },
   villager: { n: 'Villager', w: 0.6, h: 1.95, hp: 20, sp: 0.4, xp: [0, 0], drops: [], villager: true },
   // the RS map's own monsters, at their RS spawns (lvl: the RS combat level shown on the mouse-over; aggro: how close
-  // you get before they come for you, as RS's aggressive NPCs; 0 = only once hit)
-  goblin: { n: 'Goblin', lvl: 2, w: 0.6, h: 1.3, hp: 5, sp: 0.5, dmg: 1, xp: [2, 4], drops: [[275, 1, 1], [328, 0, 5]], hostile: true, aggro: 5 },
-  rat: { n: 'Giant rat', lvl: 3, w: 0.8, h: 0.6, hp: 5, sp: 0.55, dmg: 1, xp: [2, 3], drops: [[275, 1, 1], [274, 0, 1]], hostile: true, aggro: 4 },
+  // you get before they come for you, as RS's aggressive NPCs; 0 = only once hit: goblins, rats, the animals keep to
+  // themselves, only the evil ones come for you)
+  goblin: { n: 'Goblin', lvl: 2, w: 0.6, h: 1.3, hp: 5, sp: 0.5, dmg: 1, xp: [2, 4], drops: [[275, 1, 1], [328, 0, 5]], hostile: true, aggro: 0 },
+  rat: { n: 'Giant rat', lvl: 3, w: 0.8, h: 0.6, hp: 5, sp: 0.55, dmg: 1, xp: [2, 3], drops: [[275, 1, 1], [274, 0, 1]], hostile: true, aggro: 0 },
   imp: { n: 'Imp', lvl: 2, w: 0.5, h: 0.9, hp: 8, sp: 0.6, dmg: 1, xp: [2, 3], drops: [[262, 0, 2], [288, 0, 1]], hostile: true, aggro: 0 },
   darkwizard: { n: 'Dark wizard', lvl: 7, w: 0.6, h: 1.9, hp: 24, sp: 0.5, xp: [5, 7], drops: [[262, 1, 3], [275, 1, 1]], hostile: true, aggro: 7, ranged: true },
   darkwarrior: { n: 'Dark warrior', lvl: 8, w: 0.6, h: 1.9, hp: 20, sp: 0.55, dmg: 2, xp: [5, 7], drops: [[275, 1, 1], [258, 0, 1]], hostile: true, aggro: 5, rs: 'blackknight' },
   blackknight: { n: 'Black Knight', lvl: 33, w: 0.6, h: 1.95, hp: 40, sp: 0.55, dmg: 4, xp: [8, 12], drops: [[275, 1, 1], [258, 1, 2]], kbr: 0.3, hostile: true, aggro: 6, armor: 8 },
   bear: { n: 'Grizzly bear', lvl: 21, w: 1.2, h: 1.4, hp: 30, sp: 0.55, dmg: 3, xp: [5, 8], drops: [[275, 1, 1], [268, 1, 2], [279, 1, 2]], kbr: 0.4, hostile: true, aggro: 0 },
   unicorn: { n: 'Unicorn', lvl: 15, w: 1.1, h: 1.7, hp: 25, sp: 0.6, dmg: 2, xp: [5, 7], drops: [[275, 1, 1]], hostile: true, aggro: 0 },
-  blackunicorn: { n: 'Black unicorn', lvl: 27, w: 1.1, h: 1.7, hp: 30, sp: 0.6, dmg: 3, xp: [6, 9], drops: [[275, 1, 1]], hostile: true, aggro: 6 },
-  scorpion: { n: 'Scorpion', lvl: 14, w: 1.0, h: 0.6, hp: 20, sp: 0.6, dmg: 2, xp: [5, 7], drops: [], hostile: true, aggro: 5 },
+  blackunicorn: { n: 'Black unicorn', lvl: 27, w: 1.1, h: 1.7, hp: 30, sp: 0.6, dmg: 3, xp: [6, 9], drops: [[275, 1, 1]], hostile: true, aggro: 0 },
+  scorpion: { n: 'Scorpion', lvl: 14, w: 1.0, h: 0.6, hp: 20, sp: 0.6, dmg: 2, xp: [5, 7], drops: [], hostile: true, aggro: 0 },
   ghost: { n: 'Ghost', lvl: 19, w: 0.6, h: 1.9, hp: 25, sp: 0.5, dmg: 2, xp: [5, 8], drops: [[262, 0, 2]], hostile: true, aggro: 5 },
   icewarrior: { n: 'Ice warrior', lvl: 57, w: 0.6, h: 2.0, hp: 59, sp: 0.5, dmg: 5, xp: [10, 15], drops: [[275, 1, 1], [258, 0, 2]], kbr: 0.3, hostile: true, aggro: 6, armor: 10 },
   giant: { n: 'Hill Giant', lvl: 28, w: 1.0, h: 2.6, hp: 35, sp: 0.5, dmg: 4, xp: [8, 12], drops: [[275, 2, 2], [258, 0, 1]], kbr: 0.5, hostile: true, aggro: 6 },

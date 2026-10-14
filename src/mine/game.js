@@ -456,6 +456,10 @@ export class Game {
     }
     W.set(x, y, z, 0)
     this.emit({ t: 'break', id, x, y, z })
+    if (d.scenery) for (const s of [-1, 1]) for (let yy = y + s; W.get(x, yy, z) === id; yy += s) {   // (an RS object goes whole: its RS model is gone, so no bare block of it stays)
+      W.set(x, yy, z, 0); if (!crea) for (const [did, n] of dropsOf(id, this.rng, harvest)) this.dropItem({ id: did, n, d: 0 }, x + 0.5, yy + 0.3, z + 0.5)
+      this.afterRemove(x, yy, z)
+    }
     if (d.door) { const oy = d.door === 1 ? y + 1 : y - 1; if (BLOCKS[W.get(x, oy, z)].door) W.set(x, oy, z, 0) }
     if (d.bed) { const look = meta & 3, s = meta & 4 ? -1 : 1, dx = [0, 1, 0, -1][look] * s, dz = [-1, 0, 1, 0][look] * s; if (W.get(x + dx, y, z + dz) === 40) W.set(x + dx, y, z + dz, 0) }
     const key = x + ',' + y + ',' + z

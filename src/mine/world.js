@@ -40,6 +40,7 @@ export class World {
     this.wc = b.length >= 6 * n ? b.subarray(5 * n, 6 * n) : new Uint8Array(n)
     this.ed = b.length >= 10 * n ? b.subarray(9 * n, 10 * n) : new Uint8Array(n)       // wall/fence edges
     this.wl = b.length >= 11 * n ? b.subarray(10 * n, 11 * n) : this.gy                  // water level under a bridge
+    this.bs = b.length >= 12 * n ? b.subarray(11 * n, 12 * n) : new Uint8Array(n)       // what's solid under a bridge deck (bit k: wl + 1 + k)
     // the tint multiplier per tile (x128 = 1), from the RS ground colour planes
     const T = this.tint = new Uint8Array(n * 3)
     if (b.length >= 9 * n) for (let i = 0; i < n; i++) {
@@ -127,7 +128,9 @@ export class World {
         const w = this.wl[ti]
         for (let y = 4; y < w - 5; y++) b[ci(lx, lz, y)] = 3
         for (let y = w - 5; y < w - 2; y++) b[ci(lx, lz, y)] = hash(X, y, Z, S + 2) < 0.6 ? 6 : 7
-        for (let y = w - 2; y <= w; y++) put(lx, lz, y, 8)
+        const bs = this.bs[ti], pier = bs & 1, mat = bs & 128 ? 11 : 21   // (down to the water: a pier or a hull, on the bed; wood or stone as RS draws it)
+        for (let y = w - 2; y <= w; y++) put(lx, lz, y, pier ? mat : 8)
+        for (let k = 0; k < 7; k++) if (bs >> k & 1) put(lx, lz, w + 1 + k, mat)   // (the bridge's piers + spandrels; its arches stay open)
         put(lx, lz, g, 11)
         continue
       }

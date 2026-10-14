@@ -206,16 +206,17 @@ export function meshChunk(world, cx, cz, opts = {}) {
   // them) unless their tile is blocks now (rs.vx) or a face looks into a cell you changed or a tile that is blocks
   const rs = opts.rs, ED = rs ? edMask(world, cx, cz, Hr) : null
   const hz = new Int16Array((CS + 2) * (CS + 2)).fill(WH)    // per column (padded by 1): the lowest y hidden, WH = none
+  const hb = new Int16Array((CS + 2) * (CS + 2)).fill(WH)    // ... the highest y a face looking into the column still shows at
   const hh = new Int16Array((CS + 2) * (CS + 2)).fill(WH)    // ... and the highest (a tile whose wall was knocked out
   if (rs) for (let a = -1; a <= CS; a++) for (let c = -1; c <= CS; c++) {   // keeps its ground: the rest shows as blocks)
     const t = world.tile(ox + a, oz + c), k = (c + 1) * (CS + 2) + a + 1
-    if (t >= 0 && rs.cover[t] && rs.vx[t] !== 1) { hz[k] = world.gy[t] - 1; if (rs.vx[t] === 3) hh[k] = world.gy[t] }
+    if (t >= 0 && rs.cover[t] && rs.vx[t] !== 1) { const sb = world.fl[t] & 128 && world.bs[t]; hz[k] = sb ? world.wl[t] + 1 : world.gy[t] - 1; hb[k] = sb ? world.wl[t] : hz[k]; if (rs.vx[t] === 3) hh[k] = world.gy[t] }   // (a stone bridge: its piers and arches down to the water are RS's to draw)
   }
   const colK = (rx, rz) => (rz - P + 1) * (CS + 2) + rx - P + 1
   const hidden = (rx, rz, y) => { const k = colK(rx, rz); return y >= hz[k] && y <= hh[k] && !ED[I(rx, rz, y)] }
   // a face of a hidden block shows where the cell it faces was changed, or its column is blocks, or the cell is under
   // that column's RS ground (a cave, the air under a bridge deck: RS draws nothing there, so no seeing through the bank)
-  const faceShows = (rx, rz, y) => { const k = colK(rx, rz); return hz[k] === WH || y <= hz[k] || (y >= 0 && y < Hr && ED[I(rx, rz, y)]) }
+  const faceShows = (rx, rz, y) => { const k = colK(rx, rz); return hz[k] === WH || y <= hb[k] || (y >= 0 && y < Hr && ED[I(rx, rz, y)]) }
   // ...and toward a dug tile it meets the RS ground exactly: its top edge cut (or, the column's top block, stretched)
   // to the ground's height at the two corners, so the RS terrain and the pit wall share an edge with no gap
   const RT = [0, 0, 0]

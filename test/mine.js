@@ -38,9 +38,10 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   const tc = w.trunk(1175, 43, -428).length; g.breakBlock(1175, 44, -428, true)
   let left = 0; for (let a = 1173; a <= 1176; a++) for (let c = -430; c <= -427; c++) for (let y = 42; y < 48; y++) if (w.get(a, y, c) === 79) left++
   check('felling a big RS tree takes its whole 2x2 trunk', tc === 12 && left === 0, `trunk ${tc}, left ${left}`);
-  // the Lumbridge bridge (RS 3240, 3226 -> tiles 1192..1200, 409..410): a plank deck over the River Lum
-  const bz = -409 - 1, deck = w.groundY(1196, bz)
-  check('the Lumbridge bridge is a deck over the river', w.get(1196, deck, bz) === 11 && [0, 8].includes(w.get(1196, deck - 1, bz)) && w.get(1196, deck - 3, bz) === 8, `deck y ${deck}, under ${w.get(1196, deck - 1, bz)} / ${w.get(1196, deck - 3, bz)}`);
+  // the Lumbridge bridge (RS 3240, 3226 -> tiles 1194..1200, 409..410): RS's stone arch bridge over the River Lum. Under
+  // the deck it's what the RS model is: the middle arch open over the water, the piers stone down to the bed
+  const bz = -409 - 1, deck = w.groundY(1197, bz), col = (x) => [1, 2, 3, 4, 5].map(k => w.get(x, deck - k, bz)).join(',')
+  check('the Lumbridge bridge: a deck, open water through its arch, stone piers to the bed (no walking under it)', w.get(1197, deck, bz) === 11 && col(1197) === '0,0,8,8,8' && col(1195) === '21,21,21,21,21', `deck y ${deck}, arch ${col(1197)}, pier ${col(1195)}`);
   // RS spawns: goblins east of the river, cows in the cow field, chickens at the farm
   const near = (kind, x0, x1) => json.npcs.filter(n => n[2] === kind && n[0] >= x0 && n[0] < x1).length
   check('goblins spawn over the bridge, cows in the field (RS spawns)', near('goblin', 1196, 1220) >= 5 && near('cow', 1195, 1220) >= 3 && json.npcs.some(n => n[2] === 'chicken'), `goblins ${near('goblin', 1196, 1220)}, cows ${near('cow', 1195, 1220)}`);
@@ -540,6 +541,25 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
     else if (MOBS[type].hostile && type !== 'goblin' && !g.adv.hunter) bad.push(type + ': no Monster Hunter')
   }
   check('fair fights, played: in iron gear you beat zombie, skeleton, spider, creeper, goblin, rat, imp, dark wizard, dark warrior, scorpion and hill giant and live', !bad.length, bad.join(', ') + ' | ' + res.join(', '))
+}
+{ // who comes for you: goblins, rats, scorpions and the animals keep to themselves until hit, then fight back; the evil
+  // ones (a dark wizard, a black knight, a demon) come for you as soon as you're near
+  const out = []
+  for (const type of ['goblin', 'rat', 'scorpion', 'blackunicorn', 'darkwizard', 'blackknight', 'lesserdemon']) {
+    const { w, g, P } = fresh(), X = 8000, Z = -8000; pad(w, X, Z, 20)
+    Object.assign(P, { x: X + 0.5, y: 101, z: Z + 0.5, hp: 20 }); g.time = 6000; g.ents = []
+    const m = makeMob(type, X + 0.5, 101, Z - 3.5, seeded(5)); g.ents.push(m)
+    let t = 0, hurt = 0; for (; t < 200; t++) { const h = P.hp; g.tick({}); g.time = 6000; if (P.hp < h) hurt++ }
+    if (!MOBS[type].aggro) { g.hurtMob(m, 1, P); let back = 0; for (let k = 0; k < 200; k++) { const h = P.hp; g.tick({}); g.time = 6000; if (P.hp < h) back++ } out.push([type, hurt === 0, back > 0]) }
+    else out.push([type, hurt > 0, true])   // (they came for you: a dark wizard casts from where it stands)
+  }
+  check('goblins, rats, scorpions, unicorns leave you be until hit (then hit back); dark wizards, black knights, demons come for you', out.every(([, a, b]) => a && b), JSON.stringify(out))
+}
+{ // an RS object (a rock, a bush, a fence the map has as scenery) comes down whole: no bare block of it left standing
+  const { w, g } = fresh(); let X, Z, y
+  for (let x = 1195; x < 1240 && X === undefined; x++) for (let z = -450; z < -400; z++) { const gy = w.groundY(x, z); if (w.get(x, gy + 1, z) === 80 && w.get(x, gy + 2, z) === 80) { X = x; Z = z; y = gy; break } }
+  g.breakBlock(X, y + 2, Z, true)
+  check('breaking the top of an RS object takes the whole of it', X !== undefined && !w.get(X, y + 1, Z) && !w.get(X, y + 2, Z), `${X},${Z}: ${w.get(X, y + 1, Z)} ${w.get(X, y + 2, Z)}`)
 }
 { // the big ones, played: rune armour, a runite sword and steaks; swing on the cooldown, back off and eat when low.
   // Every one falls but the King Black Dragon (RS's endgame boss: melee in rune and food isn't enough); the heavy ones

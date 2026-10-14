@@ -461,7 +461,11 @@ function camera(alpha, dt) {
   }
   fovK += ((P.sprint ? 1.15 : 1) * (P.eat || P.bowT ? 0.9 : 1) - fovK) * Math.min(1, dt * 10)
   const eyeB = BLOCKS[world.get(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z))]
-  const water = eyeB && eyeB.liquid === 'water' && pos.y < Math.floor(pos.y) + 14 / 16, lava = eyeB && eyeB.liquid === 'lava'
+  let water = eyeB && eyeB.liquid === 'water' && pos.y < Math.floor(pos.y) + 14 / 16; const lava = eyeB && eyeB.liquid === 'lava'
+  if (!water && !lava && rsw) {   // (the RS water draws ~half a block over the blocks' water: eyes between the two are under it too, or the bank's underside shows)
+    const X = Math.floor(pos.x), Y = Math.floor(pos.y), Z = Math.floor(pos.z), t = world.tile(X, Z)
+    if (t >= 0 && world.fl[t] & 8 && !(world.fl[t] & 128) && rsw.cover[t] && rsw.vx[t] !== 1 && BLOCKS[world.get(X, Y - 1, Z)].liquid === 'water' && !BLOCKS[world.get(X, Y, Z)].solid) { const h = rsw.height(pos.x, pos.z); water = h !== null && pos.y < h }
+  }
   return { pos, yaw, pitch, roll, fov: gui.opts.fov * fovK * (water ? 0.86 : 1), water, lava, target: P.dead || gui.state === 'loading' ? null : game.target(), hideHud: gui.hideHud }
 }
 function debugLines(cam) {
