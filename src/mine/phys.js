@@ -147,10 +147,10 @@ export function tickMove(world, e, inp) {
     e.vz += (-fw * c - st * s) * acc
   }
   if (inp.fly) {
-    mr(e.sprint ? 0.1 : 0.05)
+    mr(e.sprint ? 0.1 : 0.05)          // (MC's flySpeed 0.05, doubled sprinting, under air drag 0.91: ~10.9 blocks/s, 21.8 sprinting)
     e.vy += (inp.jump ? 0.15 : 0) - (inp.sneakFly ? 0.15 : 0)
     move(world, e, e.vx, e.vy, e.vz)
-    e.vx *= 0.546; e.vz *= 0.546; e.vy *= 0.6
+    e.vx *= 0.91; e.vz *= 0.91; e.vy *= 0.6
     e.fall = 0
     return
   }

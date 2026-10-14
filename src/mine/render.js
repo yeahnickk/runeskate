@@ -71,11 +71,12 @@ export class View {
     }
   }
   dispose() { const L = this.world.listeners, i = L.indexOf(this.listener); if (i >= 0) L.splice(i, 1); if (this.rsw) this.rsw.onCover = null }
-  // a tile turns to blocks when you change its ground; knocking out what the map stood on it takes the RS model but
-  // keeps the ground; under the ground (tunnels) and building on top leave the RS tile as it is
+  // a tile turns to blocks when you change its ground; knocking a block out of what the map stood on it takes the RS
+  // triangles in that block's cell only (rsworld update); under the ground (tunnels) leaves the RS tile as it is
   vxEdit(x, y, z, was, nat) {
     const W = this.world, t = W.tile(x, z); if (t < 0) return
     const tx = x, tz = -z - 1, g = W.gy[t]
+    this.rsw.touch(tx, tz)          // (the loc triangles in a changed cell go: rsworld update)
     if (y < g) {   // (a cell dug just under a slope can reach over the RS ground at a corner: its terrain would cut into the hole, so the tile goes to blocks as a pit's does)
       if (!was) return
       let lo = Infinity; for (const [a, c] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { const h = this.rsw.height(x + a, z + c); if (h === null || h === undefined) return; lo = Math.min(lo, h) }
@@ -83,10 +84,7 @@ export class View {
       return
     }
     if (y === g) return this.rsw.setVx(tx, tz, 1)
-    if (nat && was) {
-      this.rsw.setVx(tx, tz, 3)
-      if (was === 79) for (let a = -1; a <= 1; a++) for (let c = -1; c <= 1; c++) if (a || c) this.rsw.setVx(tx + a, tz + c, 2)   // (the canopy)
-    }
+    if (nat && was === 79) for (let a = -1; a <= 1; a++) for (let c = -1; c <= 1; c++) this.rsw.setVx(tx + a, tz + c, 2)   // (the canopy)
   }
   // older saves: drop the edits that were only those grass <-> dirt ticks on the map's own ground
   forgetFlips() {
@@ -244,7 +242,8 @@ export class View {
     this.pts = new THREE.Points(g, new THREE.ShaderMaterial({
       uniforms: { map: { value: this.atlas }, uScale: { value: 400 } }, transparent: true, depthWrite: false,
       vertexShader: 'attribute vec2 aUv; attribute vec4 aCol; attribute float aSize; varying vec2 vUv; varying vec4 vCol; uniform float uScale; void main(){ vUv = aUv; vCol = aCol; vec4 mv = modelViewMatrix * vec4(position,1.0); gl_PointSize = aSize * uScale / -mv.z; gl_Position = projectionMatrix * mv; }',
-      fragmentShader: 'uniform sampler2D map; varying vec2 vUv; varying vec4 vCol; void main(){ vec4 c = vUv.x < 0.0 ? vec4(1.0) : texture2D(map, vUv + vec2(gl_PointCoord.x, -gl_PointCoord.y) / 64.0); if (c.a < 0.5 || vCol.a <= 0.0) discard; gl_FragColor = vec4(c.rgb * vCol.rgb, vCol.a); }',
+      // (u -2: MC's smoke/explosion puff, a round 8x8 pixel ball darker to its edge)
+      fragmentShader: 'uniform sampler2D map; varying vec2 vUv; varying vec4 vCol; void main(){ vec4 c; if (vUv.x < -1.5) { vec2 q = (floor(gl_PointCoord * 8.0) + 0.5) / 8.0 - 0.5; float r = length(q); if (r > 0.5) discard; float h = fract(sin(dot(floor(gl_PointCoord * 8.0) + vUv.y, vec2(12.9898, 78.233))) * 43758.5); c = vec4(vec3(1.0 - r * 0.7 + (h - 0.5) * 0.18), 1.0); } else c = vUv.x < 0.0 ? vec4(1.0) : texture2D(map, vUv + vec2(gl_PointCoord.x, -gl_PointCoord.y) / 64.0); if (c.a < 0.5 || vCol.a <= 0.0) discard; gl_FragColor = vec4(c.rgb * vCol.rgb, vCol.a); }',
     }))
     this.pts.frustumCulled = false; this.scene.add(this.pts)
   }
@@ -258,7 +257,7 @@ export class View {
     }
   }
   puff(x, y, z, n, col = [0.8, 0.8, 0.8], s = 0.25, up = 1) {
-    for (let i = 0; i < n; i++) { const r = Math.random; this.parts.push({ x: x + (r() - 0.5), y: y + (r() - 0.5), z: z + (r() - 0.5), vx: (r() - 0.5) * 2, vy: r() * up, vz: (r() - 0.5) * 2, u: -1, v: 0, c: col.map(v => v * (0.8 + r() * 0.2)), s: s * (0.6 + r()), life: 0.6 + r() * 0.8, g: -0.5 }) }
+    for (let i = 0; i < n; i++) { const r = Math.random, k = 0.8 + r() * 0.2; this.parts.push({ x: x + (r() - 0.5), y: y + (r() - 0.5), z: z + (r() - 0.5), vx: (r() - 0.5) * 2, vy: r() * up, vz: (r() - 0.5) * 2, u: -2, v: r() * 9, c: col.map(v => v * k), s: s * (0.6 + r()), life: 0.6 + r() * 0.8, g: -0.5 }) }
   }
   tickParticles(dt) {
     const g = this.pts.geometry, P = g.attributes.position.array, U = g.attributes.aUv.array, C = g.attributes.aCol.array, S = g.attributes.aSize.array
@@ -301,9 +300,13 @@ export class View {
       if (e.e === 'item') { o.g.position.y += 0.18 + Math.sin(t * 2 + o.ph) * 0.06; o.g.rotation.y = t * 1.2 + o.ph }
       else if (e.e === 'xp') { o.g.position.y += 0.15; const k = 0.5 + 0.5 * Math.sin(t * 6 + o.ph); o.mat.color.setRGB(0.6 + k * 0.4, 1, 0.2 + k * 0.2) }
       else if (e.e === 'arrow') { if (!e.stuck) { o.g.rotation.y = Math.atan2(-e.vx, -e.vz); o.g.rotation.x = Math.atan2(e.vy, Math.hypot(e.vx, e.vz)) } }
-      else if (e.e === 'tnt') { const f = (e.fuse / 5 | 0) % 2; o.mat.color.setScalar(f ? 1.6 : 1) }
       else if (e.e === 'mob') this.animMob(e, o, dt)
-      if (o.light !== undefined && (o.lt = (o.lt || 0) - 1) <= 0) { o.lt = 6; const k = this.lightK(e.x, e.y + 0.5, e.z); o.light = k; this.tint(o, k, e) }
+      if (o.light !== undefined && (o.lt = (o.lt || 0) - 1) <= 0) { o.lt = 6; const k = this.lightK(e.x, e.y + 0.5, e.z); o.light = k; if (e.e !== 'tnt') this.tint(o, k, e) }
+      if (e.e === 'tnt') {   // MC's primed TNT: white every other 5 ticks (fading as the fuse burns), swelling over its last 10
+        const f = e.fuse - alpha, w = (e.fuse / 5 | 0) % 2 ? 0 : (1 - (f + 1) / 100) * 0.8, k = o.light
+        o.mat.color.setScalar(k + (2.2 - k) * w)
+        let s = Math.min(1, Math.max(0, 1 - (f + 1) / 10)); s *= s; s *= s; o.m.scale.setScalar(1 + s * 0.3)
+      }
     }
     for (const [e, o] of this.ents) if (!seen.has(e)) { this.scene.remove(o.g); this.ents.delete(e) }
   }
@@ -333,7 +336,7 @@ export class View {
     }
     if (e.e === 'fall' || e.e === 'tnt') {
       const m = blockMesh(e.e === 'tnt' ? 60 : e.id, this.atlas); m.position.y = 0.5; g.add(m)
-      return { g, ph, mat: m.material, light: 1 }
+      return { g, ph, m, mat: m.material, light: 1 }
     }
     if (e.e === 'mob') {
       const o = { g, ph, M: null, rs: null, walk: 0, light: 1 }, name = rsName(e)
@@ -460,7 +463,7 @@ export class View {
     this.clouds.material.map.offset.set(((G.time + alpha) * 0.0006 + cam.pos.x / 1536 * 2) % 1, (-cam.pos.z / 1536 * 2) % 1)
     this.clouds.material.color.setScalar(0.12 + 0.88 * Math.max(0, (uSky - 0.2) / 0.8))
     this.clouds.visible = !under && !cam.lava   // (no fog on them: under water they'd draw over the surface, the sky showing through it)
-    if (this.rsw) { this.rsw.update(); this.rsw.cull(cam.pos.x, cam.pos.z, ff + 20); this.rsw.setLight(0.3 + 0.7 * uSky) }
+    if (this.rsw) { this.rsw.update(); this.rsw.precut(cam.pos.x, cam.pos.z); this.rsw.cull(cam.pos.x, cam.pos.z, ff + 20); this.rsw.setLight(0.3 + 0.7 * uSky) }
     this.syncEnts(alpha, dt)
     this.tickParticles(dt)
     this.pts.material.uniforms.uScale.value = this.R.domElement.height / (2 * Math.tan(c.fov * Math.PI / 360))

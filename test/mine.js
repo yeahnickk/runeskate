@@ -9,6 +9,7 @@ import { meshChunk, lightRegion } from '../src/mine/mesh.js';
 import { tickMove } from '../src/mine/phys.js';
 import { screenFor, click, give, count, closeScreen } from '../src/mine/inv.js';
 import { makeMob, MOBS } from '../src/mine/mobs.js';
+import { RSWorld, cutCells } from '../src/mine/rsworld.js';
 let fails = 0; const check = (name, ok, info = '') => { console.log((ok ? 'PASS ' : 'FAIL ') + name + (info ? '  ' + info : '')); if (!ok) fails++; };
 const json = JSON.parse(readFileSync(new URL('../assets/mine_world.json', import.meta.url), 'utf8'));
 const bin = new Uint8Array(readFileSync(new URL('../assets/mine_world.bin', import.meta.url)));
@@ -302,6 +303,63 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   r = boom(({ g }) => { g.ents.push({ e: 'tnt', x: X + 2.5, y: 101, z: Z + 0.5, vx: 0, vy: 0, vz: 0, w: 0.98, h: 0.98, fuse: 9999, tag: 1 }) })
   const t2 = r.g.ents.find(e => e.tag)
   check('a blast throws lit TNT beside it', t2 && Math.hypot(t2.x - X - 2.5, t2.z - Z - 0.5) > 1, t2 ? `moved ${Math.hypot(t2.x - X - 2.5, t2.z - Z - 0.5).toFixed(2)}` : 'gone')
+  // MC's PrimedTnt: a 0.2 hop on 0.04 gravity and 0.98 drag peaks ~0.38 up, settles, and goes off on tick 80
+  r = fresh('creative'); pad(r.w, X, Z, 14); Object.assign(r.P, { x: X + 10.5, y: 101, z: Z + 10.5, flying: true }); r.w.set(X, 101, Z, 60); r.g.prime(X, 101, Z)
+  const te = r.g.ents.find(e => e.e === 'tnt'); let peak = 0, at = 0, ys = []
+  for (let i = 1; i <= 100 && !at; i++) { r.g.tick({}); peak = Math.max(peak, te.y - 101); ys.push(te.y); if (te.gone) at = i }
+  check('lit TNT hops as MC\'s (peak ~0.38, back on the ground) and goes off on tick 80', peak > 0.36 && peak < 0.41 && Math.abs(ys[60] - 101) < 1e-6 && at === 80, `peak ${peak.toFixed(3)}, y at 60 ${ys[60].toFixed(3)}, went off on ${at}`)
+}
+
+// ---------------------------------------------------------------- creative flight at MC's speeds: ~10.9 blocks/s, double sprinting (Ctrl)
+{
+  const sp = (sprint) => { const { w, g, P } = fresh('creative'); pad(w, 7000, -7000, 4); Object.assign(P, { x: 7000.5, y: 120, z: -6900.5, flying: true, yaw: 0 })
+    for (let i = 0; i < 60; i++) g.tick({ fw: 1, sprint, yaw: 0, pitch: 0 }); const z0 = P.z; for (let i = 0; i < 20; i++) g.tick({ fw: 1, sprint, yaw: 0, pitch: 0 }); return z0 - P.z }
+  const a = sp(false), b = sp(true)
+  check('creative flight goes at MC\'s speed, twice that holding sprint (Ctrl)', a > 10 && a < 11.5 && b > 20.5 && b < 23, `${a.toFixed(1)} blocks/s, sprinting ${b.toFixed(1)}`)
+}
+
+// ---------------------------------------------------------------- breaking a block takes the RS triangles in its cell and no more (as MC: only what broke goes)
+{
+  const { w } = fresh(), rsw = new RSWorld(w)
+  const j = JSON.parse(readFileSync(new URL('../assets/world.json', import.meta.url), 'utf8')), wb = readFileSync(new URL('../assets/world.bin', import.meta.url))
+  const near = j.index.chunks.filter(c => Math.abs(c.cx - 36) <= 1 && Math.abs(c.cz - 12) <= 1)   // (round Lumbridge castle)
+  rsw.addPack({ ...j, index: { chunk: j.index.chunk, chunks: near } }, wb.buffer.slice(wb.byteOffset, wb.byteOffset + wb.length), false)
+  const locs = rsw.meshes.filter(m => m.userData.kind === 'locs')
+  // the cut: every piece inside one block cell, the area all there
+  const area = (p, o) => { const ax = p[o + 3] - p[o], ay = p[o + 4] - p[o + 1], az = p[o + 5] - p[o + 2], bx = p[o + 6] - p[o], by = p[o + 7] - p[o + 1], bz = p[o + 8] - p[o + 2]; return Math.hypot(ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx) / 2 }
+  let pieces = 0, straddle = 0, A0 = 0, A1 = 0
+  for (const m of locs) { const p = m.geometry.attributes.position.array, [q] = cutCells(p, m.geometry.attributes.color.array)
+    for (let o = 0; o < p.length; o += 9) A0 += area(p, o)
+    for (let o = 0; o < q.length; o += 9) { pieces++; A1 += area(q, o); for (let a = 0; a < 3; a++) { const lo = Math.min(q[o + a], q[o + 3 + a], q[o + 6 + a]), hi = Math.max(q[o + a], q[o + 3 + a], q[o + 6 + a]); if (Math.floor(lo / 128) < Math.ceil(hi / 128) - 1) straddle++ } } }
+  check('RS locs cut to block cells: no piece crosses a cell, none of the surface lost', pieces > 1000 && !straddle && Math.abs(A1 - A0) < A0 * 0.002, `${pieces} pieces, ${straddle} across, area ${(A1 / A0).toFixed(4)}`)
+  // knock single blocks out of the castle walls: their cells' triangles go, the wall over and under them stays
+  const walls = []
+  for (let tz = 36 * 0 + 11 * 32; tz < 14 * 32 && walls.length < 12; tz += 3) for (let tx = 35 * 32; tx < 38 * 32 && walls.length < 12; tx += 2) {
+    const X = tx, Z = -tz - 1, g = w.gy[w.tile(X, Z)]
+    if ((w.ed[w.tile(X, Z)] & 3) && w.get(X, g + 1, Z) >= 72 && w.get(X, g + 2, Z) === w.get(X, g + 1, Z) && w.get(X, g + 3, Z) === w.get(X, g + 1, Z)) walls.push([X, g + 2, Z, tx, tz])
+  }
+  const cellTris = () => { const o = new Map(); for (const m of locs) { const { t, cy } = rsw.tris(m), hid = m.userData.hid, { cx, cz } = m.userData
+    for (let i = 0; i < t.length; i++) { const k = (cx * 32 + (t[i] & 31)) + ',' + cy[i] + ',' + (-(cz * 32 + (t[i] >> 5)) - 1), e = o.get(k) || [0, 0]; e[hid && hid[i] ? 1 : 0]++; o.set(k, e) } } return o }
+  for (const [X, y, Z, tx, tz] of walls) { w.set(X, y, Z, 0); rsw.touch(tx, tz) }
+  rsw.update(1e9)
+  let C = cellTris(), shown = 0, over = 0, wrong = 0
+  for (const [X, y, Z] of walls) { const e = C.get(X + ',' + y + ',' + Z) || [0, 0], up = C.get(X + ',' + (y + 1) + ',' + Z) || [0, 0], dn = C.get(X + ',' + (y - 1) + ',' + Z) || [0, 0]
+    shown += e[0]; if (up[0] + dn[0] > 0 && !up[1] && !dn[1]) over++ }
+  for (const [k, e] of C) if (e[1]) { const [x, y, z] = k.split(',').map(Number); if (!rsw.edited(x, y, z)) wrong++ }
+  check('a block knocked out of an RS wall takes its own cell of the wall, the wall over and under it stands', walls.length >= 8 && !shown && over === walls.length && !wrong, `${walls.length} walls, ${shown} left in the holes, ${over} still standing round them, ${wrong} gone elsewhere`)
+  // dig the ground under a wall: the RS ground goes, the wall standing on it stays RS's
+  const [X, y, Z, tx, tz] = walls[0], g = y - 2; w.set(X, g, Z, 0); rsw.setVx(tx, tz, 1); rsw.touch(tx, tz); rsw.update(1e9)
+  C = cellTris(); const wallUp = C.get(X + ',' + (g + 3) + ',' + Z) || [0, 0]
+  let ground = 0, groundShown = 0; for (const m of rsw.meshes) { if (m.userData.kind !== 'terrain') continue; const { t } = rsw.tris(m), { cx, cz } = m.userData; if (cx !== tx >> 5 || cz !== tz >> 5) continue
+    const want = (tz & 31) * 32 + (tx & 31), idx = m.geometry.index ? new Set(Array.from(m.geometry.index.array).filter((_, i) => i % 3 === 0).map(v => v / 3)) : null
+    for (let i = 0; i < t.length; i++) if (t[i] === want) { ground++; if (!idx || idx.has(i)) groundShown++ } }
+  check('digging the ground under a wall takes the RS ground, not the wall on it', ground > 0 && !groundShown && wallUp[0] > 0 && !wallUp[1], `ground ${ground} (${groundShown} drawn), wall over it ${wallUp[0]} drawn ${wallUp[1]} hidden`)
+  // the mesher: a hole in a wall shows the block faces round it, and nothing more of the wall's blocks
+  const vx = rsw.vx, cover = rsw.cover, rs = { vx, cover, h: (x, z) => rsw.height(x, z) }
+  const [hx, hy, hz] = walls[1], quadsAt = (m, cx, cz) => { let n = 0; for (let q = 0; q < m.n; q++) { const p = m.pos.subarray(q * 12, q * 12 + 12); let cxs = 0, cys = 0, czs = 0; for (let i = 0; i < 4; i++) { cxs += p[i * 3] / 4 + cx * 16; cys += p[i * 3 + 1] / 4; czs += p[i * 3 + 2] / 4 + cz * 16 }
+    if (Math.abs(cxs - hx - 0.5) <= 0.51 && Math.abs(cys - hy - 0.5) <= 0.51 && Math.abs(czs - hz - 0.5) <= 0.51) n++ } return n }
+  const m1 = meshChunk(w, hx >> 4, hz >> 4, { rs }).s, faces = quadsAt(m1, hx >> 4, hz >> 4)
+  check('the wall blocks round a hole knocked in an RS wall stay RS\'s (no block stand-ins drawn)', faces === 0, `${faces} block faces round the hole`)
 }
 
 // ---------------------------------------------------------------- digging + tools
@@ -407,6 +465,7 @@ const pad = (w, x0, z0, n = 12, y = 100, id = 3) => { for (let x = x0 - n; x <= 
   check('a cow killed drops raw beef (and XP)', count(P.inv, 268) >= 1, `beef ${count(P.inv, 268)}, level ${P.lvl} + ${P.xp.toFixed(2)}`);
   // a creeper blows a crater
   g.ents.length = 0; g.time = 18000; P.hp = 20; P.invul = 0
+  for (let x = 4994; x < 5007; x++) for (let z = -5011; z < -4998; z++) w.set(x, 100, z, 2)   // (dirt: MC's blast from a creeper's feet only dents stone)
   const cr = makeMob('creeper', 5000.5, 101, -5004.5, seeded(5)); g.ents.push(cr)
   for (let i = 0; i < 200 && !cr.gone; i++) g.tick({})
   let holes = 0; for (let x = 4994; x < 5007; x++) for (let z = -5011; z < -4998; z++) if (!w.get(x, 100, z)) holes++

@@ -110,8 +110,11 @@ Minecraft survival on the RS map, one block a tile, single player (worlds in loc
 Minecraft to play: the real 2004 map draws over the blocks, Minecraft's first person, HUD and screens on top.
 - `rsworld.js` draws the skate game's map packs (`assets/world*.json/.bin`, streamed by region) 1:1 over the blocks
   (pack y = `world.base + 1` - RS height). Per tile `vx` says what the RS layer drops from that chunk's index: 1 the
-  ground was dug (all of it), 3 something stood on it was knocked out (its models, the ground stays), 2 a felled
-  tree's canopy over the tiles round it (`RANK`: 1 beats 3 beats 2). Tunnels under the ground leave the tile alone.
+  ground was dug (its RS ground, and the clutter on it with no block of its own), 2 a felled tree's canopy over the
+  tiles round it (`RANK`). Tunnels under the ground leave the tile alone. Everything else goes by block cell (as MC:
+  only what broke goes): the first edit in a chunk cuts its loc triangles at every tile edge and block height
+  (`Cutter`; chunks round the player are cut ahead a slice a frame by `precut`, far unedited ones put back by `uncut`),
+  and a loc triangle hides when the cell it's in was edited (`edited`).
   A felled tree comes down whole (`trunk`: big trees stand on 2x2). The mesher (`opts.rs`) skips natural blocks the
   RS ground already draws (never their tops); a pit wall's top edge follows the RS ground's corners (`rsTops`). `height()` the RS ground, so bodies stand on bridges and slopes as drawn.
   Under a bridge deck (the bake's `bs` plane, from the RS model seen side on) the piers, spandrels and hulls are blocks
@@ -120,10 +123,10 @@ Minecraft to play: the real 2004 map draws over the blocks, Minecraft's first pe
   tile under a tree or wall to blocks. Wall and fence triangles on a tile edge go with the tile the bake put the block on.
   An RS object (scenery 80, two blocks) breaks whole. The RS ground's underside draws as earth (`mats.ground`) and the eye
   counts as under water below the RS water surface (half a block over the blocks' water), so banks never show through.
-- Edits hide RS triangles by `vx` kind: 1 dug (whole tile), 3 an above-ground block gone (locs only, terrain stays),
-  2 a felled canopy; terrain + `water` never go for 2/3. Water triangles are their own translucent mesh (`waterOut`).
-  `capWalls` paints black wall caps from their neighbours, `splitBig` cuts wide loc triangles so a broken block leaves
-  a block-sized hole. The mesher never draws a hidden ground top or hidden cubes above the ground.
+- Edits hide RS triangles: terrain + `water` only for a dug tile (vx 1); locs by their cell, plus vx 2's canopy. Water
+  triangles are their own translucent mesh (`waterOut`). `capWalls` paints black wall caps from their neighbours. The
+  mesher keeps a map block hidden (RS draws it; on a dug tile from just over the ground) unless it was changed, and
+  draws its faces only into changed cells or under the RS ground (`dg` marks dug columns for the pit walls' `rsTops`).
 - Aiming: `rsworld.pick` rays the RS triangles; `game.target()` takes an RS hit nearer than the voxel hit to a block in
   that tile's column (or across the nearest edge: fences/gates draw from the next tile). Invisible faces are skipped
   (`game.hidden`). Generated roofs (`ROOFB`), `sup` blocks break when what holds them goes, big trees fell 2x2 (`trunk`).
@@ -136,6 +139,8 @@ Minecraft to play: the real 2004 map draws over the blocks, Minecraft's first pe
   `burn` = [encouragement, flammability] per block, `fireTick` burns and creeps, `lavaTick` lights air by flammables.
   TNT goes off from flint and steel, fire, lava, a redstone torch (82, `power`) beside it, or a blast (`prime`);
   `explode` is MC's ray blast worn down by `resist` (water swallows it, obsidian holds), entities hit before blocks go.
+  Lit TNT is MC's PrimedTnt (`tickTnt`: 0.2 hop, 0.04 gravity, 80-tick fuse, the blast from y + h/16; render.js flashes
+  and swells it); creepers blow from their feet. Creative flight is MC's (0.05, doubled sprinting, air drag 0.91).
 - Fights go by RS hitpoints for the weak (goblin 5, man 7: three or four punches), hunger drains at half MC's rate.
   Townsfolk hit back when hit (`FOLK` `hit` = RS max hit, a swing every 48 ticks) and calm down once you're 16 away.
   Goblins, rats, scorpions and the animals are the same (`aggro: 0`); only the evil ones come for you on sight.

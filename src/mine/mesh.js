@@ -203,17 +203,19 @@ export function meshChunk(world, cx, cz, opts = {}) {
   }
 
   // under the RS world (opts.rs): the map's own blocks from just under the ground up stay hidden (the RS meshes draw
-  // them) unless their tile is blocks now (rs.vx) or a face looks into a cell you changed or a tile that is blocks
+  // them; on a dug tile from just over the ground) unless they were changed; a face shows into a changed cell or under the RS ground
   const rs = opts.rs, ED = rs ? edMask(world, cx, cz, Hr) : null
   const hz = new Int16Array((CS + 2) * (CS + 2)).fill(WH)    // per column (padded by 1): the lowest y hidden, WH = none
   const hb = new Int16Array((CS + 2) * (CS + 2)).fill(WH)    // ... the highest y a face looking into the column still shows at
-  const hh = new Int16Array((CS + 2) * (CS + 2)).fill(WH)    // ... and the highest (a tile whose wall was knocked out
-  if (rs) for (let a = -1; a <= CS; a++) for (let c = -1; c <= CS; c++) {   // keeps its ground: the rest shows as blocks)
+  const dg = new Uint8Array((CS + 2) * (CS + 2))             // ... 1 where the tile was dug (or isn't RS's at all)
+  if (rs) for (let a = -1; a <= CS; a++) for (let c = -1; c <= CS; c++) {
     const t = world.tile(ox + a, oz + c), k = (c + 1) * (CS + 2) + a + 1
-    if (t >= 0 && rs.cover[t] && rs.vx[t] !== 1) { const sb = world.fl[t] & 128 && world.bs[t]; hz[k] = sb ? world.wl[t] + 1 : world.gy[t] - 1; hb[k] = sb ? world.wl[t] : hz[k]; if (rs.vx[t] === 3) hh[k] = world.gy[t] }   // (a stone bridge: its piers and arches down to the water are RS's to draw)
+    dg[k] = 1
+    if (t >= 0 && rs.cover[t] && rs.vx[t] === 1) { hz[k] = world.gy[t] + 1; hb[k] = world.gy[t] }   // (dug: its ground is blocks, what stood on it still RS's)
+    else if (t >= 0 && rs.cover[t]) { dg[k] = 0; const sb = world.fl[t] & 128 && world.bs[t]; hz[k] = sb ? world.wl[t] + 1 : world.gy[t] - 1; hb[k] = sb ? world.wl[t] : hz[k] }   // (a stone bridge: its piers and arches down to the water are RS's to draw)
   }
   const colK = (rx, rz) => (rz - P + 1) * (CS + 2) + rx - P + 1
-  const hidden = (rx, rz, y) => { const k = colK(rx, rz); return y >= hz[k] && y <= hh[k] && !ED[I(rx, rz, y)] }
+  const hidden = (rx, rz, y) => { const k = colK(rx, rz); return y >= hz[k] && !ED[I(rx, rz, y)] }
   // a face of a hidden block shows where the cell it faces was changed, or its column is blocks, or the cell is under
   // that column's RS ground (a cave, the air under a bridge deck: RS draws nothing there, so no seeing through the bank)
   const faceShows = (rx, rz, y) => { const k = colK(rx, rz); return hz[k] === WH || y <= hb[k] || (y >= 0 && y < Hr && ED[I(rx, rz, y)]) }
@@ -254,10 +256,10 @@ export function meshChunk(world, cx, cz, opts = {}) {
           if (OPQ[nb]) continue
           const wet = BLOCKS[nb] && BLOCKS[nb].liquid === 'water'       // (RS draws nothing under the water: the banks and bed are blocks)
           if (hid && !faceShows(rx + n[0], rz + n[2], y + n[1]) && !wet) continue
-          if (hid && n[1] > 0 && y === hz[colK(rx, rz)] + 1) continue     // (the ground's own top: RS draws it, even under a felled tree)
+          if (hid && n[1] > 0 && y === hz[colK(rx, rz)] + 1 && !dg[colK(rx, rz)]) continue     // (the ground's own top: RS draws it, even under a felled tree)
           if (tr && nb === id && (!d.leaves || !fancy)) continue
           let tops = null
-          if (hid && n[1] === 0 && (wet || hz[colK(rx + n[0], rz + n[2])] === WH) && !OPQ[at(rx + n[0], rz + n[2], y + 1)]) {   // (cut to the ground only where the hole is open above: a tunnel's ceiling keeps the wall whole)
+          if (hid && n[1] === 0 && (wet || dg[colK(rx + n[0], rz + n[2])]) && !OPQ[at(rx + n[0], rz + n[2], y + 1)]) {   // (cut to the ground only where the hole is open above: a tunnel's ceiling keeps the wall whole)
             tops = rsTops(f, rx, rz, y, !OPQ[at(rx, rz, y + 1)] || (y > hz[colK(rx, rz)] && hidden(rx, rz, y + 1))); if (tops === false) continue }   // (a trunk or wall over it is RS's to draw: still stretch up to the ground)
           let tile = d.t[FACES[f].k]
           let rot = 0
@@ -288,7 +290,7 @@ export function meshChunk(world, cx, cz, opts = {}) {
           if (OPQ[nb]) continue
           // the map's water or lava beside a hole: its side stops at the surface, the RS bank over it sits higher, so the
           // strip between is earth (no seeing out under the bank)
-          if (hid && !full && n[1] === 0 && hz[colK(rx + n[0], rz + n[2])] === WH && !OPQ[at(rx + n[0], rz + n[2], y + 1)]) {
+          if (hid && !full && n[1] === 0 && dg[colK(rx + n[0], rz + n[2])] && !OPQ[at(rx + n[0], rz + n[2], y + 1)]) {
             const lt = Math.min(...tops), T = rsTops(f, rx, rz, y, true)
             if (T && Math.max(T[0], T[1], T[2]) > lt + 0.01) face(S, f, rx, y, rz, [0, lt, 0, 1, 1, 1], 'dirt', 0, true, 0, [Math.max(lt, T[0]), Math.max(lt, T[1]), Math.max(lt, T[2])])
           }

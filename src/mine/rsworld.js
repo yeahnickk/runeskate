@@ -38,23 +38,50 @@ function rayTri(o, d, A, B, C) {
   return { t, n }
 }
 
-// RS roofs and long walls are a few big triangles spanning many tiles; knocking a block out hides its tile's triangles,
-// so split the big ones (longest edge first) until none is over a tile across: a break takes its own tile, no more
-function splitBig(p, c) {
-  const n = p.length / 9, L = 128 * 1.05
-  const big = (a) => Math.max(Math.hypot(a[0] - a[3], a[2] - a[5]), Math.hypot(a[3] - a[6], a[5] - a[8]), Math.hypot(a[6] - a[0], a[8] - a[2])) > L
-  let any = false
-  for (let i = 0; i < n && !any; i++) if (big(p.subarray(i * 9, i * 9 + 9))) any = true
-  if (!any) return [p, c]
-  const P = [], C = []
-  const emit = (v, k) => { if (!big(v) || P.length > 3e7) { for (const x of v) P.push(x); for (const x of k) C.push(x); return }
-    const e = [Math.hypot(v[0] - v[3], v[2] - v[5]), Math.hypot(v[3] - v[6], v[5] - v[8]), Math.hypot(v[6] - v[0], v[8] - v[2])], j = e.indexOf(Math.max(...e))
-    const a = j, b = (j + 1) % 3, o = (j + 2) % 3, V = (q) => [v[q * 3], v[q * 3 + 1], v[q * 3 + 2]], K = (q) => [k[q * 3], k[q * 3 + 1], k[q * 3 + 2]]
-    const m = [0, 1, 2].map(t => Math.round((v[a * 3 + t] + v[b * 3 + t]) / 2)), mc = [0, 1, 2].map(t => (k[a * 3 + t] + k[b * 3 + t]) >> 1)
-    emit([...V(a), ...m, ...V(o)], [...K(a), ...mc, ...K(o)]); emit([...m, ...V(b), ...V(o)], [...mc, ...K(b), ...K(o)]) }
-  for (let i = 0; i < n; i++) emit(Array.from(p.subarray(i * 9, i * 9 + 9)), Array.from(c.subarray(i * 9, i * 9 + 9)))
-  return [Int16Array.from(P), Uint8Array.from(C)]
+// RS roofs and walls are big triangles across many tiles and storeys; knocking a block out has to take only what's in
+// its cell (MC: the blast's sphere, the wall round it stands). So a chunk's loc triangles are cut at every tile edge and
+// block height (multiples of 128 in pack units): each piece then lies in one cell. A Cutter does it a slice at a time
+// (chunks round the player are cut ahead in spare frames, so the first break there costs nothing)
+class Cutter {
+  constructor(p, c) { Object.assign(this, { p, c, i: 0, k: 0, n: p.length / 9 }); this.P = new Int16Array(p.length + (p.length >> 1)); this.C = new Uint8Array(this.P.length) }
+  room(m) { if (this.k + m <= this.P.length) return; const P = new Int16Array(this.P.length * 2), C = new Uint8Array(P.length); P.set(this.P); C.set(this.C); this.P = P; this.C = C }
+  // a convex polygon (verts of [x, y, z, r, g, b]) clipped to the slab lo..hi on axis a (Sutherland-Hodgman, both sides)
+  clip(poly, a, lo, hi) {
+    for (const [s, keep] of [[lo, 1], [hi, -1]]) {
+      const out = []
+      for (let i = 0; i < poly.length; i++) {
+        const A = poly[i], B = poly[(i + 1) % poly.length], da = (A[a] - s) * keep, db = (B[a] - s) * keep
+        if (da >= 0) out.push(A)
+        if ((da > 0 && db < 0) || (da < 0 && db > 0)) { const t = da / (da - db); out.push(A.map((x, j) => j === a ? s : Math.round(x + (B[j] - x) * t))) }
+      }
+      poly = out; if (poly.length < 3) return poly
+    }
+    return poly
+  }
+  cut(poly, a) {
+    if (a === 3) { this.room((poly.length - 2) * 9); const { P, C } = this
+      for (let i = 1; i < poly.length - 1; i++) for (const V of [poly[0], poly[i], poly[i + 1]]) { const k = this.k; P[k] = V[0]; P[k + 1] = V[1]; P[k + 2] = V[2]; C[k] = V[3]; C[k + 1] = V[4]; C[k + 2] = V[5]; this.k += 3 }
+      return }
+    let lo = Infinity, hi = -Infinity; for (const V of poly) { lo = Math.min(lo, V[a]); hi = Math.max(hi, V[a]) }
+    const s0 = Math.floor(lo / 128) * 128
+    if (s0 + 128 >= hi) return this.cut(poly, a + 1)
+    for (let s = s0; s < hi; s += 128) { const q = this.clip(poly, a, s, s + 128); if (q.length >= 3) this.cut(q, a + 1) }
+  }
+  // cut up to `budget` more triangles; true when all are done
+  step(budget = Infinity) {
+    const { p, c } = this, end = Math.min(this.n, this.i + budget)
+    for (; this.i < end; this.i++) {
+      const o = this.i * 9
+      let x = false
+      for (let a = 0; a < 3 && !x; a++) { const v0 = p[o + a], v1 = p[o + 3 + a], v2 = p[o + 6 + a], lo = Math.min(v0, v1, v2), hi = Math.max(v0, v1, v2); x = Math.floor(lo / 128) * 128 + 128 < hi }
+      if (!x) { this.room(9); const { P, C, k } = this; for (let j = 0; j < 9; j++) { P[k + j] = p[o + j]; C[k + j] = c[o + j] } this.k += 9; continue }
+      this.cut([0, 1, 2].map(v => [p[o + v * 3], p[o + v * 3 + 1], p[o + v * 3 + 2], c[o + v * 3], c[o + v * 3 + 1], c[o + v * 3 + 2]]), 0)
+    }
+    return this.i >= this.n
+  }
+  result() { return [this.P.slice(0, this.k), this.C.slice(0, this.k)] }
 }
+export function cutCells(p, c) { const q = new Cutter(p, c); q.step(); return q.result() }
 
 export class RSWorld {
   constructor(world) {
@@ -118,7 +145,6 @@ export class RSWorld {
         let pos = new Int16Array(bin, part.posOff, part.n * 3), col = new Uint8Array(bin, part.colOff, part.n * 3)
         if (k === 'terrain') this.hasGround(pos, ch.cx * CH, ch.cz * CH)
         if (k === 'locs') capWalls(pos, col)
-        if (k !== 'terrain') [pos, col] = splitBig(pos, col)
         const parts = k === 'terrain' ? this.waterOut(pos, col, ch.cx * CH, ch.cz * CH) : [[k, pos, col]]
         for (const [kind, pos, col] of parts) {
           if (!pos.length) continue
@@ -171,10 +197,13 @@ export class RSWorld {
     const L = this.byChunk.get((tx >> 5) + ',' + (tz >> 5)); if (L) for (const m of L) this.dirty.add(m)
     return true
   }
-  // per triangle of a mesh: its tile (chunk-local, z*32+x) and how high its middle is over the tile's ground
+  // a block on tile (tx, tz) changed: its chunk's loc meshes re-index
+  touch(tx, tz) { const L = this.byChunk.get((tx >> 5) + ',' + (tz >> 5)); if (L) for (const m of L) if (!GROUND[m.userData.kind]) this.dirty.add(m) }
+  // per triangle of a mesh: its tile (chunk-local, z*32+x), how high its middle is over the tile's ground, and the
+  // block row it's in (y; a face flat on a block's top goes with that block)
   tris(m) {
     if (m.userData.tri) return m.userData.tri
-    const p = m.geometry.attributes.position.array, n = p.length / 9, t = new Uint16Array(n), h = new Float32Array(n)
+    const p = m.geometry.attributes.position.array, n = p.length / 9, t = new Uint16Array(n), h = new Float32Array(n), cy = new Int16Array(n)
     const { cx, cz } = m.userData, W = this.world, CH = this.CH
     for (let i = 0; i < n; i++) {
       const o = i * 9, x = (p[o] + p[o + 3] + p[o + 6]) / 384, y = -(p[o + 1] + p[o + 4] + p[o + 7]) / 384, z = (p[o + 2] + p[o + 5] + p[o + 8]) / 384
@@ -189,30 +218,76 @@ export class RSWorld {
         if (Math.abs(x - rx) < 0.25 && (e(gx + rx, gz + lz) & 5) && rx >= 0 && rx < CH) lx = rx            // (1 a wall, 4 a fence on the west edge)
         else if (Math.abs(z - rz) < 0.25 && (e(gx + lx, gz + rz) & 10) && rz >= 0 && rz < CH) lz = rz     // (2, 8: the south edge)
       }
-      t[i] = lz * CH + lx
+      t[i] = lz * CH + lx; cy[i] = Math.floor(this.base + y - 1e-3)
       const ti = (cz * CH + lz) * W.W + cx * CH + lx
       h[i] = ti >= 0 && ti < W.gy.length ? this.base + y - (W.gy[ti] + 1) : 0
     }
-    return (m.userData.tri = { t, h })
+    return (m.userData.tri = { t, h, cy })
   }
-  // rebuild the kept-triangle index of the meshes that changed (a few a frame)
+  // the block chunks' edits under an RS chunk (they're keyed by block chunk: X = tile x, Z = -tile z - 1)
+  editsUnder(cx, cz) {
+    const out = [], E = this.world.edits
+    for (const bx of [cx * 2, cx * 2 + 1]) for (const bz of [-cz * 2 - 1, -cz * 2 - 2]) { const e = E.get(bx + ',' + bz); if (e && e.size) out.push(e) }
+    return out
+  }
+  // a cell (block x, y, z) someone changed
+  edited(x, y, z) { const e = this.world.edits.get((x >> 4) + ',' + (z >> 4)); return !!e && e.has(((z & 15) * 16 + (x & 15)) * 128 + y) }
+  // rebuild the kept-triangle index of the meshes that changed (a few a frame): a felled
+  // canopy its tall parts, and a loc triangle goes when the block cell it's in was changed (only what the break took):
+  // a dug tile loses its RS ground, what stands on it stays RS's unless its own cell changed
   update(budget = 4) {
     let n = 0
     for (const m of this.dirty) {
       this.dirty.delete(m)
-      const { cx, cz, kind } = m.userData, CH = this.CH, W = this.world.W
+      const { cx, cz, kind } = m.userData, CH = this.CH, W = this.world.W, loc = !GROUND[kind]
       let any = false
       for (let lz = 0; lz < CH && !any; lz++) { const o = (cz * CH + lz) * W + cx * CH; for (let lx = 0; lx < CH; lx++) if (this.vx[o + lx]) { any = true; break } }
-      if (!any) { if (m.geometry.index) m.geometry.setIndex(null); continue }
-      const { t, h } = this.tris(m), out = new Uint32Array(t.length * 3)
+      const eds = loc ? this.editsUnder(cx, cz) : []
+      if (!any && !eds.length) { if (m.geometry.index) m.geometry.setIndex(null); m.userData.hid = null; continue }
+      if (loc && eds.length && !m.userData.cut) this.finishCut(m)      // (first change here and not cut ahead yet: now)
+      const { t, h, cy } = this.tris(m), out = new Uint32Array(t.length * 3), hid = new Uint8Array(t.length)
       let k = 0
       for (let i = 0; i < t.length; i++) {
-        const v = this.vx[(cz * CH + (t[i] >> 5)) * W + cx * CH + (t[i] & 31)]
-        if (v === 1 || (v === 3 && !GROUND[kind]) || (v === 2 && !GROUND[kind] && h[i] > 0.9)) continue
+        const tx = cx * CH + (t[i] & 31), tz = cz * CH + (t[i] >> 5), v = this.vx[tz * W + tx]
+        if (v === 1 && !loc) { hid[i] = 1; continue }
+        if (loc && ((v === 2 && h[i] > 0.9) || (eds.length && this.edited(tx, cy[i], -tz - 1)) || (v === 1 && cy[i] <= this.world.gy[tz * W + tx] + 1 && !this.world.get(tx, cy[i], -tz - 1)))) { hid[i] = 1; continue }   // (dug ground takes the clutter on it that has no block of its own)
         out[k++] = i * 3; out[k++] = i * 3 + 1; out[k++] = i * 3 + 2
       }
-      m.geometry.setIndex(new THREE.BufferAttribute(out.slice(0, k), 1))
+      m.geometry.setIndex(new THREE.BufferAttribute(out.slice(0, k), 1)); m.userData.hid = hid
       if (++n >= budget) break
+    }
+  }
+  // cut a loc mesh to cells (finishing the slices cut ahead, if any) and put the pieces in
+  finishCut(m) {
+    const g = m.geometry, pa = g.attributes.position, ca = g.attributes.color, job = m.userData.job || new Cutter(pa.array, ca.array)
+    job.step(); const [p, c] = job.result()
+    g.setAttribute('position', new THREE.BufferAttribute(p, 3)); g.setAttribute('color', new THREE.BufferAttribute(c, 3, true))
+    g.computeBoundingSphere(); Object.assign(m.userData, { cut: true, job: null, tri: null, bk: null, orig: [pa, ca] })
+  }
+  // put a cut mesh's own triangles back (cut ahead, the player gone, nothing changed there): fewer to draw
+  uncut(m) {
+    const g = m.geometry, [pa, ca] = m.userData.orig
+    g.setAttribute('position', pa); g.setAttribute('color', ca); g.setIndex(null); g.computeBoundingSphere()
+    Object.assign(m.userData, { cut: false, tri: null, bk: null, hid: null, orig: null })
+  }
+  // in a spare frame: cut ahead the loc meshes of the chunks round (x, z) (three.js coords), `budget` triangles a call
+  precut(x, z, budget = 3000) {
+    if (this.dirty.size) return
+    const tx = Math.floor(x) >> 5, tz = Math.floor(-z) >> 5
+    if ((this.pc = (this.pc || 0) + 1) % 120 === 0) for (const m of this.meshes) {     // (now and then: the far ones back)
+      const { cx, cz, cut, job } = m.userData
+      if (Math.max(Math.abs(cx - tx), Math.abs(cz - tz)) <= 2) continue
+      if (job) m.userData.job = null
+      if (cut && !m.geometry.index && !this.editsUnder(cx, cz).length) this.uncut(m)
+    }
+    for (let r = 0; r <= 1; r++) for (let a = -r; a <= r; a++) for (let c = -r; c <= r; c++) {
+      if (Math.max(Math.abs(a), Math.abs(c)) !== r) continue
+      for (const m of this.byChunk.get((tx + a) + ',' + (tz + c)) || []) {
+        if (GROUND[m.userData.kind] || m.userData.cut) continue
+        const g = m.geometry, job = m.userData.job ||= new Cutter(g.attributes.position.array, g.attributes.color.array)
+        if (job.step(budget)) { this.finishCut(m); if (m.geometry.index) this.dirty.add(m); this.tris(m) }   // (an index over the old triangles: redo it)
+        return
+      }
     }
   }
   // hide what's past the fog
@@ -261,15 +336,15 @@ export class RSWorld {
       if (tx < 0 || tz < 0) continue
       const L = this.byChunk.get((tx >> 5) + ',' + (tz >> 5)); if (!L) continue
       const v = this.vx[tz * W + tx], want = (tz & 31) * CH + (tx & 31)
-      if (v === 1 || v === 3) continue
       for (const m of L) {
-        const { kind, cx, cz } = m.userData; if (!m.visible || kind === 'water') continue
+        const { kind, cx, cz } = m.userData; if (!m.visible || kind === 'water' || (v === 1 && kind === 'terrain')) continue
         const { t, h } = this.tris(m)
         if (!m.userData.bk) { const B = m.userData.bk = new Map(); for (let i = 0; i < t.length; i++) { let a = B.get(t[i]); if (!a) B.set(t[i], a = []); a.push(i) } }
         const ids = m.userData.bk.get(want); if (!ids) continue
         const p = m.geometry.attributes.position.array, ox = cx * CH, oz = -cz * CH
+        const hid = m.userData.hid
         for (const i of ids) {
-          if (v === 2 && h[i] > 0.9) continue
+          if ((hid && hid[i]) || (v === 2 && h[i] > 0.9)) continue
           const q = i * 9, P = (j) => [ox + p[q + j * 3] / 128, this.base - p[q + j * 3 + 1] / 128, oz - p[q + j * 3 + 2] / 128]
           const A = P(0), B = P(1), C = P(2), r = rayTri(o, d, A, B, C)
           if (r && r.t <= reach && (!best || r.t < best.t)) best = { t: r.t, X: tx, Z: -tz - 1, y: o[1] + d[1] * r.t, h: kind === 'terrain' ? 0 : h[i], n: r.n, ground: kind === 'terrain' }

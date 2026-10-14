@@ -412,7 +412,14 @@ function handleEvents() {
       case 'screen': if (gui.state === 'play') { gui.open(e.type, e.key); mouse.l = mouse.r = false; document.exitPointerLock && document.exitPointerLock() } break
       case 'toast': gui.toast(e.a); break
       case 'chat': gui.say(e.msg, e.col); break
-      case 'boom': sfx.play('boom', d * 0.3); view.puff(e.x, e.y, e.z, 40, [0.9, 0.9, 0.9], 0.6, 1.5); view.puff(e.x, e.y, e.z, 20, [1, 0.7, 0.3], 0.4, 3); shake = Math.max(shake, Math.max(0, 1 - d / 20)); break
+      case 'boom': {   // MC's explosion: big pale grey clouds through the blast's reach, smoke rising off it
+        sfx.play('boom', d * 0.3); shake = Math.max(shake, Math.max(0, 1 - d / 20))
+        const R = Math.random, r = e.r || 4
+        for (let i = 0; i < 24; i++) { const a = R() * 6.283, b = Math.acos(2 * R() - 1), q = Math.cbrt(R()) * r * 0.75, g = 0.75 + R() * 0.25
+          view.puff(e.x + Math.sin(b) * Math.cos(a) * q, e.y + Math.cos(b) * q * 0.6 + 0.5, e.z + Math.sin(b) * Math.sin(a) * q, 1, [g, g, g], 1.4 + R() * 1.2, 0.4) }
+        for (let i = 0; i < 30; i++) { const a = R() * 6.283, q = R() * r, g = 0.35 + R() * 0.3
+          view.puff(e.x + Math.cos(a) * q, e.y + R() * 1.5, e.z + Math.sin(a) * q, 1, [g, g, g], 0.35 + R() * 0.3, 1.2) }
+        break }
       case 'smoke': view.puff(e.x, e.y, e.z, 8, [0.3, 0.3, 0.3], 0.25, 1.2); break
       case 'poof': view.puff(e.x, e.y, e.z, 12, [1, 1, 1], 0.2, 0.6); break
       case 'crit': view.puff(e.x, e.y, e.z, 10, [0.9, 0.9, 0.6], 0.12, 2); break
@@ -434,6 +441,7 @@ function tick() {
     view.puff(x + 0.5, y + 0.6, z + 0.5, 1, Math.random() < 0.5 ? [1, 0.6, 0.15] : [0.25, 0.25, 0.25], 0.12, 1.5); if (Math.random() < 0.3) sfx.play('crackle', d) }
   for (const k of game.lavas) { if (Math.random() > 0.01) continue; const [x, y, z] = k.split(',').map(Number), d = Math.hypot(x - P.x, y - P.y, z - P.z); if (d > 20) continue
     view.puff(x + 0.5, y + 1, z + 0.5, 2, [1, 0.5, 0.1], 0.08, 2); sfx.play('lava_pop', d) }
+  for (const e of game.ents) if (e.e === 'tnt' && Math.abs(e.x - P.x) < 48 && Math.abs(e.z - P.z) < 48) view.puff(e.x, e.y + 1.05, e.z, 1, [0.3, 0.3, 0.3], 0.14, 0.8)   // (MC: the fuse smokes every tick)
   if (P.swing === 6) swing = 0.0001
   handleEvents()
 }

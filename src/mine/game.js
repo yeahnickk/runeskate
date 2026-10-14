@@ -156,7 +156,7 @@ export class Game {
       else if (e.e === 'xp') this.tickOrb(e)
       else if (e.e === 'arrow') this.tickArrow(e)
       else if (e.e === 'fall') this.tickFalling(e)
-      else if (e.e === 'tnt') { e.fuse--; tickMove(W, e, {}); if (e.fuse <= 0) { e.gone = true; this.explode(e.x, e.y + 0.5, e.z, 4, e) } }
+      else if (e.e === 'tnt') this.tickTnt(e)
     }
     if (this.ents.some(e => e.gone)) this.ents = this.ents.filter(e => !e.gone)
     for (const [k, f] of this.furnaces) this.tickFurnace(k, f)
@@ -554,7 +554,8 @@ export class Game {
   }
   prime(x, y, z, fuse = 80) {
     this.world.set(x, y, z, 0)
-    this.ents.push({ e: 'tnt', x: x + 0.5, y, z: z + 0.5, vx: (this.rng() - 0.5) * 0.04, vy: 0.2, vz: (this.rng() - 0.5) * 0.04, w: 0.98, h: 0.98, fuse })
+    const a = this.rng() * Math.PI * 2     // (MC: a little hop, 0.02 sideways in a random direction)
+    this.ents.push({ e: 'tnt', x: x + 0.5, y, z: z + 0.5, vx: -Math.sin(a) * 0.02, vy: 0.2, vz: -Math.cos(a) * 0.02, w: 0.98, h: 0.98, fuse })
     this.emit({ t: 'snd', s: 'fuse', x: x + 0.5, y, z: z + 0.5 })
     this.afterRemove(x, y, z)
   }
@@ -629,6 +630,18 @@ export class Game {
       this.ents.push({ e: 'fall', id, x: x + 0.5, y, z: z + 0.5, vx: 0, vy: 0, vz: 0, w: 0.98, h: 0.98, age: 0 })
       y++
     }
+  }
+  // MC's primed TNT: its own fall (0.04 a tick, drag 0.98, x/z 0.7 and a half bounce on the ground), carried by water,
+  // and the blast from just over its feet (y + height / 16) when the 80-tick fuse runs out
+  tickTnt(e) {
+    const W = this.world, b = BLOCKS[W.get(Math.floor(e.x), Math.floor(e.y + 0.1), Math.floor(e.z))]
+    e.inWater = !!b && b.liquid === 'water'
+    if (e.inWater) { const f = flowAt(W, Math.floor(e.x), Math.floor(e.y + 0.1), Math.floor(e.z)); if (f) { e.vx += f[0] * 0.014; e.vz += f[1] * 0.014 } }
+    e.vy -= 0.04
+    move(W, e, e.vx, e.vy, e.vz)
+    e.vx *= 0.98; e.vy *= 0.98; e.vz *= 0.98
+    if (e.onGround) { e.vx *= 0.7; e.vz *= 0.7; e.vy *= -0.5 }
+    if (--e.fuse <= 0) { e.gone = true; this.explode(e.x, e.y + e.h / 16, e.z, 4, e) }
   }
   tickFalling(e) {
     e.age++

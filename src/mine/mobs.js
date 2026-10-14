@@ -112,7 +112,7 @@ export function tickMob(game, m) {
     yaw = yawTo(m, P.x, P.z)
     if (dist < 3 && Math.abs(dy) < 3) { m.fuse = (m.fuse || 0) + 1; fw = 0; if (m.fuse === 1) game.emit({ t: 'snd', s: 'fuse', x: m.x, y: m.y, z: m.z }) }
     else { if (m.fuse > 0) m.fuse = Math.max(0, m.fuse - 1); fw = 1 }
-    if (m.fuse >= 30) { game.explode(m.x, m.y + 0.8, m.z, 3, m); m.gone = true; return }
+    if (m.fuse >= 30) { game.explode(m.x, m.y, m.z, 3, m); m.gone = true; return }
   } else if (chase && M.ranged) {
     yaw = yawTo(m, P.x, P.z)
     fw = dist > 12 ? 1 : dist < 5 ? -1 : 0
